@@ -86,6 +86,7 @@ const MAKE = {
   pulizia:    "https://hook.eu2.make.com/xg6jwb1hppkkvgql2ze9fa5pcypf1a11",
   importCsv:  "https://hook.eu2.make.com/qs8jqpxu533fl588ej5jq3htpj0j92p8",
   urlRisolto: "https://hook.eu2.make.com/viaciqegod7wv08ycg72hmndwuv6nqod",
+  hubspot:    "https://hook.eu2.make.com/z9eimytqdgpuulhuo6ky66yrt7p1ll6j",
   cercaDip:   "https://hook.eu2.make.com/htuzcpwibjxykcphlbvdh9agd946t28z",
   cercaEmail: "https://hook.eu2.make.com/blat1n64wj2rkjy2wo7z6rh8x6v22x07",
 };
@@ -139,6 +140,7 @@ const FASI_INIT = [
   {id:"company",    label:"Cerca Company Page",       scenario:"2+3", icon:"🏢", stato:"bloccato", iniziato:null, completato:null, dettaglio:"Phantom Company URL Finder"},
   {id:"url_check",  label:"Risolvi URL ambigui",      scenario:"3+4", icon:"🔍", stato:"bloccato", iniziato:null, completato:null, dettaglio:"Verifica manuale URL ambigui"},
 
+  {id:"hubspot",    label:"Aggiornamento Hubspot",    scenario:"",    icon:"🔄", stato:"bloccato", iniziato:null, completato:null, dettaglio:"Aggiornamento aziende su HubSpot"},
   {id:"lemlist",    label:"Assegna lead a campagna",  scenario:"8",   icon:"🚀", stato:"bloccato", iniziato:null, completato:null, dettaglio:"Apri Lemlist e assegna i lead alla campagna"},
 ];
 
@@ -549,11 +551,11 @@ function App() {
 
     const continuaDopoUrl = async () => {
     setLoad("continua", true);
-    await callMake("https://hook.eu2.make.com/viaciqegod7wv08ycg72hmndwuv6nqod", {}, "Lancia Cerca Dipendenti");
+    await callMake("https://hook.eu2.make.com/z9eimytqdgpuulhuo6ky66yrt7p1ll6j", {}, "Aggiornamento Hubspot");
     setFaseS("url_check", "completato", {completato: new Date().toISOString(), dettaglio: "URL verificati manualmente"});
-    setFaseS("dipendenti", "in_corso", {iniziato: new Date().toISOString(), dettaglio: "Phantom Cerca Dipendenti avviato..."});
-    pushLog("ok", "▶ Cerca Dipendenti lanciato");
-    showToast("✓ Scenario Cerca Dipendenti avviato");
+    setFaseS("hubspot", "in_corso", {iniziato: new Date().toISOString(), dettaglio: "Aggiornamento aziende su HubSpot..."});
+    pushLog("ok", "▶ Aggiornamento Hubspot avviato");
+    showToast("✓ Aggiornamento Hubspot avviato");
     setLoad("continua", false);
   };
 
@@ -792,13 +794,12 @@ function App() {
             <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
               <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.border}`,fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase"}}>WEBHOOK MAKE</div>
               {[
-                {label:"Pulisci fogli — Sc.0",    url:MAKE.pulizia},
-                {label:"Import CSV — Sc.1",       url:MAKE.importCsv},
-                {label:"URL risolto — Sc.3",      url:MAKE.urlRisolto},
-                {label:"Cerca dipendenti — Sc.5", url:MAKE.cercaDip},
-                {label:"Cerca email — Sc.7",      url:MAKE.cercaEmail},
+                {label:"Pulisci fogli — Sc.0",      url:MAKE.pulizia},
+                {label:"Import CSV — Sc.1",         url:MAKE.importCsv},
+                {label:"Aggiornamento Hubspot",     url:MAKE.hubspot},
+                {label:"Scrivi URL — Review Tool",  url:"https://hook.eu2.make.com/kis7w8iges7cwop9eub9m1tkcax1smdb"},
               ].map((w,i)=>(
-                <div key={i} className="hovrow" style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",borderBottom:i<4?`1px solid ${C.border}`:""}}>
+                <div key={i} className="hovrow" style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",borderBottom:i<3?`1px solid ${C.border}`:""}}>
                   <span style={{fontSize:11,fontWeight:500,color:C.text,width:220,flexShrink:0}}>{w.label}</span>
                   <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:C.muted,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.url}</span>
                   <Tag color={C.green} bg={C.greenDim}>attivo</Tag>
@@ -809,11 +810,8 @@ function App() {
               <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.border}`,fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase"}}>PHANTOM AGENT ID</div>
               {[
                 {label:"Company URL Finder",  id:PHANTOM.companyFinder},
-                {label:"URL da valutare",     id:PHANTOM.urlValutare},
-                {label:"Cerca Dipendenti",    id:PHANTOM.dipendenti},
-                {label:"Cerca Email",         id:PHANTOM.email},
               ].map((p,i)=>(
-                <div key={i} className="hovrow" style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",borderBottom:i<3?`1px solid ${C.border}`:""}}>
+                <div key={i} className="hovrow" style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",borderBottom:""}}>
                   <span style={{fontSize:11,fontWeight:500,color:C.text,width:220,flexShrink:0}}>{p.label}</span>
                   <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:C.muted}}>{p.id}</span>
                 </div>
@@ -835,7 +833,7 @@ function App() {
                 {[
                   {n:"1",t:"Esporta da EasyBusiness", d:"Seleziona aziende con filtri ATECO, area, fatturato → esporta .xlsx"},
                   {n:"2",t:"Trascina sul .bat",        d:"Run_Mapper_DragDrop.bat converte xlsx→csv, invia a Make e apre questa dashboard"},
-                  {n:"3",t:"Segui gli Interventi",    d:"Il badge arancione appare quando la pipeline si ferma per la verifica URL o executives"},
+                  {n:"3",t:"Segui gli Interventi",    d:"Il badge arancione appare quando la pipeline si ferma"},
                   {n:"4",t:"Controlla gli Errori",    d:"Errori HubSpot con istruzioni precise di risoluzione"},
                 ].map((s,i)=>(
                   <div key={i} style={{display:"flex",gap:12,alignItems:"flex-start"}}>
@@ -969,8 +967,8 @@ function App() {
                       <div style={{display:"flex",gap:8,flexShrink:0}}>
                         <button onClick={()=>setShowReviewTool(true)} style={{padding:"7px 12px",fontSize:11,fontWeight:600,color:"#fb923c",background:"rgba(249,115,22,0.1)",border:"1px solid rgba(249,115,22,0.3)",borderRadius:5,cursor:"pointer",width:150,textAlign:"center"}}>🔍 URL Review</button>
                         <button onClick={()=>openSheet(FASE_LINKS["url_check"].sheet,"Prospecting output")} style={{padding:"7px 12px",fontSize:11,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,0.3)`,borderRadius:5,cursor:"pointer",width:130,textAlign:"center"}}>📊 Apri Dati</button>
-                        <button onClick={()=>continuaDopoUrl()} disabled={loading.continua} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:loading.continua?"#1e2a3a":"linear-gradient(135deg,#ea580c,#f97316)",border:"none",borderRadius:5,cursor:loading.continua?"not-allowed":"pointer",width:180,textAlign:"center"}}>
-                          {loading.continua?"Avvio...":"▶ Avvia ricerca dipendenti"}
+                        <button onClick={()=>continuaDopoUrl()} disabled={loading.continua} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:loading.continua?"#1e2a3a":"linear-gradient(135deg,#ea580c,#f97316)",border:"none",borderRadius:5,cursor:loading.continua?"not-allowed":"pointer",width:120,textAlign:"center"}}>
+                          {loading.continua?"...":"▶ Continua"}
                         </button>
                       </div>
                     </div>
