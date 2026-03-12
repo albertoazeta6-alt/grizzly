@@ -230,6 +230,8 @@ function App() {
 
   const [embedSheet, setEmbedSheet] = useState(null); // {url, label}
   const [syncErr, setSyncErr]       = useState(false);
+  const [prospectingRows, setProspectingRows] = useState([]);
+  const [prospectingTab, setProspectingTab]   = useState("tabella"); // "tabella" | "sheets"
   const fileRef = useRef();
 
   // ── Orologio ──────────────────────────────────────────────────────────────
@@ -338,6 +340,21 @@ function App() {
     setCounters({az_input, az_output, exec, scartati, mail_ok, mail_no});
   }, []);
 
+  const fetchProspecting = useCallback(async () => {
+    try {
+      const q = encodeURIComponent(`select B,E where B is not null`);
+      const url = `https://docs.google.com/spreadsheets/d/${URL_SHEET_ID}/gviz/tq?tqx=out:json&gid=0&tq=${q}&headers=1&t=${Date.now()}`;
+      const res = await fetch(url);
+      const raw = await res.text();
+      const json = JSON.parse(raw.replace(/^[^(]+\(/, "").replace(/\);?$/, ""));
+      const rows = (json.table?.rows || []).map(r => ({
+        b: r?.c?.[0]?.v || "",
+        e: r?.c?.[1]?.v || "",
+      })).filter(r => r.b);
+      setProspectingRows(rows);
+    } catch(e) {}
+  }, []);
+
   // ── Controllo duplicati Pro.Persona prima di Cerca Email ────────────────────
   const checkDuplicatiProPersona = async () => {
     try {
@@ -436,15 +453,13 @@ function App() {
     }
   }, [fasi, fetchUrlSheet]);
 
-  // Quando hubspot diventa completato, attiva lemlist
+  // Quando lemlist si attiva, carica dati Prospecting output
   useEffect(() => {
-    const hubspotFase = fasi.find(f => f.id === "hubspot");
-    const lemlistFase = fasi.find(f => f.id === "lemlist");
-    if (hubspotFase?.stato === "completato" && lemlistFase?.stato === "bloccato") {
-      setFaseS("lemlist", "attesa_utente", {iniziato: new Date().toISOString(), dettaglio: "Apri Lemlist e assegna i lead alla campagna"});
-      pushLog("ok", "▶ Hubspot completato — assegna i lead a Lemlist");
+    const lemFase = fasi.find(f => f.id === "lemlist");
+    if (lemFase?.stato === "attesa_utente" || lemFase?.stato === "in_corso") {
+      fetchProspecting();
     }
-  }, [fasi]);
+  }, [fasi, fetchProspecting]);
 
   // Fetch contatori al mount e ogni 30s
   useEffect(() => {
@@ -495,6 +510,7 @@ function App() {
   const showToast = (msg,color=C.green) => { setToast({msg,color}); setTimeout(()=>setToast(null),3000); };
   const setFaseS  = (id,stato,extra={}) => setFasi(p=>p.map(f=>f.id===id?{...f,stato,...extra}:f));
   const setLoad   = (k,v) => setLoading(p=>({...p,[k]:v}));
+  const forceRefresh = useCallback(() => { fetchSheetStatus(); fetchCounters(); setNextSyncIn(30); }, [fetchSheetStatus, fetchCounters]);
 
   const callMake = async (url,payload={},label="") => {
     try {
@@ -786,7 +802,7 @@ function App() {
           <div style={{display:"flex",alignItems:"center",gap:5}}>
             <span style={{width:5,height:5,borderRadius:"50%",background:syncErr?C.red:C.green,display:"inline-block",animation:"pulse 3s infinite"}}/>
             <span style={{color:C.muted,fontSize:10,fontFamily:"'JetBrains Mono',monospace",minWidth:90,display:"inline-block"}}>{syncErr?"sync errore":lastSync?`sync in ${nextSyncIn}s`:"sync..."}</span>
-            <button onClick={()=>{fetchSheetStatus();fetchCounters();setNextSyncIn(30);}} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:4,padding:"2px 7px",fontSize:10,color:C.muted,cursor:"pointer",lineHeight:1.4}} title="Forza aggiornamento">↻</button>
+            <button onClick={(e)=>{e.stopPropagation();forceRefresh();}} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:4,padding:"2px 7px",fontSize:10,color:C.muted,cursor:"pointer",lineHeight:1.4,transition:"color 0.2s"}} onMouseEnter={e=>e.target.style.color="#fff"} onMouseLeave={e=>e.target.style.color=C.muted} title="Forza aggiornamento">↻</button>
           </div>
           {runAttivo
             ?<div style={{display:"flex",alignItems:"center",gap:6,color:C.muted}}><span style={{width:6,height:6,borderRadius:"50%",background:C.green,display:"inline-block",animation:"pulse 2s infinite"}}/><span style={{color:C.text,fontFamily:"'JetBrains Mono',monospace",fontSize:10}}>{runId}</span><span style={{fontFamily:"'JetBrains Mono',monospace",minWidth:52,display:"inline-block"}}>· {elapsedStr}</span></div>
@@ -914,11 +930,13 @@ function App() {
 
                   {/* ── PIPELINE ORIZZONTALE ── */}
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:8,paddingBottom:6}}>
-                    {(()=>{ const emailDone = fasi.find(f=>f.id==="email")?.stato==="completato"; return fasi.map((fase,i)=>{
-                      const cfg = (fase.id==="lemlist"&&emailDone) ? {...STATO_CFG["in_corso"], label:"In attesa"} : STATO_CFG[fase.stato];
-                      const isActive = fase.stato==="in_corso"||fase.stato==="attesa_utente"||fase.stato==="intervento_richiesto"||(fase.id==="lemlist"&&emailDone);
+                    {(()=>{ return fasi.map((fase,i)=>{
+                      const isLemlistActive = fase.id==="lemlist"&&(fase.stato==="attesa_utente"||fase.stato==="in_corso");
+                      const blueCfg = {color:"#3b82f6", bg:"rgba(59,130,246,0.12)", dot:"#3b82f6", label:"Intervento richiesto"};
+                      const cfg = isLemlistActive ? blueCfg : STATO_CFG[fase.stato];
+                      const isActive = fase.stato==="in_corso"||fase.stato==="attesa_utente"||fase.stato==="intervento_richiesto";
                       const isDone   = fase.stato==="completato";
-                      const isWait   = (fase.stato==="in_attesa"||fase.stato==="bloccato")&&!(fase.id==="lemlist"&&emailDone);
+                      const isWait   = (fase.stato==="in_attesa"||fase.stato==="bloccato")&&!isLemlistActive;
                       return (
                         <div key={fase.id} style={{
                           
@@ -1035,15 +1053,59 @@ function App() {
                       )}
                     </div>
                   )}
-                  {fasi.find(f=>f.id==="email")?.stato==="completato"&&(
-                    <div style={{background:C.accentDim,border:`1px solid rgba(59,130,246,0.35)`,borderRadius:6,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
-                      <div>
-                        <div style={{fontSize:12,fontWeight:700,color:C.accent,marginBottom:2}}>✅ Ricerca completata</div>
-                        <div style={{fontSize:10,color:C.muted}}>Assegna i lead alla campagna Lemlist e avvia le sequenze</div>
+                  {fasi.find(f=>f.id==="lemlist")?.stato==="attesa_utente"&&(
+                    <div style={{background:"rgba(37,99,235,0.10)",border:`1px solid rgba(59,130,246,0.4)`,borderRadius:6,padding:"12px 16px",display:"flex",flexDirection:"column",gap:12}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                        <div>
+                          <div style={{fontSize:12,fontWeight:700,color:"#60a5fa",marginBottom:2}}>🚀 Assegna i lead alla campagna</div>
+                          <div style={{fontSize:10,color:C.muted}}>Apri Lemlist e avvia le sequenze per i lead trovati</div>
+                        </div>
+                        <a href="https://app.lemlist.com/teams/tea_wT4jk7upASTbpAtjp/campaigns-next/cam_JZd5CAZbe39QDFzrr/leads" target="_blank" style={{textDecoration:"none",flexShrink:0}}>
+                          <button style={{padding:"7px 16px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer",textAlign:"center"}}>🚀 Avvia Lemlist</button>
+                        </a>
                       </div>
-                      <a href="https://app.lemlist.com/teams/tea_wT4jk7upASTbpAtjp/campaigns-next/cam_JZd5CAZbe39QDFzrr/leads" target="_blank" style={{textDecoration:"none",flexShrink:0}}>
-                        <button style={{padding:"7px 16px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer",width:180,textAlign:"center"}}>🚀 Avvia Lemlist</button>
-                      </a>
+                      {/* Tabs */}
+                      <div style={{display:"flex",gap:6,borderBottom:`1px solid rgba(59,130,246,0.2)`,paddingBottom:6}}>
+                        {[{k:"tabella",l:"📋 Tabella"},{k:"sheets",l:"📊 Google Sheets"}].map(t=>(
+                          <button key={t.k} onClick={()=>{setProspectingTab(t.k);if(t.k==="tabella")fetchProspecting();}} style={{fontSize:10,fontWeight:600,padding:"3px 10px",borderRadius:4,border:"none",cursor:"pointer",background:prospectingTab===t.k?"rgba(59,130,246,0.3)":"transparent",color:prospectingTab===t.k?"#93c5fd":C.muted}}>{t.l}</button>
+                        ))}
+                      </div>
+                      {/* Tabella custom col B + E */}
+                      {prospectingTab==="tabella"&&(
+                        <div style={{overflowY:"auto",maxHeight:280,borderRadius:5,border:`1px solid rgba(59,130,246,0.2)`}}>
+                          <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,fontFamily:"'JetBrains Mono',monospace"}}>
+                            <thead>
+                              <tr style={{background:"rgba(59,130,246,0.15)"}}>
+                                <th style={{padding:"6px 10px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Ragione Sociale</th>
+                                <th style={{padding:"6px 10px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Company Page</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {prospectingRows.length===0
+                                ?<tr><td colSpan={2} style={{padding:"14px 10px",textAlign:"center",color:C.muted}}>Caricamento...</td></tr>
+                                :prospectingRows.map((r,i)=>(
+                                  <tr key={i} style={{borderBottom:`1px solid rgba(59,130,246,0.1)`,background:i%2===0?"transparent":"rgba(59,130,246,0.04)"}}>
+                                    <td style={{padding:"5px 10px",color:C.text}}>{r.b}</td>
+                                    <td style={{padding:"5px 10px",color:"#60a5fa",wordBreak:"break-all"}}>
+                                      {r.e?<a href={r.e} target="_blank" style={{color:"#60a5fa"}}>{r.e.replace(/https?:\/\/(www\.)?/,"").slice(0,50)}</a>:"—"}
+                                    </td>
+                                  </tr>
+                                ))
+                              }
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      {/* Google Sheets iframe */}
+                      {prospectingTab==="sheets"&&(
+                        <div style={{overflow:"hidden",height:320,borderRadius:5,border:`1px solid rgba(59,130,246,0.2)`}}>
+                          <iframe
+                            src={`https://docs.google.com/spreadsheets/d/${URL_SHEET_ID}/edit?gid=0&rm=minimal`}
+                            style={{width:"133%",height:"133%",border:"none",transform:"scale(0.75)",transformOrigin:"top left"}}
+                            title="Prospecting output"
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
 
