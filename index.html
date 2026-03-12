@@ -351,7 +351,7 @@ function App() {
         b: r?.c?.[0]?.v || "",
         e: r?.c?.[1]?.v || "",
       })).filter(r => r.b);
-      setProspectingRows(rows);
+      setProspectingRows(rows.filter(r => !r.e.toLowerCase().includes('verific')));
     } catch(e) {}
   }, []);
 
@@ -1075,7 +1075,7 @@ function App() {
                                   <tr key={i} style={{borderBottom:`1px solid rgba(59,130,246,0.1)`,background:i%2===0?"transparent":"rgba(59,130,246,0.04)"}}>
                                     <td style={{padding:"5px 10px",color:C.text}}>{r.b}</td>
                                     <td style={{padding:"5px 10px",color:"#60a5fa",wordBreak:"break-all"}}>
-                                      {r.e?<a href={r.e} target="_blank" style={{color:"#60a5fa"}}>{r.e.replace(/https?:\/\/(www\.)?/,"").slice(0,50)}</a>:"—"}
+                                      {r.e&&!r.e.toLowerCase().includes('verific')?<a href={r.e} target="_blank" style={{color:"#60a5fa"}}>{r.e.replace(/https?:\/\/(www\.)?/,"").slice(0,50)}</a>:"—"}
                                     </td>
                                   </tr>
                                 ))
