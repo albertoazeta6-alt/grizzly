@@ -436,6 +436,16 @@ function App() {
     }
   }, [fasi, fetchUrlSheet]);
 
+  // Quando hubspot diventa completato, attiva lemlist
+  useEffect(() => {
+    const hubspotFase = fasi.find(f => f.id === "hubspot");
+    const lemlistFase = fasi.find(f => f.id === "lemlist");
+    if (hubspotFase?.stato === "completato" && lemlistFase?.stato === "bloccato") {
+      setFaseS("lemlist", "attesa_utente", {iniziato: new Date().toISOString(), dettaglio: "Apri Lemlist e assegna i lead alla campagna"});
+      pushLog("ok", "▶ Hubspot completato — assegna i lead a Lemlist");
+    }
+  }, [fasi]);
+
   // Fetch contatori al mount e ogni 30s
   useEffect(() => {
     const t = setTimeout(() => setSplash(false), 5000);
