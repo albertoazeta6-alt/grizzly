@@ -314,13 +314,25 @@ function App() {
         return json.table?.rows?.[0]?.c?.[0]?.v ?? 0;
       } catch(e) { return null; }
     };
+    const fetchColContains = async (id, gid, colIdx, keyword) => {
+      try {
+        const COL_LETTERS = ["A","B","C","D","E","F","G","H","I","J","K","L"];
+        const col = COL_LETTERS[colIdx];
+        const q = encodeURIComponent(`select count(${col}) where lower(${col}) contains '${keyword.toLowerCase()}' label count(${col}) 'n'`);
+        const url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:json&gid=${gid}&tq=${q}&headers=1&t=${Date.now()}`;
+        const res = await fetch(url);
+        const raw = await res.text();
+        const json = JSON.parse(raw.replace(/^[^(]+\(/, "").replace(/\);?$/, ""));
+        return json.table?.rows?.[0]?.c?.[0]?.v ?? 0;
+      } catch(e) { return null; }
+    };
     const [az_input, az_output, exec, scartati, mail_ok, mail_no] = await Promise.all([
-      fetchCol("1Xk8CuYjriLbsxqafpTkPKSIGyApUAnX7vj7TaRlLHEc","0", 1),         // col B — ragione sociale
-      fetchCol("1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE","0", 4),         // col E — url company page
-      fetchCol("1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE","0", 3),         // col D — easybusiness
-      fetchCol("1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE","0", 2),         // col C — phantom
-      fetchCol("1x8C39EaD1PzKQ0LJ9RsusIxAa9eJKmRwMxzPVj2Flng","0", 10),        // col K — con email
-      fetchCol("1x8C39EaD1PzKQ0LJ9RsusIxAa9eJKmRwMxzPVj2Flng","401214721", 4), // col E — senza email
+      fetchCol("1Xk8CuYjriLbsxqafpTkPKSIGyApUAnX7vj7TaRlLHEc","0", 1),                              // col B — ragione sociale
+      fetchColContains("1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE","0", 4, "linkedin"),           // col E — url company page (solo linkedin)
+      fetchCol("1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE","0", 3),                              // col D — easybusiness
+      fetchCol("1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE","0", 2),                              // col C — phantom
+      fetchCol("1x8C39EaD1PzKQ0LJ9RsusIxAa9eJKmRwMxzPVj2Flng","0", 10),                             // col K — con email
+      fetchCol("1x8C39EaD1PzKQ0LJ9RsusIxAa9eJKmRwMxzPVj2Flng","401214721", 4),                      // col E — senza email
     ]);
     setCounters({az_input, az_output, exec, scartati, mail_ok, mail_no});
   }, []);
