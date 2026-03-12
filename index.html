@@ -226,7 +226,7 @@ function App() {
   const [dipLastChange, setDipLastChange] = useState(null);  // timestamp ultimo cambio
   const [dipIdle, setDipIdle]             = useState(false); // true = fermo da 90
   const [dupCheck, setDupCheck]           = useState(null);  // null | {ok:true} | {ok:false, duplicati:[...]}
-  const [importCheck, setImportCheck]     = useState(null);  // null | {ok:true} | {ok:false, righe:n, missing:[...]}s
+
   const [embedSheet, setEmbedSheet] = useState(null); // {url, label}
   const [syncErr, setSyncErr]       = useState(false);
   const fileRef = useRef();
@@ -335,31 +335,6 @@ function App() {
       fetchCol("1x8C39EaD1PzKQ0LJ9RsusIxAa9eJKmRwMxzPVj2Flng","401214721", 4),                      // col E — senza email
     ]);
     setCounters({az_input, az_output, exec, scartati, mail_ok, mail_no});
-  }, []);
-
-    // ── Controllo foglio Prospecting Input dopo Import ──────────────────────────
-  const checkImportFoglio = useCallback(async () => {
-    try {
-      const sid = "1Xk8CuYjriLbsxqafpTkPKSIGyApUAnX7vj7TaRlLHEc";
-      const fetchCount = async (col) => {
-        const q = encodeURIComponent(`select count(${col}) where ${col} is not null label count(${col}) 'n'`);
-        const url = `https://docs.google.com/spreadsheets/d/${sid}/gviz/tq?tqx=out:json&gid=0&tq=${q}&headers=1&t=${Date.now()}`;
-        const res = await fetch(url);
-        const raw = await res.text();
-        const json = JSON.parse(raw.replace(/^[^(]+\(/, "").replace(/\);?$/, ""));
-        return json.table?.rows?.[0]?.c?.[0]?.v ?? 0;
-      };
-      const [righeB, righeL] = await Promise.all([fetchCount("B"), fetchCount("K")]);
-      if (righeB > 10) {
-        setImportCheck({ok:false, motivo:"troppe_righe", righe:righeB});
-        return;
-      }
-      if (righeL < righeB) {
-        setImportCheck({ok:false, motivo:"sito_mancante", righe:righeB, missing:[`${righeB - righeL} aziende senza sito web`]});
-        return;
-      }
-      setImportCheck({ok:true, righe:righeB});
-    } catch(e) { setImportCheck(null); }
   }, []);
 
   // ── Controllo duplicati Pro.Persona prima di Cerca Email ────────────────────
@@ -476,16 +451,6 @@ function App() {
     return () => clearInterval(t);
   }, [fetchCounters]);
 
-  // Check foglio import quando fase import diventa completato
-  useEffect(() => {
-    const importFase = fasi.find(f => f.id === "import");
-    if (importFase?.stato === "completato" && importCheck === null) {
-      checkImportFoglio();
-    }
-    if (importFase?.stato !== "completato") {
-      setImportCheck(null); // reset ad ogni nuovo run
-    }
-  }, [fasi, importCheck, checkImportFoglio]);
 
   // Polling foglio dipendenti ogni 20s — solo quando stato=in_corso E dettaglio=Elaborazione
   useEffect(() => {
@@ -996,24 +961,6 @@ function App() {
                   </div>
 
                   {/* ── BANNER AZIONI ── */}
-                  {/* Banner controllo import */}
-                  {importCheck&&!importCheck.ok&&fasi.find(f=>f.id==="import")?.stato==="completato"&&(
-                    <div style={{background:"rgba(239,68,68,0.07)",border:"2px solid rgba(239,68,68,0.45)",borderRadius:8,padding:"18px 20px"}}>
-                      <div style={{fontSize:14,fontWeight:700,color:"#f87171",marginBottom:10}}>
-                        🚨 {importCheck.motivo==="troppe_righe"
-                          ? `Troppe righe nel foglio: ${importCheck.righe} (massimo 10)`
-                          : `Sito web mancante: ${importCheck.missing?.length} aziend${importCheck.missing?.length===1?"a":"e"} senza sito`}
-                      </div>
-                      <div style={{fontSize:12,color:C.muted,lineHeight:2}}>
-                        1. Verifica la lista iniziale: massimo 10 aziende e per ciascuna il sito nella colonna L<br/>
-                        2. Pulisci la cache di Phantom prima di riavviare<br/>
-                        3. Riavvia da file Grizzly.bat
-                      </div>
-                      <a href="https://phantombuster.com/930421472294585/phantoms/163962132206802/console" target="_blank" style={{textDecoration:"none"}}>
-                        <button style={{marginTop:12,padding:"7px 14px",fontSize:11,fontWeight:600,color:"#c084fc",background:"rgba(168,85,247,0.1)",border:"1px solid rgba(168,85,247,0.3)",borderRadius:4,cursor:"pointer"}}>Phantom</button>
-                      </a>
-                    </div>
-                  )}
                   {fasi.find(f=>f.id==="url_check")?.stato==="attesa_utente"&&(
                     <div style={{background:"rgba(249,115,22,0.08)",border:"1px solid rgba(249,115,22,0.35)",borderRadius:6,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
                       <div>
