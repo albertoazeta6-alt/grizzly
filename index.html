@@ -586,19 +586,7 @@ function App() {
   };
 
     const checkUnblock = (newUrls) => {
-    if(newUrls.filter(u=>u.stato==="pending").length===0) {
-      setFaseS("url_check","completato",{completato:new Date().toISOString(),dettaglio:"Tutti gli URL risolti"});
-      setFaseS("dipendenti","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Phantom Cerca Dipendenti avviato..."});
-      pushLog("ok","URL risolti — Phantom Dipendenti avviato");
-      callMake(MAKE.cercaDip,{runId},"Cerca dipendenti");
-      setTimeout(()=>{
-        setFaseS("dipendenti","completato",{completato:new Date().toISOString(),dettaglio:`${MOCK_EXECS.length} profili trovati`});
-        setFaseS("email","attesa_utente",{iniziato:new Date().toISOString(),dettaglio:"Verifica executives prima di procedere"});
-        if(execs.length===0) setExecs(MOCK_EXECS);
-        pushLog("ok","Dipendenti trovati — verifica executives richiesta");
-        pushLog("attesa","⏸ Valida executives nel tab Interventi");
-      },2000);
-    }
+    // gestito da Make via DASHBOARD_STATUS
   };
 
   const resolveUrl = async (id,urlScelto) => {
