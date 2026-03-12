@@ -1048,9 +1048,18 @@ function App() {
                           <div style={{fontSize:12,fontWeight:700,color:"#60a5fa",marginBottom:2}}>🚀 Assegna i lead alla campagna</div>
                           <div style={{fontSize:10,color:C.muted}}>Apri Lemlist e avvia le sequenze per i lead trovati</div>
                         </div>
-                        <a href="https://app.lemlist.com/teams/tea_wT4jk7upASTbpAtjp/campaigns-next/cam_JZd5CAZbe39QDFzrr/leads" target="_blank" style={{textDecoration:"none",flexShrink:0}}>
-                          <button style={{padding:"7px 16px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer",textAlign:"center"}}>🚀 Avvia Lemlist</button>
-                        </a>
+                        <div style={{display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
+                          <button onClick={async()=>{
+                            const WEBHOOK_HUBSPOT_SYNC = "DA_CONFIGURARE";
+                            try {
+                              await fetch(WEBHOOK_HUBSPOT_SYNC, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({campagna, run_id: runId})});
+                              showToast("✓ HubSpot Sync avviato");
+                            } catch(e) { showToast("✗ Errore HubSpot Sync"); }
+                          }} style={{padding:"7px 16px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#0f4c81,#0ea5e9)",border:"none",borderRadius:5,cursor:"pointer",textAlign:"center"}}>🔗 HubSpot Sync</button>
+                          <a href="https://app.lemlist.com/teams/tea_wT4jk7upASTbpAtjp/campaigns-next/cam_JZd5CAZbe39QDFzrr/leads" target="_blank" style={{textDecoration:"none",flexShrink:0}}>
+                            <button style={{padding:"7px 16px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer",textAlign:"center"}}>🚀 Avvia Lemlist</button>
+                          </a>
+                        </div>
                       </div>
                       {/* Tabs */}
                       <div style={{display:"flex",gap:6,borderBottom:`1px solid rgba(59,130,246,0.2)`,paddingBottom:6}}>
