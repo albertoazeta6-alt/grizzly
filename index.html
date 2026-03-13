@@ -422,7 +422,12 @@ function App() {
           }));
         }
       } else {
-        setSyncErr(false); // foglio vuoto = ok, nessun run ancora
+        // Foglio vuoto = nuova run, reset tutte le fasi
+        setFasi(FASI_INIT.map(f => ({...f})));
+        setRunId(null);
+        setRunAttivo(false);
+        setRunStart(null);
+        setSyncErr(false);
       }
     } catch(e) {
       setSyncErr(true);
@@ -1049,13 +1054,9 @@ function App() {
                           <div style={{fontSize:10,color:C.muted}}>Apri Lemlist e avvia le sequenze per i lead trovati</div>
                         </div>
                         <div style={{display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
-                          <button onClick={async()=>{
-                            const WEBHOOK_HUBSPOT_SYNC = "https://hook.eu2.make.com/05ahiomh4p6uwi3xml61jtw588vxed6r";
-                            try {
-                              await fetch(WEBHOOK_HUBSPOT_SYNC, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({campagna, run_id: runId})});
-                              showToast("✓ HubSpot Sync avviato");
-                            } catch(e) { showToast("✗ Errore HubSpot Sync"); }
-                          }} style={{padding:"7px 16px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#0f4c81,#0ea5e9)",border:"none",borderRadius:5,cursor:"pointer",textAlign:"center"}}>🔗 HubSpot Sync</button>
+                          <a href="https://app-eu1.hubspot.com/contacts/145447510/objects/0-2/views/142976339/list" target="_blank" style={{textDecoration:"none"}}>
+                            <button style={{padding:"7px 16px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#0f4c81,#0ea5e9)",border:"none",borderRadius:5,cursor:"pointer",textAlign:"center"}}>🔗 HubSpot</button>
+                          </a>
                           <a href="https://app.lemlist.com/teams/tea_wT4jk7upASTbpAtjp/campaigns-next/cam_JZd5CAZbe39QDFzrr/leads" target="_blank" style={{textDecoration:"none",flexShrink:0}}>
                             <button style={{padding:"7px 16px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer",textAlign:"center"}}>🚀 Avvia Lemlist</button>
                           </a>
