@@ -232,7 +232,9 @@ function App() {
   const [syncErr, setSyncErr]       = useState(false);
   const [prospectingRows, setProspectingRows] = useState([]);
   const [prospectingTab, setProspectingTab]   = useState("tabella"); // "tabella" | "sheets"
-  const [prospectingSelected, setProspectingSelected] = useState(new Set());
+  const [prospectingSelected, setProspectingSelected] = useState(()=>{
+    try { const s=localStorage.getItem('grizzly_selected'); return s?new Set(JSON.parse(s)):new Set(); } catch(e){ return new Set(); }
+  });
   const fileRef = useRef();
 
   // ── Orologio ──────────────────────────────────────────────────────────────
@@ -451,7 +453,10 @@ function App() {
     return () => clearInterval(t);
   }, [fetchSheetStatus]);
 
-  // Quando url_check diventa attesa_utente, rileggi il foglio URL
+  // Persisti evidenziazioni tabella Lemlist
+  useEffect(()=>{
+    try { localStorage.setItem('grizzly_selected', JSON.stringify([...prospectingSelected])); } catch(e){}
+  }, [prospectingSelected]);
   useEffect(() => {
     const urlFase = fasi.find(f => f.id === "url_check");
     if (urlFase?.stato === "attesa_utente") {
@@ -1059,7 +1064,7 @@ function App() {
                             <button style={{padding:"7px 16px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#0f4c81,#0ea5e9)",border:"none",borderRadius:5,cursor:"pointer",textAlign:"center"}}>🔗 HubSpot</button>
                           </a>
                           <a href="https://app.lemlist.com/teams/tea_wT4jk7upASTbpAtjp/campaigns-next/cam_JZd5CAZbe39QDFzrr/leads" target="_blank" style={{textDecoration:"none",flexShrink:0}}>
-                            <button style={{padding:"7px 16px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer",textAlign:"center"}}>🚀 Avvia Lemlist</button>
+                            <button style={{padding:"7px 16px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer",textAlign:"center"}}>🚀 Lemlist</button>
                           </a>
                         </div>
                       </div>
