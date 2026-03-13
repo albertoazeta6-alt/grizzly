@@ -345,7 +345,7 @@ function App() {
 
   const fetchProspecting = useCallback(async () => {
     try {
-      const q = encodeURIComponent(`select B,E where B is not null`);
+      const q = encodeURIComponent(`select B,E,F,S where B is not null`);
       const url = `https://docs.google.com/spreadsheets/d/${URL_SHEET_ID}/gviz/tq?tqx=out:json&gid=0&tq=${q}&headers=1&t=${Date.now()}`;
       const res = await fetch(url);
       const raw = await res.text();
@@ -353,6 +353,8 @@ function App() {
       const rows = (json.table?.rows || []).map(r => ({
         b: r?.c?.[0]?.v || "",
         e: r?.c?.[1]?.v || "",
+        f: r?.c?.[2]?.v || "",
+        s: r?.c?.[3]?.v || "",
       })).filter(r => r.b);
       setProspectingRows(rows.filter(r => !r.e.toLowerCase().includes('verific')));
     } catch(e) {}
@@ -1082,6 +1084,8 @@ function App() {
                               <tr style={{background:"rgba(59,130,246,0.15)"}}>
                                 <th style={{padding:"6px 10px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Ragione Sociale</th>
                                 <th style={{padding:"6px 10px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Company Page</th>
+                                <th style={{padding:"6px 10px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Sito Web</th>
+                                <th style={{padding:"6px 10px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Fatturato</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1097,6 +1101,10 @@ function App() {
                                         ?<a href={r.e} target="_blank" style={{color:prospectingSelected.has(i)?"#6ee7b7":"#60a5fa"}} onClick={e=>{e.stopPropagation();setProspectingSelected(s=>{const n=new Set(s);n.add(i);return n;});}}>{r.e.replace(/https?:\/\/(www\.)?/,"").slice(0,50)}</a>
                                         :"—"}
                                     </td>
+                                    <td style={{padding:"5px 10px",color:C.muted,fontSize:9}}>
+                                      {r.f?<a href={r.f.startsWith('http')?r.f:'https://'+r.f} target="_blank" style={{color:C.muted}} onClick={e=>e.stopPropagation()}>{r.f.replace(/https?:\/\/(www\.)?/,"").slice(0,30)}</a>:"—"}
+                                    </td>
+                                    <td style={{padding:"5px 10px",color:C.muted,fontSize:9,whiteSpace:"nowrap"}}>{r.s||"—"}</td>
                                   </tr>
                                 ))
                               }
