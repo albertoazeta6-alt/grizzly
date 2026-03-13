@@ -232,6 +232,7 @@ function App() {
   const [syncErr, setSyncErr]       = useState(false);
   const [prospectingRows, setProspectingRows] = useState([]);
   const [prospectingTab, setProspectingTab]   = useState("tabella"); // "tabella" | "sheets"
+  const [prospectingSelected, setProspectingSelected] = useState(null);
   const fileRef = useRef();
 
   // ── Orologio ──────────────────────────────────────────────────────────────
@@ -1082,10 +1083,10 @@ function App() {
                               {prospectingRows.length===0
                                 ?<tr><td colSpan={2} style={{padding:"14px 10px",textAlign:"center",color:C.muted}}>Caricamento...</td></tr>
                                 :prospectingRows.map((r,i)=>(
-                                  <tr key={i} style={{borderBottom:`1px solid rgba(59,130,246,0.1)`,background:i%2===0?"transparent":"rgba(59,130,246,0.04)"}}>
-                                    <td style={{padding:"5px 10px",color:C.text}}>{r.b}</td>
+                                  <tr key={i} onClick={()=>setProspectingSelected(i)} style={{borderBottom:`1px solid rgba(59,130,246,0.1)`,background:prospectingSelected===i?"rgba(59,130,246,0.25)":i%2===0?"transparent":"rgba(59,130,246,0.04)",cursor:"pointer",transition:"background 0.15s"}}>
+                                    <td style={{padding:"5px 10px",color:prospectingSelected===i?"#fff":C.text,fontWeight:prospectingSelected===i?700:400}}>{r.b}</td>
                                     <td style={{padding:"5px 10px",color:"#60a5fa",wordBreak:"break-all"}}>
-                                      {r.e&&!r.e.toLowerCase().includes('verific')?<a href={r.e} target="_blank" style={{color:"#60a5fa"}}>{r.e.replace(/https?:\/\/(www\.)?/,"").slice(0,50)}</a>:"—"}
+                                      {r.e&&!r.e.toLowerCase().includes('verific')?<a href={r.e} target="_blank" style={{color:prospectingSelected===i?"#93c5fd":"#60a5fa"}} onClick={e=>e.stopPropagation()}>{r.e.replace(/https?:\/\/(www\.)?/,"").slice(0,50)}</a>:"—"}
                                     </td>
                                   </tr>
                                 ))
