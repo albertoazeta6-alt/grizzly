@@ -411,7 +411,7 @@ function App() {
         if (parsed.byFase) {
           setFasi(prev => prev.map(f => {
             const s = parsed.byFase[f.id];
-            if (!s) return f;
+            if (!s) return {...FASI_INIT.find(fi=>fi.id===f.id), iniziato:null, completato:null};
             const wasStatus = f.stato;
             if (wasStatus !== s.stato) {
               pushLog(s.stato === "attesa_utente" ? "attesa" : s.stato === "completato" ? "ok" : "info",
