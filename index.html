@@ -590,6 +590,7 @@ function App() {
 
     const continuaDopoUrl = async () => {
     setLoad("continua", true);
+    try { localStorage.removeItem('grizzly_selected'); setProspectingSelected(new Set()); } catch(e) {}
     await callMake("https://hook.eu2.make.com/z9eimytqdgpuulhuo6ky66yrt7p1ll6j", {}, "Aggiornamento Hubspot");
     setFaseS("url_check", "completato", {completato: new Date().toISOString(), dettaglio: "URL verificati manualmente"});
     setFaseS("hubspot", "in_corso", {iniziato: new Date().toISOString(), dettaglio: "Aggiornamento aziende su HubSpot..."});
