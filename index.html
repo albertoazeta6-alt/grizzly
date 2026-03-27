@@ -144,7 +144,7 @@ const FASI_INIT = [
   {id:"lemlist",    label:"Assegna lead a campagna",  scenario:"8",   icon:"🚀", stato:"bloccato", iniziato:null, completato:null, dettaglio:"Apri Lemlist e assegna i lead alla campagna"},
 ];
 
-const FASE_LINKS = {"import": {"sheet": "https://docs.google.com/spreadsheets/d/1Xk8CuYjriLbsxqafpTkPKSIGyApUAnX7vj7TaRlLHEc/edit?usp=sharing", "phantom": null, "sheetLabel": "Aziende"}, "company": {"sheet": "https://docs.google.com/spreadsheets/d/1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE/edit?usp=sharing", "sheetLabel": "Company page verificate", "phantom": "https://phantombuster.com/930421472294585/phantoms/7679104398153989/console"}, "url_check": {"sheet": "https://docs.google.com/spreadsheets/d/1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE/edit?usp=sharing", "phantom": null, "sheetLabel": "Prospecting output", "monitor": "https://eu2.make.com/2589672/scenarios/8481061/logs?showCheckRuns=true&showChangeLog=true"}, "dipendenti": {"sheet": "https://docs.google.com/spreadsheets/d/1y21r84H4Cy2J7hW-bLfXgsD5mfK8KqEcI_apcc_cm-E/edit?gid=811728725#gid=811728725", "sheetLabel": "Dipendenti", "phantom": "https://phantombuster.com/930421472294585/phantoms/7449527000226999/console", "monitor": "https://eu2.make.com/2589672/scenarios/7044397/logs?showCheckRuns=true&showChangeLog=true"}, "email": {"sheet": "https://docs.google.com/spreadsheets/d/1x8C39EaD1PzKQ0LJ9RsusIxAa9eJKmRwMxzPVj2Flng/edit?gid=0#gid=0", "sheetLabel": "Email", "phantom": "https://phantombuster.com/930421472294585/phantoms/7176684592672454/console", "monitor": "https://eu2.make.com/2589672/scenarios/8612411/logs?showCheckRuns=true&showChangeLog=true"}, "lemlist": {"sheet": null, "phantom": null, "lemlist": "https://app.lemlist.com/teams/tea_wT4jk7upASTbpAtjp/campaigns-next/cam_JZd5CAZbe39QDFzrr/sequences/seq_rhQEWWHwvKqNDxWZS/edit"}};
+const FASE_LINKS = {"import": {"sheet": "https://docs.google.com/spreadsheets/d/1Xk8CuYjriLbsxqafpTkPKSIGyApUAnX7vj7TaRlLHEc/edit?usp=sharing", "phantom": null, "sheetLabel": "Aziende"}, "company": {"sheet": "https://docs.google.com/spreadsheets/d/1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE/edit?usp=sharing", "sheetLabel": "Company page verificate", "phantom": "https://phantombuster.com/930421472294585/phantoms/7679104398153989/console"}, "url_check": {"sheet": "https://docs.google.com/spreadsheets/d/1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE/edit?usp=sharing", "phantom": null, "sheetLabel": "Prospecting output", "monitor": "https://eu2.make.com/2589672/scenarios/8481061/logs?showCheckRuns=true&showChangeLog=true"}, "dipendenti": {"sheet": "https://docs.google.com/spreadsheets/d/1y21r84H4Cy2J7hW-bLfXgsD5mfK8KqEcI_apcc_cm-E/edit?gid=811728725#gid=811728725", "sheetLabel": "Dipendenti", "phantom": "https://phantombuster.com/930421472294585/phantoms/7449527000226999/console", "monitor": "https://eu2.make.com/2589672/scenarios/7044397/logs?showCheckRuns=true&showChangeLog=true"}, "email": {"sheet": "https://docs.google.com/spreadsheets/d/1x8C39EaD1PzKQ0LJ9RsusIxAa9eJKmRwMxzPVj2Flng/edit?gid=0#gid=0", "sheetLabel": "Email", "phantom": "https://phantombuster.com/930421472294585/phantoms/7176684592672454/console", "monitor": "https://eu2.make.com/2589672/scenarios/8612411/logs?showCheckRuns=true&showChangeLog=true"}, "hubspot": {"sheet": null, "phantom": null, "monitor": "https://eu2.make.com/2589672/scenarios/8846767/logs?showCheckRuns=true&showChangeLog=true"}, "lemlist": {"sheet": null, "phantom": null, "lemlist": "https://app.lemlist.com/teams/tea_wT4jk7upASTbpAtjp/campaigns-next/cam_JZd5CAZbe39QDFzrr/sequences/seq_rhQEWWHwvKqNDxWZS/edit"}};
 
 const TARGET_ROLES = ["ceo","founder","fondatore","amministratore","direttore","director","sales","commerciale","general manager","managing"];
 const isTarget = r => TARGET_ROLES.some(t => r.toLowerCase().includes(t));
@@ -931,7 +931,7 @@ function App() {
                 <div style={{display:"flex",flexDirection:"column",gap:16}}>
 
                   {/* ── PIPELINE ORIZZONTALE ── */}
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:8,paddingBottom:6}}>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,paddingBottom:6}}>
                     {(()=>{ return fasi.map((fase,i)=>{
                       const isLemlistActive = fase.id==="lemlist"&&(fase.stato==="attesa_utente"||fase.stato==="in_corso");
                       const blueCfg = {color:"#3b82f6", bg:"rgba(59,130,246,0.12)", dot:"#3b82f6", label:"Intervento richiesto"};
@@ -975,9 +975,14 @@ function App() {
                                 <button style={{fontSize:8,fontWeight:600,color:C.purple,background:C.purpleDim,border:"1px solid rgba(168,85,247,.2)",borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Phantom</button>
                               </a>
                             )}
-                            {FASE_LINKS[fase.id]?.monitor&&fase.id!=="url_check"&&(
+                            {FASE_LINKS[fase.id]?.monitor&&fase.id!=="url_check"&&fase.id!=="hubspot"&&(
                               <a href={FASE_LINKS[fase.id].monitor} target="_blank" style={{textDecoration:"none"}}>
                                 <button style={{fontSize:8,fontWeight:600,color:"#67e8f9",background:"rgba(103,232,249,0.12)",border:"1px solid rgba(103,232,249,.2)",borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Monitor</button>
+                              </a>
+                            )}
+                            {fase.id==="hubspot"&&FASE_LINKS["hubspot"]?.monitor&&(
+                              <a href={FASE_LINKS["hubspot"].monitor} target="_blank" style={{textDecoration:"none"}}>
+                                <button style={{fontSize:8,fontWeight:600,color:"#a78bfa",background:"rgba(139,92,246,0.15)",border:"1px solid rgba(139,92,246,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Make</button>
                               </a>
                             )}
                           </div>
