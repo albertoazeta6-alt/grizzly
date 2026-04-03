@@ -85,6 +85,7 @@ const SHEET_API  = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?t
 const MAKE = {
   pulizia:    "https://hook.eu2.make.com/xg6jwb1hppkkvgql2ze9fa5pcypf1a11",
   importCsv:  "https://hook.eu2.make.com/qs8jqpxu533fl588ej5jq3htpj0j92p8",
+  company:    "https://hook.eu2.make.com/3z96ovqse5lobrdvv0wc4k63yn28dvgs",
   urlRisolto: "https://hook.eu2.make.com/viaciqegod7wv08ycg72hmndwuv6nqod",
   hubspot:    "https://hook.eu2.make.com/z9eimytqdgpuulhuo6ky66yrt7p1ll6j",
   cercaDip:   "https://hook.eu2.make.com/htuzcpwibjxykcphlbvdh9agd946t28z",
@@ -232,6 +233,7 @@ function App() {
   const [syncErr, setSyncErr]       = useState(false);
   const [prospectingRows, setProspectingRows] = useState([]);
   const [azSenzaSito, setAzSenzaSito] = useState([]);
+  const companyCeckFiredRef = React.useRef(false);
   const [prospectingTab, setProspectingTab]   = useState("tabella"); // "tabella" | "sheets"
   const [prospectingSelected, setProspectingSelected] = useState(()=>{
     try { const s=localStorage.getItem('grizzly_selected'); return s?new Set(JSON.parse(s)):new Set(); } catch(e){ return new Set(); }
@@ -364,7 +366,7 @@ function App() {
   const fetchAzSenzaSito = useCallback(async () => {
     try {
       const INPUT_SHEET_ID = "1Xk8CuYjriLbsxqafpTkPKSIGyApUAnX7vj7TaRlLHEc";
-      const q = encodeURIComponent(`select A,K where A is not null`);
+      const q = encodeURIComponent(`select B,K where B is not null`);
       const url = `https://docs.google.com/spreadsheets/d/${INPUT_SHEET_ID}/gviz/tq?tqx=out:json&gid=0&tq=${q}&headers=1&t=${Date.now()}`;
       const res = await fetch(url);
       const raw = await res.text();
@@ -373,8 +375,17 @@ function App() {
         .map(r => ({ a: r?.c?.[0]?.v || "", k: r?.c?.[1]?.v || "" }))
         .filter(r => r.a && !r.k?.trim());
       setAzSenzaSito(mancanti);
+      if (mancanti.length === 0) {
+        // Controllo passato — lancia Company
+        await fetch(MAKE.company, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({runId, campagna})});
+        pushLog("ok", "✓ Controllo siti superato — Cerca Company Page avviato");
+        showToast("✓ Controllo siti OK — Company avviato");
+      } else {
+        pushLog("attesa", `⚠️ ${mancanti.length} aziende senza sito — Company bloccato`);
+        showToast(`⚠️ ${mancanti.length} aziende senza sito — correggi prima di procedere`);
+      }
     } catch(e) {}
-  }, []);
+  }, [runId, campagna]);
 
   // ── Controllo duplicati Pro.Persona prima di Cerca Email ────────────────────
   const checkDuplicatiProPersona = async () => {
@@ -490,12 +501,15 @@ function App() {
     }
   }, [fasi, fetchProspecting]);
 
-  // Quando import è completato, controlla aziende senza sito
+  // Quando import è completato, controlla aziende senza sito (una sola volta per run)
   useEffect(() => {
     const importFase = fasi.find(f => f.id === "import");
-    if (importFase?.stato === "completato") {
+    if (importFase?.stato === "completato" && !companyCeckFiredRef.current) {
+      companyCeckFiredRef.current = true;
       fetchAzSenzaSito();
-    } else {
+    }
+    if (importFase?.stato !== "completato") {
+      companyCeckFiredRef.current = false;
       setAzSenzaSito([]);
     }
   }, [fasi, fetchAzSenzaSito]);
@@ -789,7 +803,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>1.5.3</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>1.5.4</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -1025,7 +1039,7 @@ function App() {
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
                         <div>
                           <div style={{fontSize:12,fontWeight:700,color:"#fbbf24",marginBottom:2}}>⚠️ Aziende senza sito web ({azSenzaSito.length})</div>
-                          <div style={{fontSize:10,color:C.muted}}>Queste aziende non hanno un sito web nel Prospecting output — aggiungilo prima di procedere</div>
+                          <div style={{fontSize:10,color:C.muted}}>Queste aziende non hanno un sito web nel Prospecting input — aggiungilo prima di procedere</div>
                         </div>
                         <a href="https://docs.google.com/spreadsheets/d/1Xk8CuYjriLbsxqafpTkPKSIGyApUAnX7vj7TaRlLHEc/edit?gid=0" target="_blank" style={{textDecoration:"none",flexShrink:0}}>
                           <button style={{padding:"6px 14px",fontSize:11,fontWeight:600,color:"#fbbf24",background:"rgba(245,158,11,0.1)",border:"1px solid rgba(245,158,11,0.3)",borderRadius:5,cursor:"pointer"}}>📊 Apri Foglio</button>
