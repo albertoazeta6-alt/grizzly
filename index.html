@@ -489,10 +489,10 @@ function App() {
     }
   }, [fasi, fetchProspecting]);
 
-  // Quando import è completato, controlla aziende senza sito
+  // Quando company è completato, controlla aziende senza sito
   useEffect(() => {
-    const importFase = fasi.find(f => f.id === "import");
-    if (importFase?.stato === "completato") {
+    const companyFase = fasi.find(f => f.id === "company");
+    if (companyFase?.stato === "completato") {
       fetchAzSenzaSito();
     } else {
       setAzSenzaSito([]);
