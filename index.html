@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Grizzly</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg viewBox='0 0 32 32' fill='none' xmlns='http://www.w3.org/2000/svg'><rect width='32' height='32' rx='7' fill='%230a0604'/><path d='M5 28 Q8 22 10 16 Q11 10 13 7 Q14 5 15 7 Q15 10 14 16 Q13 21 15 27Z' fill='%23b02010'/><path d='M5 28 Q8 22 10 16 Q11 10 13 7 Q14 5 15 7' stroke='%23ff5535' stroke-width='0.6' fill='none'/><path d='M9 27 Q12 21 14 15 Q16 9 17 6 Q18 4 19 6 Q19 9 18 15 Q17 20 18 26Z' fill='%23c82515'/><path d='M9 27 Q12 21 14 15 Q16 9 17 6 Q18 4 19 6' stroke='%23ff6040' stroke-width='0.6' fill='none'/><path d='M13 26 Q16 20 18 14 Q20 8 21 5 Q22 3 23 5 Q23 8 22 14 Q21 20 22 26Z' fill='%23c82515'/><path d='M13 26 Q16 20 18 14 Q20 8 21 5 Q22 3 23 5' stroke='%23ff6040' stroke-width='0.6' fill='none'/><path d='M17 25 Q20 20 22 14 Q24 9 25 7 Q26 5 27 7 Q27 10 26 15 Q25 20 26 25Z' fill='%23b02010'/><path d='M17 25 Q20 20 22 14 Q24 9 25 7 Q26 5 27 7' stroke='%23ff5535' stroke-width='0.6' fill='none'/><path d='M20 24 Q23 20 25 15 Q26 11 27 9 Q28 7 29 9 Q29 12 28 16 Q27 20 28 24Z' fill='%23902010' opacity='0.9'/><path d='M20 24 Q23 20 25 15 Q26 11 27 9 Q28 7 29 9' stroke='%23ff4422' stroke-width='0.5' fill='none'/><path d='M4 29 Q8 25 13 24 Q18 23 22 24 Q26 25 29 28' stroke='%23c83020' stroke-width='3' stroke-linecap='round' fill='none'/><path d='M4 29 Q8 26 13 25 Q18 24 22 25 Q26 26 29 28' stroke='%23ff5540' stroke-width='1.2' stroke-linecap='round' fill='none'/></svg>">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#07090f;font-family:'Inter',system-ui,sans-serif}
+  ::-webkit-scrollbar{width:4px;height:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#2d3a50;border-radius:2px}
+  a{color:#3b82f6;text-decoration:none} a:hover{text-decoration:underline}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+  @keyframes shimmerBar{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}
+  .hovrow:hover{background:rgba(255,255,255,.025)!important}
+  .hcard:hover{border-color:#2d3f55!important}
+  input{outline:none;font-family:inherit}
+  input::placeholder{color:#4b5e78}
+  button{font-family:inherit}
+  .dropzone{border:2px dashed #1e2a3a;border-radius:6px;padding:28px;text-align:center;cursor:pointer;transition:all .2s}
+  .dropzone:hover,.dropzone.over{border-color:#3b82f6;background:rgba(59,130,246,.08)}
+  @keyframes splashFadeIn {
+    from { opacity:0; transform:scale(0.92); }
+    to   { opacity:1; transform:scale(1); }
+  }
+  @keyframes splashFadeOut {
+    from { opacity:1; }
+    to   { opacity:0; pointer-events:none; }
+  }
+  @keyframes crosshairSpin {
+    from { transform:rotate(0deg); }
+    to   { transform:rotate(360deg); }
+  }
+  @keyframes crosshairPulse {
+    0%,100% { opacity:0.4; transform:scale(1); }
+    50%     { opacity:1;   transform:scale(1.06); }
+  }
+  @keyframes dotBlink {
+    0%,100% { opacity:1; }
+    50%     { opacity:0.15; }
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50%      { opacity: 0.3; }
+  }
+  .skeleton { animation: pulse 1.4s ease-in-out infinite; background: #1e2a3a; border-radius: 4px; }
+  html, body { overflow-x: hidden; margin: 0; padding: 0; width: 100%; }
+  #root { width: 100%; min-height: 100vh; }
+  * { box-sizing: border-box; }
+  .tab-desktop { display: flex; }
+  .tab-hamburger { display: none; }
+  @media (max-width: 640px) {
+    .tab-desktop { display: none !important; }
+    .tab-hamburger { display: flex !important; }
+  }
+  @media (max-width: 480px) {
+    .run-content { padding: 10px 10px !important; }
+  }
+  @media (max-width: 600px) {
+    .hovrow { padding: 6px 10px !important; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback} = React;
+
+// ── CONFIGURAZIONE ────────────────────────────────────────────────────────────
+const SHEET_ID   = "1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE";
+const URL_SHEET_ID = "1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE";
+
+const SHEET_NAME = "DASHBOARD_STATUS";
+const SHEET_API  = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(SHEET_NAME)}&t=${Date.now()}`;
+
+const MAKE = {
+  pulizia:    "https://hook.eu2.make.com/xg6jwb1hppkkvgql2ze9fa5pcypf1a11",
+  importCsv:  "https://hook.eu2.make.com/qs8jqpxu533fl588ej5jq3htpj0j92p8",
+  company:    "https://hook.eu2.make.com/3z96ovqse5lobrdvv0wc4k63yn28dvgs",
+  urlRisolto: "https://hook.eu2.make.com/viaciqegod7wv08ycg72hmndwuv6nqod",
+  hubspot:    "https://hook.eu2.make.com/z9eimytqdgpuulhuo6ky66yrt7p1ll6j",
+  cercaDip:   "https://hook.eu2.make.com/htuzcpwibjxykcphlbvdh9agd946t28z",
+  cercaEmail: "https://hook.eu2.make.com/blat1n64wj2rkjy2wo7z6rh8x6v22x07",
+};
+const PHANTOM = {
+  companyFinder: "163962132206802",
+  urlValutare:   "128044396945588",
+  dipendenti:    "2957075371643920",
+  email:         "7176684592672454",
+};
+
+// ── DATI REALI (da Google Sheet) ──────────────────────────────────────────────
+const DEFAULT_URLS   = [{"id": 1, "ragione_sociale": "R & A TECNICA S.R.L.", "sito": "http://www.reatecnica.it", "url_phantom": "https://linkedin.com/company/reatecnica", "url_easybusiness": "https://www.linkedin.com/company/r-%26-a-tecnica-s.r.l.", "citta": "ORBASSANO", "fatturato": "€ 7.835.152,00", "ateco": "Installazione di impianti elettrici in edifici o in altre opere di costruzione (inclusa manutenzione e riparazione)", "stato": "pending"}, {"id": 2, "ragione_sociale": "MAX AUTOMAZIONI S.R.L.", "sito": "http://www.maxautomazioni.it", "url_phantom": "https://linkedin.com/company/maxpro-s-r-l", "url_easybusiness": "", "citta": "CORIGLIANO-ROSSANO", "fatturato": "€ 5.569.561,00", "ateco": "Installazione di impianti elettrici in edifici o in altre opere di costruzione (inclusa manutenzione e riparazione)", "stato": "pending"}, {"id": 3, "ragione_sociale": "MA.PI. IMPIANTI SOCIETA' A RESPONSABILITA' LIMITATA DA INDICARE", "sito": "http://www.mapiimpianti.it", "url_phantom": "", "url_easybusiness": "", "citta": "OSIMO", "fatturato": "€ 5.490.976,00", "ateco": "Installazione di impianti idraulici, di riscaldamento e di condizionamento dell'aria (inclusa manutenzione e riparazione) in edifici o in altre opere di costruzione", "stato": "pending"}, {"id": 4, "ragione_sociale": "ITA PROGETTI S.R.L.", "sito": "http://www.itaprogetti.it", "url_phantom": "https://linkedin.com/company/ita-progetti", "url_easybusiness": "", "citta": "SAN GIORGIO DI NOGARO", "fatturato": "€ 5.346.488,00", "ateco": "Installazione di impianti elettrici in edifici o in altre opere di costruzione (inclusa manutenzione e riparazione)", "stato": "pending"}, {"id": 5, "ragione_sociale": "CENTRO CONDUZIONI TERMICHE S.R.L.", "sito": "http://www.centroconduzionitermiche.com", "url_phantom": "https://linkedin.com/company/g-m-impianti-srl-di-cussotto-giorgio", "url_easybusiness": "", "citta": "TORINO", "fatturato": "€ 6.910.751,00", "ateco": "Installazione di impianti idraulici, di riscaldamento e di condizionamento dell'aria (inclusa manutenzione e riparazione) in edifici o in altre opere di costruzione", "stato": "pending"}, {"id": 6, "ragione_sociale": "ELETTRO G.T. S.R.L.", "sito": "http://www.elettrogt.it", "url_phantom": "", "url_easybusiness": "", "citta": "TRIVERO", "fatturato": "€ 5.391.294,00", "ateco": "Installazione di impianti elettrici in edifici o in altre opere di costruzione (inclusa manutenzione e riparazione)", "stato": "pending"}, {"id": 7, "ragione_sociale": "MONFREDINI FAUSTO S.R.L.", "sito": "http://www.monfredini.com", "url_phantom": "https://linkedin.com/company/arca-certificazione", "url_easybusiness": "", "citta": "BORGO LARES", "fatturato": "€ 5.270.025,00", "ateco": "Installazione di impianti elettrici in edifici o in altre opere di costruzione (inclusa manutenzione e riparazione)", "stato": "pending"}, {"id": 8, "ragione_sociale": "CO.I.M.I. SRL", "sito": "http://www.coimi.it", "url_phantom": "https://linkedin.com/company/imisrl", "url_easybusiness": "", "citta": "VOLVERA", "fatturato": "€ 9.425.508,00", "ateco": "Installazione di impianti idraulici, di riscaldamento e di condizionamento dell'aria (inclusa manutenzione e riparazione) in edifici o in altre opere di costruzione", "stato": "pending"}, {"id": 9, "ragione_sociale": "AS IMPIANTI S.R.L.", "sito": "http://www.astotalsecurity.com", "url_phantom": "https://linkedin.com/company/as-impianti-tecnici-s-r-l", "url_easybusiness": "", "citta": "ROSTA", "fatturato": "€ 5.617.176,00", "ateco": "Installazione di impianti elettronici (inclusa manutenzione e riparazione)", "stato": "pending"}];
+const DEFAULT_ERRORI = [{"id": 1, "azienda": "BAYWA R.E. POWER SOLUTIONS S.R.L.", "scenario": "Cerca Azienda", "tipo": "INVALID_DOMAIN", "msg": "L'azienda BAYWA R.E. POWER SOLUTIONS S.R.L. non è stata creata in hubspot", "fix": "HubSpot → Aziende → correggi il campo Dominio sito web (rimuovi path URL o valori duplicati)", "stato": "aperto"}, {"id": 2, "azienda": "STA - SERVIZI TECNICI ASSISTENZE S.R.L.", "scenario": "Cerca Azienda", "tipo": "INVALID_DOMAIN", "msg": "L'azienda STA - SERVIZI TECNICI ASSISTENZE S.R.L. non è stata creata in hubspot", "fix": "HubSpot → Aziende → correggi il campo Dominio sito web (rimuovi path URL o valori duplicati)", "stato": "aperto"}, {"id": 3, "azienda": "Plastic Systems S.p.a.", "scenario": "Cerca Email verificate (Hubspot-Lemlist)", "tipo": "MISSING_DEAL_ID", "msg": "Non è stato possibile creare la trattativa per Plastic Systems S.p.a. - Emanuele Stocco", "fix": "HubSpot → crea manualmente la trattativa per questa azienda, poi rilancia lo scenario Cerca Email verificate", "stato": "aperto"}, {"id": 4, "azienda": "Plastic Systems S.p.a.", "scenario": "Cerca Email verificate (Hubspot-Lemlist)", "tipo": "MISSING_DEAL_ID", "msg": "Non è stato possibile creare la trattativa per Plastic Systems S.p.a. - Matteo Volpato", "fix": "HubSpot → crea manualmente la trattativa per questa azienda, poi rilancia lo scenario Cerca Email verificate", "stato": "aperto"}, {"id": 5, "azienda": "Plastic Systems S.p.a.", "scenario": "Cerca Email verificate (Hubspot-Lemlist)", "tipo": "MISSING_DEAL_ID", "msg": "Non è stato possibile creare la trattativa per Plastic Systems S.p.a. - Franco Crivellari", "fix": "HubSpot → crea manualmente la trattativa per questa azienda, poi rilancia lo scenario Cerca Email verificate", "stato": "aperto"}, {"id": 6, "azienda": "Pet Solutions S.r.l.", "scenario": "Cerca Email verificate (Hubspot-Lemlist)", "tipo": "MISSING_DEAL_ID", "msg": "Non è stato possibile creare la trattativa per Pet Solutions S.r.l. - Massimiliano Massari", "fix": "HubSpot → crea manualmente la trattativa per questa azienda, poi rilancia lo scenario Cerca Email verificate", "stato": "aperto"}, {"id": 7, "azienda": "Plastic Systems S.p.a.", "scenario": "Cerca Email verificate (Hubspot-Lemlist)", "tipo": "MISSING_DEAL_ID", "msg": "Non è stato possibile creare la trattativa per Plastic Systems S.p.a. - Omar Boato", "fix": "HubSpot → crea manualmente la trattativa per questa azienda, poi rilancia lo scenario Cerca Email verificate", "stato": "aperto"}];
+
+// ── PALETTE ───────────────────────────────────────────────────────────────────
+const C = {
+  bg:"#07090f",surface:"#0c1018",surfaceHi:"#111827",
+  border:"#1e2a3a",borderHi:"#2d3f55",
+  text:"#cbd5e1",textHi:"#f1f5f9",muted:"#4b5e78",
+  accent:"#3b82f6",accentDim:"rgba(59,130,246,0.12)",
+  green:"#22c55e",greenDim:"rgba(34,197,94,0.10)",
+  yellow:"#f59e0b",yellowDim:"rgba(245,158,11,0.10)",
+  red:"#ef4444",redDim:"rgba(239,68,68,0.10)",
+  purple:"#a855f7",purpleDim:"rgba(168,85,247,0.12)",
+  orange:"#f97316",orangeDim:"rgba(249,115,22,0.10)",
+};
+
+const fmtTime = d => !d?"—":new Date(d).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+const fmtAgo  = d => {if(!d)return"";const s=Math.floor((Date.now()-new Date(d))/1000);if(s<60)return`${s}s fa`;if(s<3600)return`${Math.floor(s/60)}m fa`;return`${Math.floor(s/3600)}h fa`;};
+const dur     = (a,b) => {if(!a||!b)return null;const s=Math.floor((new Date(b)-new Date(a))/1000);return s<60?`${s}s`:`${Math.floor(s/60)}m ${s%60}s`;};
+
+const Tag = ({color,bg,children,onClick}) => (
+  <span onClick={onClick} style={{display:"inline-flex",alignItems:"center",padding:"2px 7px",borderRadius:3,fontSize:10,fontWeight:600,letterSpacing:"0.05em",color,background:bg,whiteSpace:"nowrap",cursor:onClick?"pointer":"default"}}>{children}</span>
+);
+const Btn = ({color=C.accent,bg=C.accentDim,border,onClick,disabled,children,small,loading}) => (
+  <button onClick={onClick} disabled={disabled||loading} style={{display:"inline-flex",alignItems:"center",gap:5,padding:small?"5px 10px":"7px 14px",fontSize:small?10:11,fontWeight:600,letterSpacing:"0.04em",color:disabled||loading?C.muted:color,background:disabled||loading?"transparent":bg,border:`1px solid ${disabled||loading?C.border:(border||color)}`,borderRadius:4,cursor:disabled||loading?"not-allowed":"pointer",transition:"opacity 0.15s"}}>{loading?"⟳":children}</button>
+);
+
+const STATO_CFG = {
+  completato:    {color:C.green,  bg:C.greenDim,   dot:C.green,  label:"Completato"},
+  in_corso:      {color:C.accent, bg:C.accentDim,  dot:C.accent, label:"In corso"},
+  attesa_utente: {color:C.orange, bg:C.orangeDim,  dot:C.orange, label:"Intervento richiesto"},
+  intervento_richiesto: {color:C.orange, bg:C.orangeDim, dot:C.orange, label:"Intervento richiesto"},
+  bloccato:      {color:C.muted,  bg:"transparent", dot:C.muted,  label:"In attesa"},
+  in_attesa:     {color:C.muted,  bg:"transparent", dot:C.muted,  label:"In attesa"},
+  errore:        {color:C.red,    bg:C.redDim,     dot:C.red,    label:"Errore"},
+};
+
+const FASI_INIT = [
+  {id:"import",     label:"Import & Normalizzazione", scenario:"0+1", icon:"⬇", stato:"bloccato", iniziato:null, completato:null, dettaglio:"In attesa di avvio run"},
+  {id:"company",    label:"Cerca Company Page",       scenario:"2+3", icon:"🏢", stato:"bloccato", iniziato:null, completato:null, dettaglio:"Phantom Company URL Finder"},
+  {id:"url_check",  label:"Risolvi URL ambigui",      scenario:"3+4", icon:"🔍", stato:"bloccato", iniziato:null, completato:null, dettaglio:"Verifica manuale URL ambigui"},
+
+  {id:"hubspot",    label:"Aggiornamento Hubspot",    scenario:"",    icon:"🔄", stato:"bloccato", iniziato:null, completato:null, dettaglio:"Aggiornamento aziende su HubSpot"},
+  {id:"lemlist",    label:"Assegna lead a campagna",  scenario:"8",   icon:"🚀", stato:"bloccato", iniziato:null, completato:null, dettaglio:"Apri Lemlist e assegna i lead alla campagna"},
+];
+
+const FASE_LINKS = {"import": {"sheet": "https://docs.google.com/spreadsheets/d/1Xk8CuYjriLbsxqafpTkPKSIGyApUAnX7vj7TaRlLHEc/edit?usp=sharing", "phantom": null, "sheetLabel": "Aziende"}, "company": {"sheet": "https://docs.google.com/spreadsheets/d/1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE/edit?usp=sharing", "sheetLabel": "Company page verificate", "phantom": "https://phantombuster.com/930421472294585/phantoms/7679104398153989/console"}, "url_check": {"sheet": "https://docs.google.com/spreadsheets/d/1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE/edit?usp=sharing", "phantom": null, "sheetLabel": "Prospecting output", "monitor": "https://eu2.make.com/2589672/scenarios/8481061/logs?showCheckRuns=true&showChangeLog=true"}, "dipendenti": {"sheet": "https://docs.google.com/spreadsheets/d/1y21r84H4Cy2J7hW-bLfXgsD5mfK8KqEcI_apcc_cm-E/edit?gid=811728725#gid=811728725", "sheetLabel": "Dipendenti", "phantom": "https://phantombuster.com/930421472294585/phantoms/7449527000226999/console", "monitor": "https://eu2.make.com/2589672/scenarios/7044397/logs?showCheckRuns=true&showChangeLog=true"}, "email": {"sheet": "https://docs.google.com/spreadsheets/d/1x8C39EaD1PzKQ0LJ9RsusIxAa9eJKmRwMxzPVj2Flng/edit?gid=0#gid=0", "sheetLabel": "Email", "phantom": "https://phantombuster.com/930421472294585/phantoms/7176684592672454/console", "monitor": "https://eu2.make.com/2589672/scenarios/8612411/logs?showCheckRuns=true&showChangeLog=true"}, "hubspot": {"sheet": null, "phantom": null, "monitor": "https://eu2.make.com/2589672/scenarios/8846767/logs?showCheckRuns=true&showChangeLog=true"}, "lemlist": {"sheet": null, "phantom": null, "lemlist": "https://app.lemlist.com/teams/tea_wT4jk7upASTbpAtjp/campaigns-next/cam_JZd5CAZbe39QDFzrr/sequences/seq_rhQEWWHwvKqNDxWZS/edit"}};
+
+const TARGET_ROLES = ["ceo","founder","fondatore","amministratore","direttore","director","sales","commerciale","general manager","managing"];
+const isTarget = r => TARGET_ROLES.some(t => r.toLowerCase().includes(t));
+
+const MOCK_EXECS = [
+  {id:1,azienda:"PAMIGA COSTRUZIONI IND. S.R.L.",nome:"Marco Ferretti",ruolo:"CEO & Fondatore",url:"https://linkedin.com/in/marcoferretti",approvato:null},
+  {id:2,azienda:"PAMIGA COSTRUZIONI IND. S.R.L.",nome:"Laura Bianchi",ruolo:"Direttore Commerciale",url:"https://linkedin.com/in/laurabianchi",approvato:null},
+  {id:3,azienda:"PAMIGA COSTRUZIONI IND. S.R.L.",nome:"Giulia Ricci",ruolo:"HR Manager",url:"https://linkedin.com/in/giuliaricci",approvato:null},
+  {id:4,azienda:"ALARM SYSTEM S.R.L.",nome:"Stefano Conti",ruolo:"Amministratore Delegato",url:"https://linkedin.com/in/stefanoconti",approvato:null},
+  {id:5,azienda:"ALARM SYSTEM S.R.L.",nome:"Francesca Marino",ruolo:"Sales Director",url:"https://linkedin.com/in/francescamarino",approvato:null},
+  {id:6,azienda:"ALARM SYSTEM S.R.L.",nome:"Andrea Galli",ruolo:"Procurement Manager",url:"https://linkedin.com/in/andreagalli",approvato:null},
+];
+
+// ── LEGGI STATO DA GOOGLE SHEET ───────────────────────────────────────────────
+function parseSheetData(raw) {
+  try {
+    const json = JSON.parse(raw.replace(/^[^(]+\(/, "").replace(/\);?$/, ""));
+    const rows = json.table.rows;
+    if (!rows || rows.length === 0) return null;
+    const get = (cells, i) => cells[i]?.v ?? "";
+    // Leggi tutte le righe e prendi l'ultima per ogni fase
+    const byFase = {};
+    for (const row of rows) {
+      const cells = row.c || [];
+      const fase = get(cells, 2);
+      if (fase) byFase[fase] = {
+        run_id:        get(cells, 0),
+        campagna:      get(cells, 1),
+        fase,
+        stato:         get(cells, 3),
+        dettaglio:     get(cells, 4),
+        timestamp:     get(cells, 5),
+        aziende_tot:   get(cells, 6),
+        url_pendenti:  get(cells, 7),
+        errori_aperti: get(cells, 8),
+        leads_lemlist: get(cells, 9),
+      };
+    }
+    // Ultima riga per run_id e campagna globali
+    const last = rows[rows.length - 1];
+    const lc = last.c || [];
+    return {
+      run_id:    get(lc, 0),
+      campagna:  get(lc, 1),
+      byFase,
+      leads_lemlist: get(lc, 9),
+    };
+  } catch(e) { return null; }
+}
+
+// ── APP ───────────────────────────────────────────────────────────────────────
+const REVIEW_TOOL_B64 = "PCFET0NUWVBFIGh0bWw+CjxodG1sIGxhbmc9Iml0Ij4KPGhlYWQ+CjxtZXRhIGNoYXJzZXQ9IlVURi04Ij4KPG1ldGEgbmFtZT0idmlld3BvcnQiIGNvbnRlbnQ9IndpZHRoPWRldmljZS13aWR0aCwgaW5pdGlhbC1zY2FsZT0xLjAiPgo8dGl0bGU+TGlua2VkSW4gUmV2aWV3IFRvb2w8L3RpdGxlPgo8c2NyaXB0IHNyYz0iaHR0cHM6Ly9jZG5qcy5jbG91ZGZsYXJlLmNvbS9hamF4L2xpYnMveGxzeC8wLjE4LjUveGxzeC5mdWxsLm1pbi5qcyI+PC9zY3JpcHQ+Cgo8c3R5bGU+CiAgKiB7IGJveC1zaXppbmc6IGJvcmRlci1ib3g7IG1hcmdpbjogMDsgcGFkZGluZzogMDsgfQogIGJvZHkgeyBiYWNrZ3JvdW5kOiAjMDkwZDEyOyBjb2xvcjogI2ZmZjsgZm9udC1mYW1pbHk6IHVpLW1vbm9zcGFjZSwgTWVubG8sIENvbnNvbGFzLCBtb25vc3BhY2U7IGhlaWdodDogMTAwdmg7IGRpc3BsYXk6IGZsZXg7IGZsZXgtZGlyZWN0aW9uOiBjb2x1bW47IG92ZXJmbG93OiBoaWRkZW47IH0KCiAgI2Ryb3B6b25lIHsgZmxleDogMTsgZGlzcGxheTogZmxleDsgYWxpZ24taXRlbXM6IGNlbnRlcjsganVzdGlmeS1jb250ZW50OiBjZW50ZXI7IH0KICAjZHJvcC1hcmVhIHsgYm9yZGVyOiAycHggZGFzaGVkIHJnYmEoMjU1LDI1NSwyNTUsMC4xNSk7IGJvcmRlci1yYWRpdXM6IDEuMnJlbTsgcGFkZGluZzogM3JlbSA0cmVtOyB0ZXh0LWFsaWduOiBjZW50ZXI7IG1heC13aWR0aDogNDgwcHg7IHdpZHRoOiAxMDAlOyB9CiAgI2Ryb3AtYXJlYSAuaWNvbiB7IGZvbnQtc2l6ZTogMi44cmVtOyBtYXJnaW4tYm90dG9tOiAxcmVtOyB9CiAgI2Ryb3AtYXJlYSBoMiB7IGZvbnQtZmFtaWx5OiBzeXN0ZW0tdWksIC1hcHBsZS1zeXN0ZW0sIHNhbnMtc2VyaWY7IGZvbnQtd2VpZ2h0OiA1MDA7IGNvbG9yOiByZ2JhKDI1NSwyNTUsMjU1LDAuNzUpOyBtYXJnaW4tYm90dG9tOiAwLjM1cmVtOyBmb250LXNpemU6IDEuMXJlbTsgfQogICNkcm9wLWFyZWEgLnN1YiB7IGZvbnQtc2l6ZTogMC43MnJlbTsgY29sb3I6IHJnYmEoMjU1LDI1NSwyNTUsMC4yOCk7IG1hcmdpbi1ib3R0b206IDEuNHJlbTsgfQogIC5sb2FkaW5nLWJhciB7IHdpZHRoOiAxMDAlOyBoZWlnaHQ6IDNweDsgYmFja2dyb3VuZDogcmdiYSgyNTUsMjU1LDI1NSwwLjA4KTsgYm9yZGVyLXJhZGl1czogOTlweDsgb3ZlcmZsb3c6IGhpZGRlbjsgfQogIC5sb2FkaW5nLWZpbGwgeyBoZWlnaHQ6IDEwMCU7IGJhY2tncm91bmQ6ICMxMGI5ODE7IGJvcmRlci1yYWRpdXM6IDk5cHg7IHdpZHRoOiAzMCU7IGFuaW1hdGlvbjogbHNsaWRlIDEuNHMgZWFzZS1pbi1vdXQgaW5maW5pdGU7IH0KICBAa2V5ZnJhbWVzIGxzbGlkZSB7IDAle21hcmdpbi1sZWZ0Oi0zMCV9IDEwMCV7bWFyZ2luLWxlZnQ6MTMwJX0gfQogIC5lcnItbXNnIHsgZm9udC1zaXplOiAwLjcycmVtOyBjb2xvcjogI2ZjYTVhNTsgbWFyZ2luLXRvcDogMXJlbTsgbGluZS1oZWlnaHQ6IDEuNjsgfQogIC5kaXZpZGVyIHsgZGlzcGxheTogZmxleDsgYWxpZ24taXRlbXM6IGNlbnRlcjsgZ2FwOiAwLjhyZW07IG1hcmdpbjogMS40cmVtIDA7IH0KICAuZGl2aWRlci1saW5lIHsgZmxleDogMTsgaGVpZ2h0OiAxcHg7IGJhY2tncm91bmQ6IHJnYmEoMjU1LDI1NSwyNTUsMC4wOCk7IH0KICAuZGl2aWRlci10ZXh0IHsgZm9udC1zaXplOiAwLjYycmVtOyBjb2xvcjogcmdiYSgyNTUsMjU1LDI1NSwwLjIyKTsgfQogIC51cGxvYWQtYnRuIHsgZGlzcGxheTogaW5saW5lLWZsZXg7IGFsaWduLWl0ZW1zOiBjZW50ZXI7IGdhcDogMC41cmVtOyBmb250LXNpemU6IDAuNzJyZW07IHBhZGRpbmc6IDAuNXJlbSAxLjJyZW07IGJvcmRlci1yYWRpdXM6IDdweDsgYm9yZGVyOiAxcHggc29saWQgcmdiYSgyNTUsMjU1LDI1NSwwLjEyKTsgYmFja2dyb3VuZDogcmdiYSgyNTUsMjU1LDI1NSwwLjA1KTsgY29sb3I6IHJnYmEoMjU1LDI1NSwyNTUsMC41KTsgY3Vyc29yOiBwb2ludGVyOyBmb250LWZhbWlseTogdWktbW9ub3NwYWNlLCBNZW5sbywgQ29uc29sYXMsIG1vbm9zcGFjZTsgdHJhbnNpdGlvbjogYWxsIDAuMTVzOyB9CiAgLnVwbG9hZC1idG46aG92ZXIgeyBiYWNrZ3JvdW5kOiByZ2JhKDI1NSwyNTUsMjU1LDAuMSk7IGNvbG9yOiByZ2JhKDI1NSwyNTUsMjU1LDAuOCk7IH0KCiAgI2FwcCB7IGZsZXg6IDE7IGRpc3BsYXk6IGZsZXg7IGZsZXgtZGlyZWN0aW9uOiBjb2x1bW47IGhlaWdodDogMTAwdmg7IG1pbi1oZWlnaHQ6IDA7IH0KCiAgI2hlYWRlciB7IGRpc3BsYXk6IGZsZXg7IGFsaWduLWl0ZW1zOiBjZW50ZXI7IGp1c3RpZnktY29udGVudDogc3BhY2UtYmV0d2VlbjsgcGFkZGluZzogMC41NXJlbSAxLjJyZW07IGJhY2tncm91bmQ6ICMwZDExMTc7IGJvcmRlci1ib3R0b206IDFweCBzb2xpZCByZ2JhKDI1NSwyNTUsMjU1LDAuMDgpOyBmbGV4LXNocmluazogMDsgfQogIC5oZWFkZXItbGVmdCB7IGRpc3BsYXk6IGZsZXg7IGFsaWduLWl0ZW1zOiBjZW50ZXI7IGdhcDogMC45cmVtOyB9CiAgLmZpbGVuYW1lIHsgZm9udC1zaXplOiAwLjdyZW07IGNvbG9yOiByZ2JhKDI1NSwyNTUsMjU1LDAuMzUpOyB9CiAgLnZzZXAgeyB3aWR0aDogMXB4OyBoZWlnaHQ6IDFyZW07IGJhY2tncm91bmQ6IHJnYmEoMjU1LDI1NSwyNTUsMC4xKTsgfQogIC5wcm9ncmVzcy10ZXh0IHsgZm9udC1zaXplOiAwLjdyZW07IGNvbG9yOiByZ2JhKDI1NSwyNTUsMjU1LDAuNCk7IH0KICAucHJvZ3Jlc3MtdGV4dCBiIHsgY29sb3I6ICNmZmY7IGZvbnQtd2VpZ2h0OiA1MDA7IH0KICAucHJvZ3Jlc3MtYmFyIHsgd2lkdGg6IDgwcHg7IGhlaWdodDogNXB4OyBiYWNrZ3JvdW5kOiByZ2JhKDI1NSwyNTUsMjU1LDAuMSk7IGJvcmRlci1yYWRpdXM6IDk5cHg7IG92ZXJmbG93OiBoaWRkZW47IH0KICAucHJvZ3Jlc3MtZmlsbCB7IGhlaWdodDogMTAwJTsgYmFja2dyb3VuZDogIzEwYjk4MTsgYm9yZGVyLXJhZGl1czogOTlweDsgdHJhbnNpdGlvbjogd2lkdGggMC40czsgfQogIC5oZWFkZXItcmlnaHQgeyBkaXNwbGF5OiBmbGV4OyBnYXA6IDAuNDVyZW07IGFsaWduLWl0ZW1zOiBjZW50ZXI7IH0KICAuYnRuIHsgZm9udC1zaXplOiAwLjcycmVtOyBwYWRkaW5nOiAwLjM1cmVtIDAuODVyZW07IGJvcmRlci1yYWRpdXM6IDZweDsgYm9yZGVyOiBub25lOyBjdXJzb3I6IHBvaW50ZXI7IGZvbnQtZmFtaWx5OiB1aS1tb25vc3BhY2UsIE1lbmxvLCBDb25zb2xhcywgbW9ub3NwYWNlOyB0cmFuc2l0aW9uOiBhbGwgMC4xNXM7IH0KICAuYnRuLWdob3N0IHsgYmFja2dyb3VuZDogcmdiYSgyNTUsMjU1LDI1NSwwLjA1KTsgY29sb3I6IHJnYmEoMjU1LDI1NSwyNTUsMC41KTsgYm9yZGVyOiAxcHggc29saWQgcmdiYSgyNTUsMjU1LDI1NSwwLjA4KTsgfQogIC5idG4tZ2hvc3Q6aG92ZXIgeyBiYWNrZ3JvdW5kOiByZ2JhKDI1NSwyNTUsMjU1LDAuMTIpOyBjb2xvcjogI2ZmZjsgfQogIC5idG4tcmVmcmVzaCB7IGJhY2tncm91bmQ6IHJnYmEoMTYsMTg1LDEyOSwwLjEpOyBjb2xvcjogIzZlZTdiNzsgYm9yZGVyOiAxcHggc29saWQgcmdiYSgxNiwxODUsMTI5LDAuMik7IH0KICAuYnRuLXJlZnJlc2g6aG92ZXIgeyBiYWNrZ3JvdW5kOiByZ2JhKDE2LDE4NSwxMjksMC4yKTsgfQogIC5idG4tZXhwb3J0IHsgYmFja2dyb3VuZDogIzA2NWY0NjsgY29sb3I6ICNmZmY7IGZvbnQtd2VpZ2h0OiA2MDA7IGJvcmRlcjogMXB4IHNvbGlkICMwNDc4NTc7IH0KICAuYnRuLWV4cG9ydDpob3ZlciB7IGJhY2tncm91bmQ6ICMwNDc4NTc7IH0KCiAgLyogU2F2ZSBzdGF0dXMgaW5kaWNhdG9yICovCiAgI3NhdmUtc3RhdHVzIHsgZm9udC1zaXplOiAwLjY4cmVtOyBwYWRkaW5nOiAwLjI1cmVtIDAuN3JlbTsgYm9yZGVyLXJhZGl1czogOTlweDsgdHJhbnNpdGlvbjogYWxsIDAuM3M7IG9wYWNpdHk6IDA7IH0KICAjc2F2ZS1zdGF0dXMuc2F2aW5nIHsgb3BhY2l0eTogMTsgYmFja2dyb3VuZDogcmdiYSgyNDUsMTU4LDExLDAuMTUpOyBjb2xvcjogI2ZjZDM0ZDsgYm9yZGVyOiAxcHggc29saWQgcmdiYSgyNDUsMTU4LDExLDAuMyk7IH0KICAjc2F2ZS1zdGF0dXMuc2F2ZWQgIHsgb3BhY2l0eTogMTsgYmFja2dyb3VuZDogcmdiYSgxNiwxODUsMTI5LDAuMTUpOyBjb2xvcjogIzZlZTdiNzsgYm9yZGVyOiAxcHggc29saWQgcmdiYSgxNiwxODUsMTI5LDAuMyk7IH0KICAjc2F2ZS1zdGF0dXMuZXJyb3IgIHsgb3BhY2l0eTogMTsgYmFja2dyb3VuZDogcmdiYSgyMzksNjgsNjgsMC4xNSk7IGNvbG9yOiAjZmNhNWE1OyBib3JkZXI6IDFweCBzb2xpZCByZ2JhKDIzOSw2OCw2OCwwLjMpOyB9CgogICNpbmZvYmFyIHsgcGFkZGluZzogMC40cmVtIDEuMnJlbTsgYmFja2dyb3VuZDogcmdiYSgxMywxNywyMywwLjgpOyBib3JkZXItYm90dG9tOiAxcHggc29saWQgcmdiYSgyNTUsMjU1LDI1NSwwLjA1KTsgZmxleC1zaHJpbms6IDA7IGRpc3BsYXk6IGZsZXg7IGFsaWduLWl0ZW1zOiBjZW50ZXI7IGdhcDogMC43cmVtOyB9CiAgLnJvdy1udW0geyBmb250LXNpemU6IDAuNjhyZW07IGNvbG9yOiByZ2JhKDI1NSwyNTUsMjU1LDAuMjIpOyB9CiAgLmNvbXBhbnktbmFtZSB7IGZvbnQtZmFtaWx5OiBzeXN0ZW0tdWksIC1hcHBsZS1zeXN0ZW0sIHNhbnMtc2VyaWY7IGZvbnQtd2VpZ2h0OiA3MDA7IGZvbnQtc2l6ZTogMC45NXJlbTsgfQogIC5pbmZvLXBpbGwgeyBmb250LXNpemU6IDAuNjVyZW07IGNvbG9yOiByZ2JhKDI1NSwyNTUsMjU1LDAuMzgpOyBiYWNrZ3JvdW5kOiByZ2JhKDI1NSwyNTUsMjU1LDAuMDYpOyBwYWRkaW5nOiAwLjEycmVtIDAuNXJlbTsgYm9yZGVyLXJhZGl1czogOTlweDsgfQogIC5zZWxlY3RlZC1iYWRnZSB7IGZvbnQtc2l6ZTogMC42OHJlbTsgY29sb3I6ICMzNGQzOTk7IG1hcmdpbi1sZWZ0OiBhdXRvOyB3aGl0ZS1zcGFjZTogbm93cmFwOyB9CgogICNjb250ZW50IHsgZmxleDogMTsgZGlzcGxheTogZ3JpZDsgZ3JpZC10ZW1wbGF0ZS1jb2x1bW5zOiAxZnIgMWZyOyBnYXA6IDhweDsgcGFkZGluZzogOHB4OyBtaW4taGVpZ2h0OiAwOyB9CgogICNwYW5lbC13ZWJzaXRlIHsgZGlzcGxheTogZmxleDsgZmxleC1kaXJlY3Rpb246IGNvbHVtbjsgYm9yZGVyLXJhZGl1czogMTBweDsgb3ZlcmZsb3c6IGhpZGRlbjsgYm9yZGVyOiAxcHggc29saWQgcmdiYSgyNTUsMjU1LDI1NSwwLjA4KTsgdHJhbnNpdGlvbjogYm94LXNoYWRvdyAwLjJzOyB9CiAgI3BhbmVsLXdlYnNpdGUuc2VsIHsgYm94LXNoYWRvdzogMCAwIDAgMnB4ICMxMGI5ODE7IGJvcmRlci1jb2xvcjogdHJhbnNwYXJlbnQ7IH0KICAucGFuZWwtdG9wYmFyIHsgZGlzcGxheTogZmxleDsgYWxpZ24taXRlbXM6IGNlbnRlcjsganVzdGlmeS1jb250ZW50OiBzcGFjZS1iZXR3ZWVuOyBwYWRkaW5nOiAwLjQycmVtIDAuNzVyZW07IGJhY2tncm91bmQ6ICMxNjFiMjI7IGJvcmRlci1ib3R0b206IDFweCBzb2xpZCByZ2JhKDI1NSwyNTUsMjU1LDAuMDgpOyBmbGV4LXNocmluazogMDsgZ2FwOiAwLjVyZW07IH0KICAuYmFkZ2UgeyBmb250LXNpemU6IDAuNnJlbTsgcGFkZGluZzogMC4xcmVtIDAuNXJlbTsgYm9yZGVyLXJhZGl1czogOTlweDsgYm9yZGVyOiAxcHggc29saWQ7IHdoaXRlLXNwYWNlOiBub3dyYXA7IGZsZXgtc2hyaW5rOiAwOyB9CiAgLmJhZGdlLWUgeyBiYWNrZ3JvdW5kOiByZ2JhKDE2LDE4NSwxMjksMC4xOCk7IGNvbG9yOiAjNmVlN2I3OyBib3JkZXItY29sb3I6IHJnYmEoMTYsMTg1LDEyOSwwLjMpOyB9CiAgLmJhZGdlLWIgeyBiYWNrZ3JvdW5kOiByZ2JhKDU5LDEzMCwyNDYsMC4xOCk7IGNvbG9yOiAjOTNjNWZkOyBib3JkZXItY29sb3I6IHJnYmEoNTksMTMwLDI0NiwwLjMpOyB9CiAgLmJhZGdlLWEgeyBiYWNrZ3JvdW5kOiByZ2JhKDI0NSwxNTgsMTEsMC4xOCk7IGNvbG9yOiAjZmNkMzRkOyBib3JkZXItY29sb3I6IHJnYmEoMjQ1LDE1OCwxMSwwLjMpOyB9CiAgLnVybC1zaG9ydCB7IGZvbnQtc2l6ZTogMC42MnJlbTsgY29sb3I6IHJnYmEoMjU1LDI1NSwyNTUsMC4zKTsgd2hpdGUtc3BhY2U6IG5vd3JhcDsgb3ZlcmZsb3c6IGhpZGRlbjsgdGV4dC1vdmVyZmxvdzogZWxsaXBzaXM7IGZsZXg6IDE7IG1pbi13aWR0aDogMDsgfQogIC50Yi1hY3Rpb25zIHsgZGlzcGxheTogZmxleDsgZ2FwOiAwLjM1cmVtOyBmbGV4LXNocmluazogMDsgfQogIC5idG4tYSB7IGZvbnQtc2l6ZTogMC42MnJlbTsgcGFkZGluZzogMC4ycmVtIDAuNXJlbTsgYm9yZGVyLXJhZGl1czogNXB4OyBiYWNrZ3JvdW5kOiByZ2JhKDI1NSwyNTUsMjU1LDAuMDgpOyBjb2xvcjogcmdiYSgyNTUsMjU1LDI1NSwwLjUpOyBib3JkZXI6IG5vbmU7IGN1cnNvcjogcG9pbnRlcjsgdGV4dC1kZWNvcmF0aW9uOiBub25lOyBkaXNwbGF5OiBpbmxpbmUtZmxleDsgYWxpZ24taXRlbXM6IGNlbnRlcjsgdHJhbnNpdGlvbjogYWxsIDAuMTVzOyBmb250LWZhbWlseTogdWktbW9ub3NwYWNlLCBNZW5sbywgQ29uc29sYXMsIG1vbm9zcGFjZTsgfQogIC5idG4tYTpob3ZlciB7IGJhY2tncm91bmQ6IHJnYmEoMjU1LDI1NSwyNTUsMC4xNSk7IGNvbG9yOiAjZmZmOyB9CiAgLmJ0bi1zIHsgZm9udC1zaXplOiAwLjYycmVtOyBwYWRkaW5nOiAwLjJyZW0gMC42NXJlbTsgYm9yZGVyLXJhZGl1czogNXB4OyBib3JkZXI6IG5vbmU7IGN1cnNvcjogcG9pbnRlcjsgZm9udC1mYW1pbHk6IHVpLW1vbm9zcGFjZSwgTWVubG8sIENvbnNvbGFzLCBtb25vc3BhY2U7IGZvbnQtd2VpZ2h0OiA2MDA7IHRyYW5zaXRpb246IGFsbCAwLjE1czsgYmFja2dyb3VuZDogcmdiYSgyNTUsMjU1LDI1NSwwLjA5KTsgY29sb3I6IHJnYmEoMjU1LDI1NSwyNTUsMC41NSk7IH0KICAuYnRuLXM6ZGlzYWJsZWQgeyBvcGFjaXR5OiAwLjI1OyBjdXJzb3I6IG5vdC1hbGxvd2VkOyB9CiAgLmJ0bi1zLnNlOm5vdCg6ZGlzYWJsZWQpOmhvdmVyLCAuYnRuLXMuc2Uub24geyBiYWNrZ3JvdW5kOiAjMDU5NjY5OyBjb2xvcjogI2ZmZjsgfQogIC5idG4tcy5zYjpub3QoOmRpc2FibGVkKTpob3ZlciwgLmJ0bi1zLnNiLm9uIHsgYmFja2dyb3VuZDogIzA1OTY2OTsgY29sb3I6ICNmZmY7IH0KICAuYnRuLXMuc2E6bm90KDpkaXNhYmxlZCk6aG92ZXIsIC5idG4tcy5zYS5vbiB7IGJhY2tncm91bmQ6ICMwNTk2Njk7IGNvbG9yOiAjZmZmOyB9CiAgLnBhbmVsLWJvZHkgeyBmbGV4OiAxOyBtaW4taGVpZ2h0OiAwOyBiYWNrZ3JvdW5kOiAjZmZmOyB9CiAgLnBhbmVsLWJvZHkgaWZyYW1lIHsgd2lkdGg6IDEwMCU7IGhlaWdodDogMTAwJTsgYm9yZGVyOiAwOyBkaXNwbGF5OiBibG9jazsgfQogIC5lbXB0eSB7IGRpc3BsYXk6IGZsZXg7IGZsZXgtZGlyZWN0aW9uOiBjb2x1bW47IGFsaWduLWl0ZW1zOiBjZW50ZXI7IGp1c3RpZnktY29udGVudDogY2VudGVyOyBoZWlnaHQ6IDEwMCU7IGJhY2tncm91bmQ6ICMwZDExMTc7IGNvbG9yOiByZ2JhKDI1NSwyNTUsMjU1LDAuMTMpOyBnYXA6IDAuNXJlbTsgfQogIC5lbXB0eSBzcGFuIHsgZm9udC1zaXplOiAycmVtOyB9CiAgLmVtcHR5IHAgeyBmb250LXNpemU6IDAuN3JlbTsgfQoKICAjcGFuZWwtcmlnaHQgeyBkaXNwbGF5OiBmbGV4OyBmbGV4LWRpcmVjdGlvbjogY29sdW1uOyBnYXA6IDhweDsgbWluLWhlaWdodDogMDsgfQogIC5saS1jYXJkIHsgZmxleDogMTsgZGlzcGxheTogZmxleDsgZmxleC1kaXJlY3Rpb246IGNvbHVtbjsgYm9yZGVyLXJhZGl1czogMTBweDsgb3ZlcmZsb3c6IGhpZGRlbjsgYm9yZGVyOiAxcHggc29saWQgcmdiYSgyNTUsMjU1LDI1NSwwLjA4KTsgdHJhbnNpdGlvbjogYm94LXNoYWRvdyAwLjJzOyBtaW4taGVpZ2h0OiAwOyB9CiAgLmxpLWNhcmQuc2VsLWIgeyBib3gtc2hhZG93OiAwIDAgMCAycHggIzEwYjk4MTsgYm9yZGVyLWNvbG9yOiB0cmFuc3BhcmVudDsgfQogIC5saS1jYXJkLnNlbC1hIHsgYm94LXNoYWRvdzogMCAwIDAgMnB4ICMxMGI5ODE7IGJvcmRlci1jb2xvcjogdHJhbnNwYXJlbnQ7IH0KICAubGktYm9keSB7IGZsZXg6IDE7IGRpc3BsYXk6IGZsZXg7IGFsaWduLWl0ZW1zOiBjZW50ZXI7IGp1c3RpZnktY29udGVudDogZmxleC1zdGFydDsgZ2FwOiAycmVtOyBwYWRkaW5nOiAxLjJyZW0gMS41cmVtOyBiYWNrZ3JvdW5kOiAjMGQxMTE3OyBtaW4taGVpZ2h0OiAwOyB9CiAgLmJpZy1vcGVuIHsgZGlzcGxheTogZmxleDsgZmxleC1kaXJlY3Rpb246IGNvbHVtbjsgYWxpZ24taXRlbXM6IGNlbnRlcjsganVzdGlmeS1jb250ZW50OiBjZW50ZXI7IGdhcDogMC41NXJlbTsgcGFkZGluZzogMS4xcmVtIDEuNHJlbTsgYm9yZGVyLXJhZGl1czogMTJweDsgYm9yZGVyOiAxLjVweCBzb2xpZCByZ2JhKDI1NSwyNTUsMjU1LDAuMSk7IGJhY2tncm91bmQ6IHJnYmEoMjU1LDI1NSwyNTUsMC4wMzUpOyBjb2xvcjogcmdiYSgyNTUsMjU1LDI1NSwwLjY1KTsgY3Vyc29yOiBwb2ludGVyOyB0ZXh0LWRlY29yYXRpb246IG5vbmU7IHRyYW5zaXRpb246IGFsbCAwLjE4czsgZm9udC1mYW1pbHk6IHN5c3RlbS11aSwgLWFwcGxlLXN5c3RlbSwgc2Fucy1zZXJpZjsgbWluLXdpZHRoOiAxNjBweDsgfQogIC5iaWctb3Blbjpob3ZlciB7IGJhY2tncm91bmQ6IHJnYmEoMjU1LDI1NSwyNTUsMC4wOCk7IGJvcmRlci1jb2xvcjogcmdiYSgyNTUsMjU1LDI1NSwwLjIpOyBjb2xvcjogI2ZmZjsgdHJhbnNmb3JtOiB0cmFuc2xhdGVZKC0xcHgpOyB9CiAgLmJpZy1vcGVuLmNiOmhvdmVyIHsgYmFja2dyb3VuZDogcmdiYSg1OSwxMzAsMjQ2LDAuMTQpOyBib3JkZXItY29sb3I6IHJnYmEoNTksMTMwLDI0NiwwLjM4KTsgfQogIC5iaWctb3Blbi5jYTpob3ZlciB7IGJhY2tncm91bmQ6IHJnYmEoMjQ1LDE1OCwxMSwwLjE0KTsgYm9yZGVyLWNvbG9yOiByZ2JhKDI0NSwxNTgsMTEsMC4zOCk7IH0KICAuYmlnLW9wZW4gLm9pIHsgZm9udC1zaXplOiAxLjVyZW07IH0KICAuYmlnLW9wZW4gLm9sIHsgZm9udC1zaXplOiAwLjgycmVtOyBmb250LXdlaWdodDogNjAwOyB9CiAgLmJpZy1vcGVuIC5vdSB7IGZvbnQtc2l6ZTogMC41OHJlbTsgZm9udC1mYW1pbHk6IHVpLW1vbm9zcGFjZSwgTWVubG8sIENvbnNvbGFzLCBtb25vc3BhY2U7IGNvbG9yOiByZ2JhKDI1NSwyNTUsMjU1LDAuMyk7IHRleHQtYWxpZ246IGNlbnRlcjsgbWF4LXdpZHRoOiAxNTBweDsgb3ZlcmZsb3c6IGhpZGRlbjsgdGV4dC1vdmVyZmxvdzogZWxsaXBzaXM7IHdoaXRlLXNwYWNlOiBub3dyYXA7IH0KICAubGktbWV0YSB7IGRpc3BsYXk6IGZsZXg7IGZsZXgtZGlyZWN0aW9uOiBjb2x1bW47IGdhcDogMC4zOHJlbTsgYWxpZ24taXRlbXM6IGZsZXgtc3RhcnQ7IH0KICAubWV0YS1yb3cgeyBkaXNwbGF5OiBmbGV4OyBnYXA6IDAuNXJlbTsgYWxpZ24taXRlbXM6IGJhc2VsaW5lOyB9CiAgLm1sIHsgZm9udC1zaXplOiAwLjU4cmVtOyBjb2xvcjogcmdiYSgyNTUsMjU1LDI1NSwwLjIyKTsgd2lkdGg6IDU4cHg7IGZsZXgtc2hyaW5rOiAwOyB9CiAgLm12IHsgZm9udC1zaXplOiAwLjY4cmVtOyBjb2xvcjogcmdiYSgyNTUsMjU1LDI1NSwwLjU4KTsgZm9udC1mYW1pbHk6IHN5c3RlbS11aSwgLWFwcGxlLXN5c3RlbSwgc2Fucy1zZXJpZjsgfQogIC5tdi51cmwgeyBmb250LWZhbWlseTogdWktbW9ub3NwYWNlLCBNZW5sbywgQ29uc29sYXMsIG1vbm9zcGFjZTsgZm9udC1zaXplOiAwLjU4cmVtOyBjb2xvcjogcmdiYSgyNTUsMjU1LDI1NSwwLjI4KTsgd29yZC1icmVhazogYnJlYWstYWxsOyBtYXgtd2lkdGg6IDI0MHB4OyB9CiAgLmxpLWVtcHR5IHsgZGlzcGxheTogZmxleDsgZmxleC1kaXJlY3Rpb246IGNvbHVtbjsgYWxpZ24taXRlbXM6IGNlbnRlcjsganVzdGlmeS1jb250ZW50OiBjZW50ZXI7IGhlaWdodDogMTAwJTsgYmFja2dyb3VuZDogIzBkMTExNzsgY29sb3I6IHJnYmEoMjU1LDI1NSwyNTUsMC4xMik7IGdhcDogMC40cmVtOyB9CiAgLmxpLWVtcHR5IHNwYW4geyBmb250LXNpemU6IDJyZW07IH0KICAubGktZW1wdHkgcCB7IGZvbnQtc2l6ZTogMC43cmVtOyB9CgogICNmb290ZXIgeyBkaXNwbGF5OiBmbGV4OyBhbGlnbi1pdGVtczogY2VudGVyOyBqdXN0aWZ5LWNvbnRlbnQ6IHNwYWNlLWJldHdlZW47IHBhZGRpbmc6IDAuNXJlbSAxLjJyZW07IGJhY2tncm91bmQ6ICMwZDExMTc7IGJvcmRlci10b3A6IDFweCBzb2xpZCByZ2JhKDI1NSwyNTUsMjU1LDAuMDgpOyBmbGV4LXNocmluazogMDsgfQogIC5idG4tbmF2IHsgZm9udC1zaXplOiAwLjc4cmVtOyBwYWRkaW5nOiAwLjMycmVtIDFyZW07IGJvcmRlci1yYWRpdXM6IDZweDsgYm9yZGVyOiBub25lOyBjdXJzb3I6IHBvaW50ZXI7IGJhY2tncm91bmQ6IHJnYmEoMjU1LDI1NSwyNTUsMC4xKTsgY29sb3I6IHJnYmEoMjU1LDI1NSwyNTUsMC42NSk7IGZvbnQtZmFtaWx5OiB1aS1tb25vc3BhY2UsIE1lbmxvLCBDb25zb2xhcywgbW9ub3NwYWNlOyB0cmFuc2l0aW9uOiBhbGwgMC4xNXM7IH0KICAuYnRuLW5hdjpob3Zlcjpub3QoOmRpc2FibGVkKSB7IGJhY2tncm91bmQ6IHJnYmEoMjU1LDI1NSwyNTUsMC4yKTsgY29sb3I6ICNmZmY7IH0KICAuYnRuLW5hdjpkaXNhYmxlZCB7IG9wYWNpdHk6IDAuMjU7IGN1cnNvcjogbm90LWFsbG93ZWQ7IH0KICAjZG90cyB7IGRpc3BsYXk6IGZsZXg7IGdhcDogNXB4OyBhbGlnbi1pdGVtczogY2VudGVyOyBmbGV4LXdyYXA6IHdyYXA7IGp1c3RpZnktY29udGVudDogY2VudGVyOyBtYXgtd2lkdGg6IDYwdnc7IH0KICAuZG90IHsgd2lkdGg6IDI3cHg7IGhlaWdodDogMjdweDsgYm9yZGVyLXJhZGl1czogNTAlOyBib3JkZXI6IG5vbmU7IGN1cnNvcjogcG9pbnRlcjsgZm9udC1zaXplOiAwLjdyZW07IGZvbnQtZmFtaWx5OiB1aS1tb25vc3BhY2UsIE1lbmxvLCBDb25zb2xhcywgbW9ub3NwYWNlOyB0cmFuc2l0aW9uOiBhbGwgMC4xNXM7IGJhY2tncm91bmQ6IHJnYmEoMjU1LDI1NSwyNTUsMC4wOSk7IGNvbG9yOiByZ2JhKDI1NSwyNTUsMjU1LDAuNCk7IH0KICAuZG90OmhvdmVyIHsgYmFja2dyb3VuZDogcmdiYSgyNTUsMjU1LDI1NSwwLjE4KTsgY29sb3I6ICNmZmY7IH0KICAuZG90LmN1cnIgeyBiYWNrZ3JvdW5kOiAjZmZmOyBjb2xvcjogIzAwMDsgZm9udC13ZWlnaHQ6IDcwMDsgdHJhbnNmb3JtOiBzY2FsZSgxLjEyKTsgfQogIC5kb3QuZG4geyBiYWNrZ3JvdW5kOiAjMDY0ZTNiOyBjb2xvcjogIzM0ZDM5OTsgfQoKICAuYmFkZ2UtZyB7IGJhY2tncm91bmQ6IHJnYmEoOTksMTAyLDI0MSwwLjE4KTsgY29sb3I6ICNhNWI0ZmM7IGJvcmRlci1jb2xvcjogcmdiYSg5OSwxMDIsMjQxLDAuMyk7IH0KICAuYnRuLXMuc2c6bm90KDpkaXNhYmxlZCk6aG92ZXIsIC5idG4tcy5zZy5vbiB7IGJhY2tncm91bmQ6ICMwNTk2Njk7IGNvbG9yOiAjZmZmOyB9CiAgLmxpLWNhcmQuc2VsLWcgeyBib3gtc2hhZG93OiAwIDAgMCAycHggIzEwYjk4MTsgYm9yZGVyLWNvbG9yOiB0cmFuc3BhcmVudDsgfQogIC5nb29nbGUtYm9keSB7IGZsZXg6IDE7IGRpc3BsYXk6IGZsZXg7IGFsaWduLWl0ZW1zOiBjZW50ZXI7IGp1c3RpZnktY29udGVudDogZmxleC1zdGFydDsgZ2FwOiAycmVtOyBwYWRkaW5nOiAxLjJyZW0gMS41cmVtOyBiYWNrZ3JvdW5kOiAjMGQxMTE3OyBtaW4taGVpZ2h0OiAwOyB9CiAgLmJpZy1vcGVuLmNnOmhvdmVyIHsgYmFja2dyb3VuZDogcmdiYSg5OSwxMDIsMjQxLDAuMTQpOyBib3JkZXItY29sb3I6IHJnYmEoOTksMTAyLDI0MSwwLjM4KTsgfQoKICAuYnRuLW5vbmUgeyBmb250LXNpemU6IDAuNzJyZW07IHBhZGRpbmc6IDAuMzJyZW0gMC44NXJlbTsgYm9yZGVyLXJhZGl1czogNnB4OyBib3JkZXI6IDFweCBzb2xpZCByZ2JhKDIzOSw2OCw2OCwwLjMpOyBiYWNrZ3JvdW5kOiByZ2JhKDIzOSw2OCw2OCwwLjEyKTsgY29sb3I6ICNmY2E1YTU7IGN1cnNvcjogcG9pbnRlcjsgZm9udC1mYW1pbHk6IHVpLW1vbm9zcGFjZSwgTWVubG8sIENvbnNvbGFzLCBtb25vc3BhY2U7IHRyYW5zaXRpb246IGFsbCAwLjE1czsgfQogIC5idG4tbm9uZTpob3ZlciB7IGJhY2tncm91bmQ6IHJnYmEoMjM5LDY4LDY4LDAuMjUpOyB9Cjwvc3R5bGU+CjwvaGVhZD4KPGJvZHk+Cgo8ZGl2IGlkPSJkcm9wem9uZSI+CiAgPGRpdiBpZD0iZHJvcC1hcmVhIj4KICAgIDxkaXYgY2xhc3M9Imljb24iIGlkPSJsb2FkLWljb24iPjwvZGl2PgogICAgPGgyIGlkPSJsb2FkLXRpdGxlIj5DYXJpY2FtZW50byBHb29nbGUgU2hlZXRzLi4uPC9oMj4KICAgIDxwIGNsYXNzPSJzdWIiIGlkPSJsb2FkLXN1YiI+UmVjdXBlcm8gZGF0aSBpbiBjb3JzbzwvcD4KICAgIDxkaXYgY2xhc3M9ImxvYWRpbmctYmFyIiBpZD0ibG9hZGluZy1iYXIiPjxkaXYgY2xhc3M9ImxvYWRpbmctZmlsbCI+PC9kaXY+PC9kaXY+CiAgICA8ZGl2IGNsYXNzPSJlcnItbXNnIiBpZD0iZXJyLW1zZyIgc3R5bGU9ImRpc3BsYXk6bm9uZSI+PC9kaXY+CiAgICA8ZGl2IGlkPSJtYW51YWwtc2VjdGlvbiIgc3R5bGU9ImRpc3BsYXk6bm9uZSI+CiAgICAgIDxkaXYgY2xhc3M9ImRpdmlkZXIiPgogICAgICAgIDxkaXYgY2xhc3M9ImRpdmlkZXItbGluZSI+PC9kaXY+CiAgICAgICAgPHNwYW4gY2xhc3M9ImRpdmlkZXItdGV4dCI+b3BwdXJlIGNhcmljYSBtYW51YWxtZW50ZTwvc3Bhbj4KICAgICAgICA8ZGl2IGNsYXNzPSJkaXZpZGVyLWxpbmUiPjwvZGl2PgogICAgICA8L2Rpdj4KICAgICAgPGxhYmVsIGNsYXNzPSJ1cGxvYWQtYnRuIj4KICAgICAgICAgQ2FyaWNhIGZpbGUgWExTWAogICAgICAgIDxpbnB1dCB0eXBlPSJmaWxlIiBpZD0iZmlsZS1pbnB1dCIgYWNjZXB0PSIueGxzeCIgc3R5bGU9ImRpc3BsYXk6bm9uZSI+CiAgICAgIDwvbGFiZWw+CiAgICA8L2Rpdj4KICA8L2Rpdj4KPC9kaXY+Cgo8ZGl2IGlkPSJhcHAiIHN0eWxlPSJkaXNwbGF5Om5vbmUiPgogIDxkaXYgaWQ9ImhlYWRlciI+CiAgICA8ZGl2IGNsYXNzPSJoZWFkZXItbGVmdCI+CiAgICAgIDxzcGFuIGNsYXNzPSJmaWxlbmFtZSIgaWQ9ImZpbGVuYW1lIj48L3NwYW4+CiAgICAgIDxkaXYgY2xhc3M9InZzZXAiPjwvZGl2PgogICAgICA8c3BhbiBjbGFzcz0icHJvZ3Jlc3MtdGV4dCI+PGIgaWQ9ImRvbmUtY291bnQiPjA8L2I+LzxiIGlkPSJ0b3RhbC1jb3VudCI+MDwvYj4gY29tcGxldGF0aTwvc3Bhbj4KICAgICAgPGRpdiBjbGFzcz0icHJvZ3Jlc3MtYmFyIj48ZGl2IGNsYXNzPSJwcm9ncmVzcy1maWxsIiBpZD0icHJvZ3Jlc3MtZmlsbCIgc3R5bGU9IndpZHRoOjAlIj48L2Rpdj48L2Rpdj4KICAgIDwvZGl2PgogICAgPGRpdiBjbGFzcz0iaGVhZGVyLXJpZ2h0Ij4KICAgICAgPHNwYW4gaWQ9InNhdmUtc3RhdHVzIj48L3NwYW4+CiAgICAgIDxidXR0b24gY2xhc3M9ImJ0biBidG4tcmVmcmVzaCIgb25jbGljaz0ibG9hZEZyb21TaGVldHMoKSI+UmljYXJpY2E8L2J1dHRvbj4KICAgICAgCiAgICAgIAogICAgPC9kaXY+CiAgPC9kaXY+CgogIDxkaXYgaWQ9ImluZm9iYXIiPgogICAgPHNwYW4gY2xhc3M9InJvdy1udW0iIGlkPSJyb3ctbnVtIj48L3NwYW4+CiAgICA8c3BhbiBjbGFzcz0iY29tcGFueS1uYW1lIiBpZD0iY29tcGFueS1uYW1lIj48L3NwYW4+CiAgICA8c3BhbiBjbGFzcz0iaW5mby1waWxsIiBpZD0iaW5mby1jaXR5IiBzdHlsZT0iZGlzcGxheTpub25lIj48L3NwYW4+CiAgICA8c3BhbiBjbGFzcz0iaW5mby1waWxsIiBpZD0iaW5mby1hdGVjbyIgc3R5bGU9ImRpc3BsYXk6bm9uZSI+PC9zcGFuPgogICAgPHNwYW4gY2xhc3M9InNlbGVjdGVkLWJhZGdlIiBpZD0ic2VsZWN0ZWQtYmFkZ2UiIHN0eWxlPSJkaXNwbGF5Om5vbmUiPjwvc3Bhbj4KICA8L2Rpdj4KCiAgPGRpdiBpZD0iY29udGVudCI+CiAgICA8ZGl2IGlkPSJwYW5lbC13ZWJzaXRlIj4KICAgICAgPGRpdiBjbGFzcz0icGFuZWwtdG9wYmFyIj4KICAgICAgICA8c3BhbiBjbGFzcz0iYmFkZ2UgYmFkZ2UtZSI+U2l0byB3ZWI8L3NwYW4+CiAgICAgICAgPHNwYW4gY2xhc3M9InVybC1zaG9ydCIgaWQ9InVybC13Ij48L3NwYW4+CiAgICAgICAgPGRpdiBjbGFzcz0idGItYWN0aW9ucyI+CiAgICAgICAgICA8YSBpZD0ibGluay13IiBocmVmPSIjIiB0YXJnZXQ9Il9ibGFuayIgY2xhc3M9ImJ0bi1hIj5BcHJpPC9hPgogICAgICAgICAgCiAgICAgICAgPC9kaXY+CiAgICAgIDwvZGl2PgogICAgICA8ZGl2IGNsYXNzPSJwYW5lbC1ib2R5IiBpZD0iYm9keS13Ij4KICAgICAgICA8ZGl2IGNsYXNzPSJlbXB0eSI+PHNwYW4+LTwvc3Bhbj48cD5VUkwgbm9uIGRpc3BvbmliaWxlPC9wPjwvZGl2PgogICAgICA8L2Rpdj4KICAgIDwvZGl2PgoKICAgIDxkaXYgaWQ9InBhbmVsLXJpZ2h0Ij4KICAgICAgPGRpdiBjbGFzcz0ibGktY2FyZCIgaWQ9ImNhcmQtcGhhbnRvbSI+CiAgICAgICAgPGRpdiBjbGFzcz0icGFuZWwtdG9wYmFyIj4KICAgICAgICAgIDxzcGFuIGNsYXNzPSJiYWRnZSBiYWRnZS1iIj5QaGFudG9tPC9zcGFuPgogICAgICAgICAgPHNwYW4gY2xhc3M9InVybC1zaG9ydCIgaWQ9InVybC1wIj48L3NwYW4+CiAgICAgICAgICA8ZGl2IGNsYXNzPSJ0Yi1hY3Rpb25zIj4KICAgICAgICAgICAgPGJ1dHRvbiBjbGFzcz0iYnRuLXMgc2IiIGlkPSJidG4tcCIgb25jbGljaz0ic2VsZWN0KCdwaGFudG9tJykiPlNlbGV6aW9uYTwvYnV0dG9uPgogICAgICAgICAgPC9kaXY+CiAgICAgICAgPC9kaXY+CiAgICAgICAgPGRpdiBpZD0iYm9keS1wIiBzdHlsZT0iZmxleDoxO21pbi1oZWlnaHQ6MCI+CiAgICAgICAgICA8ZGl2IGNsYXNzPSJsaS1lbXB0eSI+PHNwYW4+LTwvc3Bhbj48cD5VUkwgbm9uIGRpc3BvbmliaWxlPC9wPjwvZGl2PgogICAgICAgIDwvZGl2PgogICAgICA8L2Rpdj4KCiAgICAgIDxkaXYgY2xhc3M9ImxpLWNhcmQiIGlkPSJjYXJkLWVhc3liaXoiPgogICAgICAgIDxkaXYgY2xhc3M9InBhbmVsLXRvcGJhciI+CiAgICAgICAgICA8c3BhbiBjbGFzcz0iYmFkZ2UgYmFkZ2UtYSI+RWFzeWJ1c2luZXNzPC9zcGFuPgogICAgICAgICAgPHNwYW4gY2xhc3M9InVybC1zaG9ydCIgaWQ9InVybC1lIj48L3NwYW4+CiAgICAgICAgICA8ZGl2IGNsYXNzPSJ0Yi1hY3Rpb25zIj4KICAgICAgICAgICAgPGJ1dHRvbiBjbGFzcz0iYnRuLXMgc2EiIGlkPSJidG4tZSIgb25jbGljaz0ic2VsZWN0KCdlYXN5Yml6JykiPlNlbGV6aW9uYTwvYnV0dG9uPgogICAgICAgICAgPC9kaXY+CiAgICAgICAgPC9kaXY+CiAgICAgICAgPGRpdiBpZD0iYm9keS1lIiBzdHlsZT0iZmxleDoxO21pbi1oZWlnaHQ6MCI+CiAgICAgICAgICA8ZGl2IGNsYXNzPSJsaS1lbXB0eSI+PHNwYW4+LTwvc3Bhbj48cD5VUkwgbm9uIGRpc3BvbmliaWxlPC9wPjwvZGl2PgogICAgICAgIDwvZGl2PgogICAgICA8L2Rpdj4KCiAgICAgIDxkaXYgY2xhc3M9ImxpLWNhcmQiIGlkPSJjYXJkLWdvb2dsZSI+CiAgICAgICAgPGRpdiBjbGFzcz0icGFuZWwtdG9wYmFyIj4KICAgICAgICAgIDxzcGFuIGNsYXNzPSJiYWRnZSBiYWRnZS1nIj5SaWNlcmNhIEdvb2dsZTwvc3Bhbj4KICAgICAgICAgIDxzcGFuIGNsYXNzPSJ1cmwtc2hvcnQiIGlkPSJ1cmwtZyI+PC9zcGFuPgogICAgICAgICAgPGRpdiBjbGFzcz0idGItYWN0aW9ucyI+CiAgICAgICAgICAgIAogICAgICAgICAgPC9kaXY+CiAgICAgICAgPC9kaXY+CiAgICAgICAgPGRpdiBpZD0iYm9keS1nIiBzdHlsZT0iZmxleDoxO21pbi1oZWlnaHQ6MCI+CiAgICAgICAgICA8ZGl2IGNsYXNzPSJsaS1lbXB0eSI+PHNwYW4+LTwvc3Bhbj48cD5DYXJpY2FtZW50byBhemllbmRhLi4uPC9wPjwvZGl2PgogICAgICAgIDwvZGl2PgogICAgICA8L2Rpdj4KICAgIDwvZGl2PgogIDwvZGl2PgoKICA8ZGl2IGlkPSJmb290ZXIiPgogICAgPGJ1dHRvbiBjbGFzcz0iYnRuLW5hdiIgaWQ9ImJ0bi1wcmV2IiBvbmNsaWNrPSJuYXZpZ2F0ZSgtMSkiPlByZWM8L2J1dHRvbj4KICAgIDxkaXYgaWQ9ImRvdHMiPjwvZGl2PgogICAgPGRpdiBzdHlsZT0iZGlzcGxheTpmbGV4O2dhcDowLjVyZW07YWxpZ24taXRlbXM6Y2VudGVyIj4KICAgICAgPGJ1dHRvbiBjbGFzcz0iYnRuLW5vbmUiIG9uY2xpY2s9InNlbGVjdCgnbm9uZScpIj5OZXNzdW5hPC9idXR0b24+CiAgICAgIDxidXR0b24gY2xhc3M9ImJ0bi1uYXYiIGlkPSJidG4tbmV4dCIgb25jbGljaz0ibmF2aWdhdGUoMSkiPlN1Y2M8L2J1dHRvbj4KICAgIDwvZGl2PgogIDwvZGl2Pgo8L2Rpdj4KCjxzY3JpcHQ+CmNvbnN0IFNIRUVUX0lEICAgPSAnMWtwZWdOTHUxeWxPY0hCcnQxeFo1UmlwVklnS3ZXa0d6WlF6YUczNW90TEUnOwpjb25zdCBHU0hFRVRfVVJMID0gYGh0dHBzOi8vZG9jcy5nb29nbGUuY29tL3NwcmVhZHNoZWV0cy9kLyR7U0hFRVRfSUR9L2V4cG9ydD9mb3JtYXQ9Y3N2JmdpZD0wYDsKY29uc3QgQ1NWX1VSTCAgICA9ICdodHRwczovL2FwaS5hbGxvcmlnaW5zLndpbi9yYXc/dXJsPScgKyBlbmNvZGVVUklDb21wb25lbnQoR1NIRUVUX1VSTCk7CmNvbnN0IFdFQkhPT0sgICAgPSAnaHR0cHM6Ly9ob29rLmV1Mi5tYWtlLmNvbS9raXM3dzhpZ2VzN2N3b3A5ZXViOW0xdGtjYXgxc21kYic7Cgpjb25zdCBDID0gewogIHBoYW50b206ICAgICAgJ0xpbmtlZGluVVJMX1BoYW50b20nLAogIGVhc3liaXo6ICAgICAgJ0xpbmtlZGluVVJMX0Vhc3lidXNpbmVzcycsCiAgcmVzdWx0OiAgICAgICAnTGlua2llZGluVVJMX2RhX3JpY2VyY2FyZScsCiAgd2Vic2l0ZTogICAgICAnU2l0byB3ZWInLAogIHJhZ2lvbmU6ICAgICAgJ1JhZ2lvbmUgc29jaWFsZScsCiAgY2l0dGE6ICAgICAgICAnQ2l0dFx1MDBlMCcsCiAgYXRlY286ICAgICAgICAnQVRFQ08gZGVzY3JpcHRpb24gKElUIDIwMDcpJywKICB0aXRsZVBoYW50b206ICdUaXRsZV9QaGFudG9tJwp9OwoKbGV0IHJvd3M9W10sIGN1cj0wLCBkb25lPXt9LCB3Yj1udWxsOwoKLy8gLS0tLS0tLS0tLSBDU1YgLS0tLS0tLS0tLQpmdW5jdGlvbiBwYXJzZUNTVih0ZXh0KSB7CiAgY29uc3QgbGluZXMgPSB0ZXh0LnNwbGl0KC9ccj9cbi8pLmZpbHRlcihsPT5sLnRyaW0oKSk7CiAgLy8gU2UgbGEgcHJpbWEgcmlnYSBoYSBzb2xvIDEgY29sb25uYSAocmlnYSB0aXRvbG8pLCB1c2FyZSBsYSBzZWNvbmRhIGNvbWUgaGVhZGVyCiAgbGV0IGhlYWRlcklkeCA9IDA7CiAgY29uc3QgZmlyc3RDb2xzID0gc3BsaXRDU1ZMaW5lKGxpbmVzWzBdKTsKICBpZihmaXJzdENvbHMuZmlsdGVyKGM9PmMudHJpbSgpKS5sZW5ndGggPD0gMSkgaGVhZGVySWR4ID0gMTsKICBjb25zdCBoZWFkZXJzID0gc3BsaXRDU1ZMaW5lKGxpbmVzW2hlYWRlcklkeF0pOwogIHJldHVybiBsaW5lcy5zbGljZShoZWFkZXJJZHgrMSkubWFwKGxpbmUgPT4gewogICAgY29uc3QgdmFscyA9IHNwbGl0Q1NWTGluZShsaW5lKTsKICAgIGNvbnN0IG9iaiA9IHtfX2NvbHM6IHZhbHN9OwogICAgaGVhZGVycy5mb3JFYWNoKChoLGkpID0+IG9ialtoXSA9IHZhbHNbaV0gIT09IHVuZGVmaW5lZCA/IHZhbHNbaV0gOiAnJyk7CiAgICByZXR1cm4gb2JqOwogIH0pLmZpbHRlcihyID0+IE9iamVjdC52YWx1ZXMocikuc29tZSh2PT52KSk7Cn0KCmZ1bmN0aW9uIHNwbGl0Q1NWTGluZShsaW5lKSB7CiAgY29uc3QgcmVzdWx0PVtdOyBsZXQgY3VyPScnLCBpblE9ZmFsc2U7CiAgZm9yKGxldCBpPTA7aTxsaW5lLmxlbmd0aDtpKyspewogICAgY29uc3QgY2g9bGluZVtpXTsKICAgIGlmKGNoPT09JyInKXsgaW5RPSFpblE7IH0KICAgIGVsc2UgaWYoY2g9PT0nLCcmJiFpblEpeyByZXN1bHQucHVzaChjdXIudHJpbSgpKTsgY3VyPScnOyB9CiAgICBlbHNlIGN1cis9Y2g7CiAgfQogIHJlc3VsdC5wdXNoKGN1ci50cmltKCkpOwogIHJldHVybiByZXN1bHQ7Cn0KCi8vIC0tLS0tLS0tLS0gTG9hZCAtLS0tLS0tLS0tCmFzeW5jIGZ1bmN0aW9uIGxvYWRGcm9tU2hlZXRzKCkgewogIHNob3dMb2FkaW5nKCk7CiAgdHJ5IHsKICAgIC8vIFVzYSBndml6IEFQSSAobm8gQ09SUyBpc3N1ZXMsIHNhbWUgYXMgZGFzaGJvYXJkKQogICAgY29uc3QgZ3ZpelVybCA9IGBodHRwczovL2RvY3MuZ29vZ2xlLmNvbS9zcHJlYWRzaGVldHMvZC8ke1NIRUVUX0lEfS9ndml6L3RxP3RxeD1vdXQ6Y3N2JmdpZD0wJnQ9JHtEYXRlLm5vdygpfWA7CiAgICBsZXQgdGV4dCA9IG51bGw7CiAgICB0cnkgewogICAgICBjb25zdCByZXMgPSBhd2FpdCBmZXRjaChndml6VXJsKTsKICAgICAgaWYocmVzLm9rKSB0ZXh0ID0gYXdhaXQgcmVzLnRleHQoKTsKICAgIH0gY2F0Y2goZSkge30KICAgIGlmKCF0ZXh0KSB0aHJvdyBuZXcgRXJyb3IoJ0ltcG9zc2liaWxlIHJhZ2dpdW5nZXJlIEdvb2dsZSBTaGVldHMnKTsKICAgIGNvbnN0IGFsbFJvd3MgPSBwYXJzZUNTVih0ZXh0KTsKICAgIGlmKCFhbGxSb3dzLmxlbmd0aCkgdGhyb3cgbmV3IEVycm9yKCdOZXNzdW5hIHJpZ2EgdHJvdmF0YScpOwogICAgLy8gVHJvdmEgbGEgY29sb25uYSByZXN1bHQgaW4gbW9kbyByb2J1c3RvIChnZXN0aXNjZSB2YXJpYW50aSB0eXBvKQogICAgY29uc3QgcmVzdWx0S2V5ID0gT2JqZWN0LmtleXMoYWxsUm93c1swXXx8e30pLmZpbmQoayA9PiBrLnRvTG93ZXJDYXNlKCkuaW5jbHVkZXMoJ2RhX3JpY2VyY2FyZScpKSB8fCBDLnJlc3VsdDsKICAgIEMucmVzdWx0ID0gcmVzdWx0S2V5OyAvLyBhZ2dpb3JuYSBjb24gbm9tZSBjb2xvbm5hIHJlYWxlCiAgICBjb25zdCB3ZWJzaXRlS2V5ID0gT2JqZWN0LmtleXMoYWxsUm93c1swXXx8e30pLmZpbmQoayA9PiBrLnRvTG93ZXJDYXNlKCkuaW5jbHVkZXMoJ3NpdG8nKSkgfHwgQy53ZWJzaXRlOwogICAgQy53ZWJzaXRlID0gd2Vic2l0ZUtleTsKICAgIGNvbnN0IHBoYW50b21LZXkgPSBPYmplY3Qua2V5cyhhbGxSb3dzWzBdfHx7fSkuZmluZChrID0+IGsudG9Mb3dlckNhc2UoKS5pbmNsdWRlcygncGhhbnRvbScpKSB8fCBDLnBoYW50b207CiAgICBDLnBoYW50b20gPSBwaGFudG9tS2V5OwogICAgY29uc3QgZWFzeWJpektleSA9IE9iamVjdC5rZXlzKGFsbFJvd3NbMF18fHt9KS5maW5kKGsgPT4gay50b0xvd2VyQ2FzZSgpLmluY2x1ZGVzKCdlYXN5YnVzaW5lc3MnKSB8fCBrLnRvTG93ZXJDYXNlKCkuaW5jbHVkZXMoJ2Vhc3liaXonKSkgfHwgQy5lYXN5Yml6OwogICAgQy5lYXN5Yml6ID0gZWFzeWJpektleTsKICAgIGNvbnN0IHJhZ0tleSA9IE9iamVjdC5rZXlzKGFsbFJvd3NbMF18fHt9KS5maW5kKGsgPT4gay50b0xvd2VyQ2FzZSgpLmluY2x1ZGVzKCdyYWdpb25lJykpIHx8IEMucmFnaW9uZTsKICAgIEMucmFnaW9uZSA9IHJhZ0tleTsKICAgIHJvd3MgPSBhbGxSb3dzLm1hcCgocixpKSA9PiAoey4uLnIsIF9fb3JpZ0lkeDogaX0pKS5maWx0ZXIociA9PiB7CiAgICAgIGNvbnN0IHJlc3VsdCA9IChyW3Jlc3VsdEtleV18fCcnKS50cmltKCkudG9Mb3dlckNhc2UoKTsKICAgICAgcmV0dXJuIHJlc3VsdC5pbmNsdWRlcygndmVyaWZpYycpOwogICAgfSk7CiAgICBpZighcm93cy5sZW5ndGgpIHRocm93IG5ldyBFcnJvcignTmVzc3VuIFVSTCBkYSB2ZXJpZmljYXJlIHRyb3ZhdG8nKTsKICAgIGN1cj0wOyBkb25lPXt9OwogICAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2Ryb3B6b25lJykuc3R5bGUuZGlzcGxheT0nbm9uZSc7CiAgICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnYXBwJykuc3R5bGUuZGlzcGxheT0nZmxleCc7CiAgICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnZmlsZW5hbWUnKS50ZXh0Q29udGVudD0nR29vZ2xlIFNoZWV0cyAtICcrcm93cy5sZW5ndGgrJyByaWdoZSc7CiAgICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgndG90YWwtY291bnQnKS50ZXh0Q29udGVudD1yb3dzLmxlbmd0aDsKICAgIHJlbmRlcigpOwogIH0gY2F0Y2goZSkgewogICAgc2hvd0Vycm9yKGUubWVzc2FnZSk7CiAgfQp9CgpmdW5jdGlvbiBzaG93TG9hZGluZygpewogIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdsb2FkLWljb24nKS50ZXh0Q29udGVudD0nJzsKICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnbG9hZC10aXRsZScpLnRleHRDb250ZW50PSdDYXJpY2FtZW50byBHb29nbGUgU2hlZXRzLi4uJzsKICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnbG9hZC1zdWInKS50ZXh0Q29udGVudD0nUmVjdXBlcm8gZGF0aSBpbiBjb3Jzbyc7CiAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2xvYWRpbmctYmFyJykuc3R5bGUuZGlzcGxheT0nYmxvY2snOwogIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdlcnItbXNnJykuc3R5bGUuZGlzcGxheT0nbm9uZSc7CiAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ21hbnVhbC1zZWN0aW9uJykuc3R5bGUuZGlzcGxheT0nbm9uZSc7Cn0KCmZ1bmN0aW9uIHNob3dFcnJvcihtc2cpewogIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdsb2FkLWljb24nKS50ZXh0Q29udGVudD0nISc7CiAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2xvYWQtdGl0bGUnKS50ZXh0Q29udGVudD0nSW1wb3NzaWJpbGUgY2FyaWNhcmUgaWwgZm9nbGlvJzsKICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnbG9hZC1zdWInKS50ZXh0Q29udGVudD0nJzsKICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnbG9hZGluZy1iYXInKS5zdHlsZS5kaXNwbGF5PSdub25lJzsKICBjb25zdCBlcnI9ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2Vyci1tc2cnKTsKICBlcnIudGV4dENvbnRlbnQ9bXNnKycg4oCUIEFzc2ljdXJhdGkgY2hlIGlsIGZvZ2xpbyBzaWEgY29uZGl2aXNvIHB1YmJsaWNhbWVudGUuJzsKICBlcnIuc3R5bGUuZGlzcGxheT0nYmxvY2snOwogIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdtYW51YWwtc2VjdGlvbicpLnN0eWxlLmRpc3BsYXk9J2Jsb2NrJzsKfQoKZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2ZpbGUtaW5wdXQnKS5vbmNoYW5nZSA9IGUgPT4geyBpZihlLnRhcmdldC5maWxlc1swXSkgbG9hZFhMU1goZS50YXJnZXQuZmlsZXNbMF0pOyB9OwpmdW5jdGlvbiBsb2FkWExTWChmaWxlKXsKICBjb25zdCByPW5ldyBGaWxlUmVhZGVyKCk7CiAgci5vbmxvYWQ9ZT0+ewogICAgd2I9WExTWC5yZWFkKG5ldyBVaW50OEFycmF5KGUudGFyZ2V0LnJlc3VsdCkse3R5cGU6J2FycmF5J30pOwogICAgY29uc3Qgd3M9d2IuU2hlZXRzW3diLlNoZWV0TmFtZXNbMF1dOwogICAgcm93cz1YTFNYLnV0aWxzLnNoZWV0X3RvX2pzb24od3Mse2RlZnZhbDonJ30pOwogICAgY3VyPTA7IGRvbmU9e307CiAgICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnZHJvcHpvbmUnKS5zdHlsZS5kaXNwbGF5PSdub25lJzsKICAgIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdhcHAnKS5zdHlsZS5kaXNwbGF5PSdmbGV4JzsKICAgIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdmaWxlbmFtZScpLnRleHRDb250ZW50PWZpbGUubmFtZTsKICAgIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCd0b3RhbC1jb3VudCcpLnRleHRDb250ZW50PXJvd3MubGVuZ3RoOwogICAgcmVuZGVyKCk7CiAgfTsKICByLnJlYWRBc0FycmF5QnVmZmVyKGZpbGUpOwp9CgovLyAtLS0tLS0tLS0tIE1ha2Ugd2ViaG9vayAtLS0tLS0tLS0tCmFzeW5jIGZ1bmN0aW9uIHNhdmVUb1NoZWV0cyhyb3dJbmRleCwgdmFsdWUsIHJhZ2lvbmUpIHsKICBzZXRTYXZlU3RhdHVzKCdzYXZpbmcnLCcgU2FsdmF0YWdnaW8uLi4nKTsKICB0cnkgewogICAgYXdhaXQgZmV0Y2goV0VCSE9PSywgewogICAgICBtZXRob2Q6ICdQT1NUJywKICAgICAgaGVhZGVyczogeyAnQ29udGVudC1UeXBlJzogJ2FwcGxpY2F0aW9uL2pzb24nIH0sCiAgICAgIGJvZHk6IEpTT04uc3RyaW5naWZ5KHsKICAgICAgICByb3c6ICAgICAgKHJvd3Nbcm93SW5kZXhdPy5fX29yaWdJZHggPz8gcm93SW5kZXgpICsgMiwgICAvLyArMjogcmlnYSAxID0gaW50ZXN0YXppb25lLCB1c2EgaW5kaWNlIG9yaWdpbmFsZQogICAgICAgIGNvbG9ubmE6ICAnRScsCiAgICAgICAgdmFsb3JlOiAgIHZhbHVlLAogICAgICAgIHJhZ2lvbmU6ICByYWdpb25lLAogICAgICAgIHNoZWV0X2lkOiAnMWtwZWdOTHUxeWxPY0hCcnQxeFo1UmlwVklnS3ZXa0d6WlF6YUczNW90TEUnLAogICAgICAgIGdpZDogICAgICAnMCcKICAgICAgfSkKICAgIH0pOwogICAgc2V0U2F2ZVN0YXR1cygnc2F2ZWQnLCfinJMgU2FsdmF0bycpOwogIH0gY2F0Y2goZSkgewogICAgc2V0U2F2ZVN0YXR1cygnZXJyb3InLCfinJcgRXJyb3JlIHNhbHZhdGFnZ2lvJyk7CiAgfQogIHNldFRpbWVvdXQoKCk9PnsgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3NhdmUtc3RhdHVzJykuY2xhc3NOYW1lPScnOyBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnc2F2ZS1zdGF0dXMnKS50ZXh0Q29udGVudD0nJzsgfSwgMzAwMCk7Cn0KCmZ1bmN0aW9uIHNldFNhdmVTdGF0dXMoY2xzLCB0ZXh0KXsKICBjb25zdCBlbD1kb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnc2F2ZS1zdGF0dXMnKTsKICBlbC5jbGFzc05hbWU9Y2xzOyBlbC50ZXh0Q29udGVudD10ZXh0Owp9CgovLyAtLS0tLS0tLS0tIEhlbHBlcnMgLS0tLS0tLS0tLQpmdW5jdGlvbiBzbHVnKHVybCl7CiAgaWYoIXVybCkgcmV0dXJuICcnOwogIGNvbnN0IG09dXJsLm1hdGNoKC9saW5rZWRpblwuY29tXC9jb21wYW55XC8oW14vPyNdKykvaSk7CiAgcmV0dXJuIG0/bVsxXTp1cmwucmVwbGFjZSgvaHR0cHM/OlwvXC8od3d3XC4pPy8sJycpLnNsaWNlKDAsNDYpOwp9CmZ1bmN0aW9uIHNob3J0KHVybCl7IHJldHVybiB1cmw/dXJsLnJlcGxhY2UoL2h0dHBzPzpcL1wvKHd3d1wuKT8vLCcnKS5yZXBsYWNlKC9cLyQvLCcnKS5zbGljZSgwLDUwKTonJzsgfQpmdW5jdGlvbiBzZXRwaWxsKGlkLHZhbCl7IGNvbnN0IGVsPWRvY3VtZW50LmdldEVsZW1lbnRCeUlkKGlkKTsgZWwudGV4dENvbnRlbnQ9dmFsfHwnJzsgZWwuc3R5bGUuZGlzcGxheT12YWw/J2lubGluZSc6J25vbmUnOyB9CmZ1bmN0aW9uIHNldEJ0bihpZCxjbHMsYWN0aXZlKXsgY29uc3QgYj1kb2N1bWVudC5nZXRFbGVtZW50QnlJZChpZCk7IGIudGV4dENvbnRlbnQ9YWN0aXZlPydTZWxlemlvbmF0byc6J1NlbGV6aW9uYSc7IGIuY2xhc3NOYW1lPWBidG4tcyAke2Nsc30ke2FjdGl2ZT8nIG9uJzonJ31gOyB9CgovLyAtLS0tLS0tLS0tIFJlbmRlciAtLS0tLS0tLS0tCmZ1bmN0aW9uIHJlbmRlcigpewogIGNvbnN0IHJvdz1yb3dzW2N1cl18fHt9OwogIGNvbnN0IHBoPXJvdy5fX2NvbHM/LlsyXXx8Jyc7CiAgY29uc3QgZWI9cm93Ll9fY29scz8uWzNdfHwnJzsKICBsZXQgd3M9cm93W0Mud2Vic2l0ZV18fCcnOwogIGlmKHdzICYmICF3cy5zdGFydHNXaXRoKCdodHRwczovLycpKSB3cyA9IHdzLnJlcGxhY2UoL15odHRwOlwvXC8vLCAnaHR0cHM6Ly8nKS5yZXBsYWNlKC9eKD8haHR0cHM/OlwvXC8pLywgJ2h0dHBzOi8vJyk7CiAgY29uc3Qgc2VsPXJvd1tDLnJlc3VsdF18fCcnOwoKICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm93LW51bScpLnRleHRDb250ZW50PWAjJHtjdXIrMX1gOwogIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdjb21wYW55LW5hbWUnKS50ZXh0Q29udGVudD1yb3dbQy5yYWdpb25lXXx8J+KAlCc7CiAgc2V0cGlsbCgnaW5mby1jaXR5Jyxyb3dbQy5jaXR0YV0pOwogIHNldHBpbGwoJ2luZm8tYXRlY28nLChyb3dbQy5hdGVjb118fCcnKS5zcGxpdCgnKCcpWzBdLnRyaW0oKS5zbGljZSgwLDUyKSk7CiAgY29uc3Qgc2I9ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3NlbGVjdGVkLWJhZGdlJyk7CiAgaWYoc2VsJiZzZWwhPT0nVVJMIGRhIFZlcmlmaWNhcmUnKXsgc2IudGV4dENvbnRlbnQ9c2VsPT09J05FU1NVTkEnPyfinJMgTmVzc3VuYSBjb3JyZXR0YSc6J+KckyAnK3NsdWcoc2VsKTsgc2Iuc3R5bGUuZGlzcGxheT0naW5saW5lJzsgfQogIGVsc2Ugc2Iuc3R5bGUuZGlzcGxheT0nbm9uZSc7CgogIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCd1cmwtdycpLnRleHRDb250ZW50PXNob3J0KHdzKTsKICBjb25zdCBsdz1kb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnbGluay13Jyk7CiAgbHcuaHJlZj13c3x8JyMnOyBsdy5zdHlsZS5kaXNwbGF5PXdzPydpbmxpbmUtZmxleCc6J25vbmUnOwogIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdib2R5LXcnKS5pbm5lckhUTUw9d3MKICAgID9gPGlmcmFtZSBzcmM9IiR7d3N9IiBzYW5kYm94PSJhbGxvdy1zY3JpcHRzIGFsbG93LXNhbWUtb3JpZ2luIGFsbG93LWZvcm1zIGFsbG93LXBvcHVwcyBhbGxvdy10b3AtbmF2aWdhdGlvbiI+PC9pZnJhbWU+YAogICAgOmA8ZGl2IGNsYXNzPSJlbXB0eSI+PHNwYW4+LTwvc3Bhbj48cD5VUkwgbm9uIGRpc3BvbmliaWxlPC9wPjwvZGl2PmA7CgogIC8vIEdvb2dsZSBzZWFyY2ggVVJMCiAgY29uc3QgZG9tYWluID0gKHJvd1tDLndlYnNpdGVdfHwnJykucmVwbGFjZSgvaHR0cHM/OlwvXC8od3d3XC4pPy8sJycpLnJlcGxhY2UoL1wvLiokLywnJyk7CiAgY29uc3QgZ29vZ2xlVXJsID0gZG9tYWluID8gJ2h0dHBzOi8vd3d3Lmdvb2dsZS5jb20vc2VhcmNoP3E9c2l0ZTpsaW5rZWRpbi5jb20vY29tcGFueSsnICsgZW5jb2RlVVJJQ29tcG9uZW50KGRvbWFpbikgOiAnJzsKICBjb25zdCBndSA9IGdvb2dsZVVybDsKCiAgcmVuZGVyQ2FyZCgncCcscGgsc2VsLCdiJywnY2InLHJvdyk7CiAgcmVuZGVyQ2FyZCgnZScsZWIsc2VsLCdhJywnY2EnLHJvdyk7CiAgcmVuZGVyR29vZ2xlQ2FyZChndSwgc2VsLCByb3cpOwoKICBjb25zdCBkYz1kb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnZG90cycpOwogIGRjLmlubmVySFRNTD0nJzsKICByb3dzLmZvckVhY2goKF8saSk9PnsgY29uc3QgZD1kb2N1bWVudC5jcmVhdGVFbGVtZW50KCdidXR0b24nKTsgZC5jbGFzc05hbWU9J2RvdCcrKGk9PT1jdXI/JyBjdXJyJzpkb25lW2ldPycgZG4nOicnKTsgZC50ZXh0Q29udGVudD1pKzE7IGQub25jbGljaz0oKT0+e2N1cj1pO3JlbmRlcigpO307IGRjLmFwcGVuZENoaWxkKGQpOyB9KTsKCiAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2J0bi1wcmV2JykuZGlzYWJsZWQ9Y3VyPT09MDsKICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnYnRuLW5leHQnKS5kaXNhYmxlZD1jdXI9PT1yb3dzLmxlbmd0aC0xOwogIGNvbnN0IGRjMj1PYmplY3Qua2V5cyhkb25lKS5sZW5ndGg7CiAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2RvbmUtY291bnQnKS50ZXh0Q29udGVudD1kYzI7CiAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3Byb2dyZXNzLWZpbGwnKS5zdHlsZS53aWR0aD0oZGMyL3Jvd3MubGVuZ3RoKjEwMCkrJyUnOwp9CgpmdW5jdGlvbiByZW5kZXJDYXJkKGtleSx1cmwsc2VsLGNvbG9yQ2xzLGhvdmVyQ2xzLHJvdyl7CiAgY29uc3QgaXNTZWxlY3RlZD1zZWw9PT11cmwmJnVybCE9PScnOwogIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKGB1cmwtJHtrZXl9YCkudGV4dENvbnRlbnQ9c2hvcnQodXJsKTsKICBzZXRCdG4oYGJ0bi0ke2tleX1gLCdzJytjb2xvckNscyxpc1NlbGVjdGVkKTsKICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZChgYnRuLSR7a2V5fWApLmRpc2FibGVkPSF1cmw7CiAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoa2V5PT09J3AnPydjYXJkLXBoYW50b20nOidjYXJkLWVhc3liaXonKS5jbGFzc05hbWU9YGxpLWNhcmQke2lzU2VsZWN0ZWQ/JyBzZWwtJytjb2xvckNsczonJ31gOwogIGNvbnN0IGJvZHk9ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoYGJvZHktJHtrZXl9YCk7CiAgaWYoIXVybCl7IGJvZHkuaW5uZXJIVE1MPWA8ZGl2IGNsYXNzPSJsaS1lbXB0eSI+PHNwYW4+LTwvc3Bhbj48cD5VUkwgbm9uIGRpc3BvbmliaWxlPC9wPjwvZGl2PmA7IHJldHVybjsgfQogIGNvbnN0IGZvbnRlPWtleT09PSdwJz8nUGhhbnRvbSc6J0Vhc3lidXNpbmVzcyc7CiAgY29uc3Qgbm9tZT1rZXk9PT0ncCc/KHJvd1tDLnRpdGxlUGhhbnRvbV18fCfigJQnKToocm93W0MucmFnaW9uZV18fCfigJQnKTsKICBib2R5LmlubmVySFRNTD1gPGRpdiBjbGFzcz0ibGktYm9keSI+CiAgICA8YSBocmVmPSIke3VybH0iIHRhcmdldD0iX2JsYW5rIiBjbGFzcz0iYmlnLW9wZW4gJHtob3ZlckNsc30iPgogICAgICA8ZGl2IGNsYXNzPSJvaSI+PC9kaXY+PGRpdiBjbGFzcz0ib2wiPkFwcmkgc3UgTGlua2VkSW48L2Rpdj48ZGl2IGNsYXNzPSJvdSI+JHtzbHVnKHVybCl9PC9kaXY+CiAgICA8L2E+CiAgICA8ZGl2IGNsYXNzPSJsaS1tZXRhIj4KICAgICAgPGRpdiBjbGFzcz0ibWV0YS1yb3ciPjxzcGFuIGNsYXNzPSJtbCI+Rm9udGU8L3NwYW4+PHNwYW4gY2xhc3M9Im12Ij4ke2ZvbnRlfTwvc3Bhbj48L2Rpdj4KICAgICAgPGRpdiBjbGFzcz0ibWV0YS1yb3ciPjxzcGFuIGNsYXNzPSJtbCI+VVJMPC9zcGFuPjxzcGFuIGNsYXNzPSJtdiB1cmwiPiR7dXJsfTwvc3Bhbj48L2Rpdj4KICAgIDwvZGl2PgogIDwvZGl2PmA7Cn0KCgpmdW5jdGlvbiByZW5kZXJHb29nbGVDYXJkKHVybCwgc2VsLCByb3cpewogIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCd1cmwtZycpLnRleHRDb250ZW50ID0gdXJsID8gJ3NpdGU6bGlua2VkaW4uY29tL2NvbXBhbnkgKyBkb21pbmlvJyA6ICcnOwogIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdjYXJkLWdvb2dsZScpLmNsYXNzTmFtZSA9ICdsaS1jYXJkJzsKCiAgY29uc3QgYm9keSA9IGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdib2R5LWcnKTsKICBpZighdXJsKXsKICAgIGJvZHkuaW5uZXJIVE1MID0gJzxkaXYgY2xhc3M9ImxpLWVtcHR5Ij48c3Bhbj4tPC9zcGFuPjxwPlNpdG8gd2ViIG5vbiBkaXNwb25pYmlsZTwvcD48L2Rpdj4nOwogICAgcmV0dXJuOwogIH0KICBjb25zdCBkb21haW4gPSAocm93W0Mud2Vic2l0ZV18fCcnKS5yZXBsYWNlKC9odHRwcz86XC9cLyh3d3dcLik/LywnJykucmVwbGFjZSgvXC8uKiQvLCcnKTsKICBjb25zdCBjdXJJbnB1dCA9IHdpbmRvdy5fZ29vZ2xlSW5wdXRWYWwgfHwgJyc7CiAgYm9keS5pbm5lckhUTUwgPSBgCiAgICA8ZGl2IGNsYXNzPSJnb29nbGUtYm9keSIgc3R5bGU9ImZsZXgtZGlyZWN0aW9uOmNvbHVtbjthbGlnbi1pdGVtczpmbGV4LXN0YXJ0O2dhcDoxcmVtOyI+CiAgICAgIDxkaXYgc3R5bGU9ImRpc3BsYXk6ZmxleDthbGlnbi1pdGVtczpjZW50ZXI7Z2FwOjFyZW07Ij4KICAgICAgICA8YSBocmVmPSIke3VybH0iIHRhcmdldD0iX2JsYW5rIiBjbGFzcz0iYmlnLW9wZW4gY2ciIHN0eWxlPSJtaW4td2lkdGg6MTQwcHg7Ij4KICAgICAgICAgIDxkaXYgY2xhc3M9Im9sIj5DZXJjYSBzdSBHb29nbGU8L2Rpdj4KICAgICAgICAgIDxkaXYgY2xhc3M9Im91Ij5zaXRlOmxpbmtlZGluLmNvbS9jb21wYW55PC9kaXY+CiAgICAgICAgPC9hPgogICAgICAgIDxkaXYgY2xhc3M9ImxpLW1ldGEiPgogICAgICAgICAgPGRpdiBjbGFzcz0ibWV0YS1yb3ciPjxzcGFuIGNsYXNzPSJtbCI+UXVlcnk8L3NwYW4+PHNwYW4gY2xhc3M9Im12IiBzdHlsZT0iY29sb3I6cmdiYSgyNTUsMjU1LDI1NSwwLjkpO2ZvbnQtd2VpZ2h0OjYwMCI+c2l0ZTpsaW5rZWRpbi5jb20vY29tcGFueSAiJHtkb21haW59Ijwvc3Bhbj48L2Rpdj4KICAgICAgICAgIDxkaXYgY2xhc3M9Im1ldGEtcm93Ij48c3BhbiBjbGFzcz0ibWwiPk5vdGE8L3NwYW4+PHNwYW4gY2xhc3M9Im12IiBzdHlsZT0iY29sb3I6cmdiYSgyNTUsMjU1LDI1NSwwLjQpIj5BcHJpIEdvb2dsZSwgdHJvdmEgaWwgcHJvZmlsbyBlIGluY29sbGEgbCdVUkw8L3NwYW4+PC9kaXY+CiAgICAgICAgPC9kaXY+CiAgICAgIDwvZGl2PgogICAgICA8ZGl2IHN0eWxlPSJkaXNwbGF5OmZsZXg7YWxpZ24taXRlbXM6Y2VudGVyO2dhcDowLjZyZW07d2lkdGg6MTAwJTtwYWRkaW5nOjAgMC41cmVtOyI+CiAgICAgICAgPGlucHV0IGlkPSJnb29nbGUtdXJsLWlucHV0IiB0eXBlPSJ0ZXh0IiBwbGFjZWhvbGRlcj0iSW5jb2xsYSBVUkwgTGlua2VkSW4gdHJvdmF0byBzdSBHb29nbGUuLi4iIHZhbHVlPSIke2N1cklucHV0fSIKICAgICAgICAgIHN0eWxlPSJmbGV4OjE7YmFja2dyb3VuZDpyZ2JhKDI1NSwyNTUsMjU1LDAuMDYpO2JvcmRlcjoxcHggc29saWQgcmdiYSgyNTUsMjU1LDI1NSwwLjE1KTtib3JkZXItcmFkaXVzOjZweDtwYWRkaW5nOjAuNDVyZW0gMC43NXJlbTtjb2xvcjojZmZmO2ZvbnQtc2l6ZTowLjcycmVtO2ZvbnQtZmFtaWx5OmluaGVyaXQ7b3V0bGluZTpub25lOyIKICAgICAgICAgIG9uaW5wdXQ9IndpbmRvdy5fZ29vZ2xlSW5wdXRWYWw9dGhpcy52YWx1ZSIKICAgICAgICAvPgogICAgICAgIDxidXR0b24gb25jbGljaz0ic2VsZWN0R29vZ2xlTWFudWFsKCkiIGNsYXNzPSJidG4tcyBzZyIgc3R5bGU9InBhZGRpbmc6MC4zNXJlbSAwLjlyZW07Zm9udC1zaXplOjAuNzJyZW07ZmxleC1zaHJpbms6MDsiPlNlbGV6aW9uYTwvYnV0dG9uPgogICAgICA8L2Rpdj4KICAgIDwvZGl2PmA7Cn0KCi8vIC0tLS0tLS0tLS0gU2VsZWN0IC0tLS0tLS0tLS0KZnVuY3Rpb24gc2VsZWN0KHR5cGUpewogIGNvbnN0IHJvdz1yb3dzW2N1cl07CiAgbGV0IHY9Jyc7CiAgaWYodHlwZT09PSdub25lJykgeyBjb25zdCBueHQ9cm93cy5maW5kSW5kZXgoKF8saSk9Pmk+Y3VyJiYhZG9uZVtpXSk7IGlmKG54dCE9PS0xKSBjdXI9bnh0OyBlbHNlIGlmKGN1cjxyb3dzLmxlbmd0aC0xKSBjdXIrKzsgcmVuZGVyKCk7IHJldHVybjsgfQogIGVsc2UgaWYodHlwZT09PSdnb29nbGUnKSB7CiAgICAvLyBHb29nbGU6IGFwcmkgbGEgcmljZXJjYSBlIGNoaWVkaSBpbmNvbGxhIFVSTAogICAgY29uc3QgZG9tYWluID0gKHJvd1tDLndlYnNpdGVdfHwnJykucmVwbGFjZSgvaHR0cHM/OlwvXC8od3d3XC4pPy8sJycpLnJlcGxhY2UoL1wvLiokLywnJyk7CiAgICBjb25zdCBxID0gJ3NpdGU6bGlua2VkaW4uY29tL2NvbXBhbnkgJyArIGRvbWFpbjsKICAgIHdpbmRvdy5vcGVuKCdodHRwczovL3d3dy5nb29nbGUuY29tL3NlYXJjaD9xPScgKyBlbmNvZGVVUklDb21wb25lbnQocSksICdfYmxhbmsnKTsKICAgIGNvbnN0IHBhc3RlZCA9IHByb21wdCgnSW5jb2xsYSBxdWkgbGEgVVJMIExpbmtlZEluIHRyb3ZhdGEgc3UgR29vZ2xlOicpOwogICAgaWYoIXBhc3RlZCB8fCAhcGFzdGVkLnRyaW0oKSkgcmV0dXJuOwogICAgdiA9IHBhc3RlZC50cmltKCk7CiAgfQogIGVsc2UgaWYodHlwZT09PSdwaGFudG9tJykgdj1yb3cuX19jb2xzPy5bMl18fHJvd1tDLnBoYW50b21dfHwnJzsKICBlbHNlIGlmKHR5cGU9PT0nZWFzeWJpeicpIHY9cm93Ll9fY29scz8uWzNdfHxyb3dbQy5lYXN5Yml6XXx8Jyc7CiAgZWxzZSBpZih0eXBlPT09J3dlYnNpdGUnKSB2PXJvd1tDLndlYnNpdGVdfHwnJzsKCiAgcm93c1tjdXJdPXsuLi5yb3csW0MucmVzdWx0XTp2fTsKICBkb25lW2N1cl09dHJ1ZTsKCiAgLy8gU2FsdmEgc3UgR29vZ2xlIFNoZWV0cyB2aWEgTWFrZQogIHNhdmVUb1NoZWV0cyhjdXIsIHYsIHJvd1tDLnJhZ2lvbmVdKTsKCiAgY29uc3Qgbnh0PXJvd3MuZmluZEluZGV4KChfLGkpPT5pPmN1ciYmIWRvbmVbaV0pOwogIGlmKG54dCE9PS0xKSBjdXI9bnh0OwogIGVsc2UgaWYoY3VyPHJvd3MubGVuZ3RoLTEpIGN1cisrOwogIHJlbmRlcigpOwp9CgpmdW5jdGlvbiBzZWxlY3RHb29nbGVNYW51YWwoKXsKICBjb25zdCBpbnB1dD1kb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnZ29vZ2xlLXVybC1pbnB1dCcpOwogIGNvbnN0IHZhbD1pbnB1dD9pbnB1dC52YWx1ZS50cmltKCk6Jyc7CiAgaWYoIXZhbCl7aW5wdXQmJihpbnB1dC5zdHlsZS5ib3JkZXJDb2xvcj0ncmdiYSgyMzksNjgsNjgsMC42KScpO3JldHVybjt9CiAgY29uc3Qgcm93PXJvd3NbY3VyXTsKICBkb25lW2N1cl09dHJ1ZTsKICB3aW5kb3cuX2dvb2dsZUlucHV0VmFsPScnOwogIHNhdmVUb1NoZWV0cyhjdXIsdmFsLHJvd1tDLnJhZ2lvbmVdKTsKICBjb25zdCBueHQ9cm93cy5maW5kSW5kZXgoKF8saSk9Pmk+Y3VyJiYhZG9uZVtpXSk7CiAgaWYobnh0IT09LTEpY3VyPW54dDtlbHNlIGlmKGN1cjxyb3dzLmxlbmd0aC0xKWN1cisrOwogIHJlbmRlcigpOwp9CmZ1bmN0aW9uIG5hdmlnYXRlKGRpcil7IGN1cj1NYXRoLm1heCgwLE1hdGgubWluKHJvd3MubGVuZ3RoLTEsY3VyK2RpcikpOyByZW5kZXIoKTsgfQoKZnVuY3Rpb24gZXhwb3J0RmlsZSgpewogIGNvbnN0IHdzRGF0YT1YTFNYLnV0aWxzLmpzb25fdG9fc2hlZXQocm93cyk7CiAgY29uc3Qgdz1YTFNYLnV0aWxzLmJvb2tfbmV3KCk7CiAgWExTWC51dGlscy5ib29rX2FwcGVuZF9zaGVldCh3LHdzRGF0YSwnU2hlZXQxJyk7CiAgWExTWC53cml0ZUZpbGUodywnVVJMX3VsdGltYV9zcGlhZ2dpYV9jb21wbGV0YXRvLnhsc3gnKTsKfQoKZnVuY3Rpb24gcmVzZXQoKXsKICByb3dzPVtdO2N1cj0wO2RvbmU9e307d2I9bnVsbDsKICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnYXBwJykuc3R5bGUuZGlzcGxheT0nbm9uZSc7CiAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2Ryb3B6b25lJykuc3R5bGUuZGlzcGxheT0nZmxleCc7CiAgbG9hZEZyb21TaGVldHMoKTsKfQoKbG9hZEZyb21TaGVldHMoKTsKPC9zY3JpcHQ+CjwvYm9keT4KPC9odG1sPgo=";
+const REVIEW_TOOL_HTML = atob(REVIEW_TOOL_B64);
+
+function App() {
+  const [tab, setTab]               = useState("run");
+  const [runAttivo, setRunAttivo]   = useState(false);
+  const [runId, setRunId]           = useState(null);
+  const [runStart, setRunStart]     = useState(null);
+  const [campagna, setCampagna]     = useState("Impianti & Automazioni Nord");
+  const [fasi, setFasi]             = useState(FASI_INIT);
+  const [log, setLog]               = useState([]);
+  const [urls, setUrls]             = useState(DEFAULT_URLS);
+  const [errori, setErrori]         = useState(DEFAULT_ERRORI);
+  const [execs, setExecs]           = useState([]);
+  const [manualUrl, setManualUrl]   = useState({});
+  const [toast, setToast]           = useState(null);
+  const [clock, setClock]           = useState(new Date());
+  const [loading, setLoading]       = useState({});
+  const [csvFile, setCsvFile]       = useState(null);
+  const [sheetStatus, setSheetStatus] = useState(null);
+  const [lastSync, setLastSync]     = useState(null);
+  const [nextSyncIn, setNextSyncIn]       = useState(30);
+  const [splash, setSplash] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [showReviewTool, setShowReviewTool] = useState(false);
+  const [reviewBlobUrl, setReviewBlobUrl] = useState(null);
+  const [counters, setCounters] = useState({az_input:null, az_output:null, exec:null, scartati:null, mail_ok:null, mail_no:null});
+  const [dipLastCount, setDipLastCount]   = useState(null);  // n righe totali foglio dipendenti
+  const [dipLastChange, setDipLastChange] = useState(null);  // timestamp ultimo cambio
+  const [dipIdle, setDipIdle]             = useState(false); // true = fermo da 90
+  const [dupCheck, setDupCheck]           = useState(null);  // null | {ok:true} | {ok:false, duplicati:[...]}
+
+  const [embedSheet, setEmbedSheet] = useState(null); // {url, label}
+  const [syncErr, setSyncErr]       = useState(false);
+  const [prospectingRows, setProspectingRows] = useState([]);
+  const [azSenzaSito, setAzSenzaSito] = useState([]);
+  const companyCeckFiredRef = React.useRef(false);
+  const [prospectingTab, setProspectingTab]   = useState("tabella"); // "tabella" | "sheets"
+  const [prospectingSelected, setProspectingSelected] = useState(()=>{
+    try { const s=localStorage.getItem('grizzly_selected'); return s?new Set(JSON.parse(s)):new Set(); } catch(e){ return new Set(); }
+  });
+  const fileRef = useRef();
+
+  // ── Orologio ──────────────────────────────────────────────────────────────
+  useEffect(() => { const t = setInterval(()=>{ setClock(new Date()); setNextSyncIn(n=>n>0?n-1:30); },1000); return ()=>clearInterval(t); }, []);
+
+  // ── Leggi URL da valutare dal foglio URL_da_valutare ─────────────────────────
+  const fetchUrlSheet = useCallback(async () => {
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${URL_SHEET_ID}/gviz/tq?tqx=out:json&sheet=URL_da_valutare&headers=1&t=${Date.now()}`;
+      const res = await fetch(url);
+      const raw = await res.text();
+      const json = JSON.parse(raw.replace(/^[^(]+\(/, "").replace(/\);?$/, ""));
+      const rows = json.table.rows;
+      const cols = json.table.cols.map(c => c.label || "");
+      if (!rows || rows.length === 0) return;
+      const get = (cells, i) => cells[i]?.v ?? "";
+      // Mappa indici colonne — struttura esatta: Title_Phantom | Ragione sociale | LinkedinURL_Phantom | LinkedinURL_Easybusiness | LinkiedinURL_da_ricercare | Sito web
+      const iRs   = cols.findIndex(c => c.toLowerCase().includes("ragione"));
+      const iSito = cols.findIndex(c => c.toLowerCase().includes("sito"));
+      const iPh   = cols.findIndex(c => /linkedinurl_phantom/i.test(c));
+      const iEb   = cols.findIndex(c => /linkedinurl_easy/i.test(c));
+      const iCit  = cols.findIndex(c => c.toLowerCase().includes("citt"));
+      const iFat  = cols.findIndex(c => c.toLowerCase().includes("fatturato"));
+      const parsed = rows.map((row, i) => {
+        const c = row.c || [];
+        return {
+          id: i + 1,
+          ragione_sociale: get(c, iRs),
+          sito:            iSito >= 0 ? get(c, iSito) : "",
+          url_phantom:     iPh   >= 0 ? get(c, iPh)   : "",
+          url_easybusiness:iEb   >= 0 ? get(c, iEb)   : "",
+          citta:           iCit  >= 0 ? get(c, iCit)  : "",
+          fatturato:       iFat  >= 0 ? get(c, iFat)  : "",
+          stato:           "pending",
+        };
+      }).filter(r => r.ragione_sociale);
+      if (parsed.length > 0) {
+        setUrls(parsed);
+        pushLog("info", `URL da valutare aggiornati: ${parsed.length} aziende dal foglio`);
+      }
+    } catch(e) {
+      // fallback silenzioso — usa i dati statici
+    }
+  }, []);
+
+    // ── Monitora righe executives + scartati ─────────────────────────────────────
+  const fetchDipendentiCount = useCallback(async () => {
+    try {
+      const sid = "1y21r84H4Cy2J7hW-bLfXgsD5mfK8KqEcI_apcc_cm-E";
+      const fetchTab = async (gid) => {
+        const url = `https://docs.google.com/spreadsheets/d/${sid}/gviz/tq?tqx=out:json&gid=${gid}&headers=1&t=${Date.now()}`;
+        const res = await fetch(url);
+        const raw = await res.text();
+        const json = JSON.parse(raw.replace(/^[^(]+\(/, "").replace(/\);?$/, ""));
+        return (json.table?.rows || []).length;
+      };
+      const [exec, scar] = await Promise.all([fetchTab("811728725"), fetchTab("664527243")]);
+      const total = exec + scar;
+      setDipLastCount(prev => {
+        if (prev !== null && total !== prev) {
+          setDipLastChange(Date.now());
+          // Non resettiamo dipIdle: una volta comparso il banner resta visibile
+        } else if (prev === null) {
+          setDipLastChange(Date.now());
+        }
+        return total;
+      });
+    } catch(e) {}
+  }, []);
+
+    // ── Contatori fogli ──────────────────────────────────────────────────────────
+  const fetchCounters = useCallback(async () => {
+    // colIdx: indice colonna 0-based da contare (valori non vuoti, escluso header)
+    const fetchCol = async (id, gid, colIdx) => {
+      try {
+        const COL_LETTERS = ["A","B","C","D","E","F","G","H","I","J","K","L"];
+        const col = COL_LETTERS[colIdx];
+        const q = encodeURIComponent(`select count(${col}) where ${col} is not null label count(${col}) 'n'`);
+        const url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:json&gid=${gid}&tq=${q}&headers=1&t=${Date.now()}`;
+        const res = await fetch(url);
+        const raw = await res.text();
+        const json = JSON.parse(raw.replace(/^[^(]+\(/, "").replace(/\);?$/, ""));
+        return json.table?.rows?.[0]?.c?.[0]?.v ?? 0;
+      } catch(e) { return null; }
+    };
+    const fetchColContains = async (id, gid, colIdx, keyword) => {
+      try {
+        const COL_LETTERS = ["A","B","C","D","E","F","G","H","I","J","K","L"];
+        const col = COL_LETTERS[colIdx];
+        const q = encodeURIComponent(`select count(${col}) where lower(${col}) contains '${keyword.toLowerCase()}' label count(${col}) 'n'`);
+        const url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:json&gid=${gid}&tq=${q}&headers=1&t=${Date.now()}`;
+        const res = await fetch(url);
+        const raw = await res.text();
+        const json = JSON.parse(raw.replace(/^[^(]+\(/, "").replace(/\);?$/, ""));
+        return json.table?.rows?.[0]?.c?.[0]?.v ?? 0;
+      } catch(e) { return null; }
+    };
+    const [az_input, az_output, exec, scartati, mail_ok, mail_no] = await Promise.all([
+      fetchCol("1Xk8CuYjriLbsxqafpTkPKSIGyApUAnX7vj7TaRlLHEc","0", 1),                              // col B — ragione sociale
+      fetchColContains("1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE","0", 4, "linkedin"),           // col E — url company page (solo linkedin)
+      fetchCol("1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE","0", 3),                              // col D — easybusiness
+      fetchCol("1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE","0", 2),                              // col C — phantom
+      fetchCol("1x8C39EaD1PzKQ0LJ9RsusIxAa9eJKmRwMxzPVj2Flng","0", 10),                             // col K — con email
+      fetchCol("1x8C39EaD1PzKQ0LJ9RsusIxAa9eJKmRwMxzPVj2Flng","401214721", 4),                      // col E — senza email
+    ]);
+    setCounters({az_input, az_output, exec, scartati, mail_ok, mail_no});
+  }, []);
+
+  const fetchProspecting = useCallback(async () => {
+    try {
+      const q = encodeURIComponent(`select B,E,F,S where B is not null`);
+      const url = `https://docs.google.com/spreadsheets/d/${URL_SHEET_ID}/gviz/tq?tqx=out:json&gid=0&tq=${q}&headers=1&t=${Date.now()}`;
+      const res = await fetch(url);
+      const raw = await res.text();
+      const json = JSON.parse(raw.replace(/^[^(]+\(/, "").replace(/\);?$/, ""));
+      const rows = (json.table?.rows || []).map(r => ({
+        b: r?.c?.[0]?.v || "",
+        e: r?.c?.[1]?.v || "",
+        f: r?.c?.[2]?.v || "",
+        s: r?.c?.[3]?.v || "",
+      })).filter(r => r.b);
+      setProspectingRows(rows.filter(r => !r.e.toLowerCase().includes('verific')));
+    } catch(e) {}
+  }, []);
+
+  const fetchAzSenzaSito = useCallback(async () => {
+    try {
+      const INPUT_SHEET_ID = "1Xk8CuYjriLbsxqafpTkPKSIGyApUAnX7vj7TaRlLHEc";
+      const q = encodeURIComponent(`select B,K where B is not null`);
+      const url = `https://docs.google.com/spreadsheets/d/${INPUT_SHEET_ID}/gviz/tq?tqx=out:json&gid=0&tq=${q}&headers=1&t=${Date.now()}`;
+      const res = await fetch(url);
+      const raw = await res.text();
+      const json = JSON.parse(raw.replace(/^[^(]+\(/, "").replace(/\);?$/, ""));
+      const mancanti = (json.table?.rows || [])
+        .map(r => ({ a: r?.c?.[0]?.v || "", k: r?.c?.[1]?.v || "" }))
+        .filter(r => r.a && !r.k?.trim());
+      setAzSenzaSito(mancanti);
+      if (mancanti.length === 0) {
+        // Controllo passato — lancia Company
+        await fetch(MAKE.company, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({runId, campagna})});
+        pushLog("ok", "✓ Controllo siti superato — Cerca Company Page avviato");
+        showToast("✓ Controllo siti OK — Company avviato");
+      } else {
+        pushLog("attesa", `⚠️ ${mancanti.length} aziende senza sito — Company bloccato`);
+        showToast(`⚠️ ${mancanti.length} aziende senza sito — correggi prima di procedere`);
+      }
+    } catch(e) {}
+  }, [runId, campagna]);
+
+  // ── Controllo duplicati Pro.Persona prima di Cerca Email ────────────────────
+  const checkDuplicatiProPersona = async () => {
+    try {
+      const sid = "1y21r84H4Cy2J7hW-bLfXgsD5mfK8KqEcI_apcc_cm-E";
+      const q = encodeURIComponent(`select G where G is not null`);
+      const url = `https://docs.google.com/spreadsheets/d/${sid}/gviz/tq?tqx=out:json&gid=811728725&tq=${q}&headers=1&t=${Date.now()}`;
+      const res = await fetch(url);
+      const raw = await res.text();
+      console.log("RAW:", raw.substring(0, 500));
+      const json = JSON.parse(raw.replace(/^[^(]+\(/, "").replace(/\);?$/, ""));
+      const values = (json.table?.rows || []).map(r => {
+        const v = r?.c?.[0]?.v;
+        if (!v) return null;
+        // normalizza: lowercase, rimuovi slash finale, rimuovi http/https
+        return v.toString().toLowerCase().trim().replace(/\/+$/, '');
+      }).filter(Boolean);
+      console.log("VALUES:", values.length, values.slice(0,5));
+      const counts = {};
+      values.forEach(v => { counts[v] = (counts[v] || 0) + 1; });
+      const duplicati = Object.entries(counts).filter(([,n]) => n > 1).map(([url, n]) => ({url, n}));
+      console.log("DUPLICATI:", duplicati);
+      return duplicati.length > 0 ? {ok: false, duplicati} : {ok: true};
+    } catch(e) {
+      console.error("ERRORE:", e);
+      return null;
+    }
+  };
+
+    // ── Polling Google Sheet ogni 30s ─────────────────────────────────────────
+  const fetchSheetStatus = useCallback(async () => {
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(SHEET_NAME)}&t=${Date.now()}`;
+      const res = await fetch(url);
+      const raw = await res.text();
+      const parsed = parseSheetData(raw);
+      if (parsed && parsed.run_id) {
+        setSheetStatus(parsed);
+        setLastSync(new Date());
+        setNextSyncIn(30);
+        setSyncErr(false);
+        // Aggiorna run_id e campagna dall'ultima riga
+        if (parsed.run_id) {
+          setRunId(parsed.run_id);
+          setCampagna(parsed.campagna || campagna);
+          setRunAttivo(true);
+          if(!runStart) setRunStart(new Date().toISOString());
+        }
+        // Aggiorna TUTTE le fasi usando l'ultima riga per ciascuna
+        if (parsed.byFase) {
+          setFasi(prev => prev.map(f => {
+            const s = parsed.byFase[f.id];
+            if (!s) return {...FASI_INIT.find(fi=>fi.id===f.id), iniziato:null, completato:null};
+            const wasStatus = f.stato;
+            if (wasStatus !== s.stato) {
+              pushLog(s.stato === "attesa_utente" ? "attesa" : s.stato === "completato" ? "ok" : "info",
+                `${f.label}: ${s.stato} — ${s.dettaglio}`);
+            }
+            return {
+              ...f,
+              stato: s.stato,
+              dettaglio: s.dettaglio || f.dettaglio,
+              iniziato: f.iniziato || s.timestamp || new Date().toISOString(),
+              completato: s.stato === "completato" ? (f.completato || s.timestamp || new Date().toISOString()) : f.completato,
+            };
+          }));
+        }
+      } else {
+        // Foglio vuoto = nuova run, reset tutte le fasi
+        setFasi(FASI_INIT.map(f => ({...f})));
+        setRunId(null);
+        setRunAttivo(false);
+        setRunStart(null);
+        setSyncErr(false);
+      }
+    } catch(e) {
+      setSyncErr(true);
+    }
+  }, [runId, runStart, campagna]);
+
+
+  useEffect(()=>{
+    if(showReviewTool){
+      const blob = new Blob([REVIEW_TOOL_HTML], {type:'text/html'});
+      const url = URL.createObjectURL(blob);
+      setReviewBlobUrl(url);
+      return ()=>{ URL.revokeObjectURL(url); setReviewBlobUrl(null); };
+    }
+  }, [showReviewTool]);
+
+  useEffect(() => {
+    fetchSheetStatus();
+    const t = setInterval(fetchSheetStatus, 30000);
+    return () => clearInterval(t);
+  }, [fetchSheetStatus]);
+
+  // Persisti evidenziazioni tabella Lemlist
+  useEffect(()=>{
+    try { localStorage.setItem('grizzly_selected', JSON.stringify([...prospectingSelected])); } catch(e){}
+  }, [prospectingSelected]);
+  useEffect(() => {
+    const urlFase = fasi.find(f => f.id === "url_check");
+    if (urlFase?.stato === "attesa_utente") {
+      fetchUrlSheet();
+    }
+  }, [fasi, fetchUrlSheet]);
+
+  // Quando lemlist si attiva, carica dati Prospecting output
+  useEffect(() => {
+    const lemFase = fasi.find(f => f.id === "lemlist");
+    if (lemFase?.stato === "attesa_utente" || lemFase?.stato === "in_corso") {
+      fetchProspecting();
+    }
+  }, [fasi, fetchProspecting]);
+
+  // Quando import è completato, controlla aziende senza sito (una sola volta per run)
+  useEffect(() => {
+    const importFase = fasi.find(f => f.id === "import");
+    if (importFase?.stato === "completato" && !companyCeckFiredRef.current) {
+      companyCeckFiredRef.current = true;
+      fetchAzSenzaSito();
+    }
+    if (importFase?.stato !== "completato") {
+      companyCeckFiredRef.current = false;
+      setAzSenzaSito([]);
+    }
+  }, [fasi, fetchAzSenzaSito]);
+
+  // Fetch contatori al mount e ogni 30s
+  useEffect(() => {
+    const t = setTimeout(() => setSplash(false), 5000);
+    // Durante lo splash esegui fetch aggressivo ogni 1s per i primi 4s
+    const syncs = [500, 1500, 2500, 3500].map(delay =>
+      setTimeout(() => { fetchSheetStatus(); fetchCounters(); }, delay)
+    );
+    return () => { clearTimeout(t); syncs.forEach(clearTimeout); };
+  }, [fetchSheetStatus, fetchCounters]);
+
+  useEffect(() => {
+    fetchCounters();
+    const t = setInterval(fetchCounters, 30000);
+    return () => clearInterval(t);
+  }, [fetchCounters]);
+
+
+  // Polling foglio dipendenti ogni 20s — solo quando stato=in_corso E dettaglio=Elaborazione
+  useEffect(() => {
+    const dipFase = fasi.find(f => f.id === "dipendenti");
+    const elaborando = dipFase?.stato === "in_corso" && dipFase?.dettaglio?.toLowerCase().includes("elabora");
+    if (!elaborando) {
+      if (dipFase?.stato !== "in_corso") { setDipIdle(false); setDipLastChange(null); }
+      return;
+    }
+    // Prima volta che entra in elaborazione: inizializza il timer
+    if (!dipLastChange) setDipLastChange(Date.now());
+    fetchDipendentiCount();
+    const t = setInterval(fetchDipendentiCount, 20000);
+    return () => clearInterval(t);
+  }, [fasi, fetchDipendentiCount, dipLastChange]);
+
+  // Controlla idle ogni secondo — solo se elaborazione attiva
+  useEffect(() => {
+    const t = setInterval(() => {
+      const dipFase = fasi.find(f => f.id === "dipendenti");
+      const elaborando = dipFase?.stato === "in_corso" && dipFase?.dettaglio?.toLowerCase().includes("elabora");
+      if (!elaborando) return;
+      if (dipLastChange && Date.now() - dipLastChange > 90000) {
+        setDipIdle(true);
+      }
+    }, 1000);
+    return () => clearInterval(t);
+  }, [fasi, dipLastChange]);
+
+  const pushLog   = (tipo,msg) => setLog(p=>[{ts:new Date().toISOString(),tipo,msg},...p.slice(0,99)]);
+  const showToast = (msg,color=C.green) => { setToast({msg,color}); setTimeout(()=>setToast(null),3000); };
+  const setFaseS  = (id,stato,extra={}) => setFasi(p=>p.map(f=>f.id===id?{...f,stato,...extra}:f));
+  const setLoad   = (k,v) => setLoading(p=>({...p,[k]:v}));
+  const forceRefresh = useCallback(() => { fetchSheetStatus(); fetchCounters(); setNextSyncIn(30); }, [fetchSheetStatus, fetchCounters]);
+
+  const callMake = async (url,payload={},label="") => {
+    try {
+      const res = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      pushLog("ok",`✓ Make chiamato: ${label}`);
+      return true;
+    } catch(e) {
+      // Make webhooks spesso non rispondono CORS dal browser — consideriamo ok se è un errore CORS
+      if(e.message.includes("Failed to fetch") || e.message.includes("NetworkError")) {
+        pushLog("ok",`✓ Richiesta inviata a Make: ${label} (attendi aggiornamento dal foglio)`);
+        return true;
+      }
+      pushLog("error",`Errore Make (${label}): ${e.message}`);
+      showToast(`Errore: ${e.message}`,C.red);
+      return false;
+    }
+  };
+
+  // ── AVVIA RUN ─────────────────────────────────────────────────────────────
+  const avviaRun = async () => {
+    setLoad("avvia",true);
+    const id = `RUN-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${String(Math.floor(Math.random()*900)+100)}`;
+    setRunId(id); setRunStart(new Date().toISOString()); setRunAttivo(true);
+    setLog([]); setFasi(FASI_INIT); setExecs([]);
+    setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
+    setErrori(DEFAULT_ERRORI.map(e=>({...e,stato:"aperto"})));
+    pushLog("info",`Run ${id} avviato — campagna: ${campagna}`);
+    if(csvFile) pushLog("info",`File: ${csvFile.name}`);
+
+    setFaseS("import","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Pulizia Google Sheet..."});
+    await callMake(MAKE.pulizia,{runId:id,campagna},"Pulisci fogli");
+
+    if(csvFile) {
+      setFaseS("import","in_corso",{dettaglio:"Invio CSV a Make..."});
+      const fd = new FormData();
+      fd.append("file",csvFile); fd.append("runId",id); fd.append("campagna",campagna);
+      try { await fetch(MAKE.importCsv,{method:"POST",body:fd}); } catch(e) {}
+      pushLog("ok","CSV inviato — Make sta elaborando");
+      pushLog("info","La dashboard si aggiornerà automaticamente ogni 30s dal foglio DASHBOARD_STATUS");
+    }
+    setLoad("avvia",false);
+    setTab("run");
+  };
+
+  const avviaDemo = () => {
+    const id = `RUN-DEMO-${Date.now().toString().slice(-4)}`;
+    setRunId(id); setRunStart(new Date().toISOString()); setRunAttivo(true);
+    setLog([]); setFasi(FASI_INIT); setExecs(MOCK_EXECS);
+    setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
+    setErrori(DEFAULT_ERRORI.map(e=>({...e,stato:"aperto"})));
+    pushLog("info",`Demo run avviato — dati reali dai tuoi Google Sheet`);
+    setTimeout(()=>{
+      setFaseS("import","completato",{iniziato:new Date().toISOString(),completato:new Date().toISOString(),dettaglio:"10 aziende importate"});
+      setFaseS("company","completato",{iniziato:new Date().toISOString(),completato:new Date().toISOString(),dettaglio:"7 trovati · 9 ambigui"});
+      setFaseS("url_check","attesa_utente",{iniziato:new Date().toISOString(),dettaglio:"9 URL da verificare"});
+      pushLog("warn","⏸ Pipeline in pausa — verifica URL richiesta");
+      setTab("interventi");
+    },600);
+  };
+
+  const openSheet = (url, label) => setEmbedSheet({url: url.replace("/edit", "/preview").replace(/[?#].*$/, ""), editUrl: url, label});
+  const closeSheet = () => setEmbedSheet(null);
+
+    const continuaDopoUrl = async () => {
+    setLoad("continua", true);
+    try { localStorage.removeItem('grizzly_selected'); setProspectingSelected(new Set()); } catch(e) {}
+    await callMake("https://hook.eu2.make.com/z9eimytqdgpuulhuo6ky66yrt7p1ll6j", {}, "Aggiornamento Hubspot");
+    setFaseS("url_check", "completato", {completato: new Date().toISOString(), dettaglio: "URL verificati manualmente"});
+    setFaseS("hubspot", "in_corso", {iniziato: new Date().toISOString(), dettaglio: "Aggiornamento aziende su HubSpot..."});
+    pushLog("ok", "▶ Aggiornamento Hubspot avviato");
+    showToast("✓ Aggiornamento Hubspot avviato");
+    setLoad("continua", false);
+  };
+
+    const checkUnblock = (newUrls) => {
+    // gestito da Make via DASHBOARD_STATUS
+  };
+
+  const resolveUrl = async (id,urlScelto) => {
+    if(!urlScelto?.trim()) return;
+    setLoad(`u${id}`,true);
+    const az = urls.find(u=>u.id===id);
+    await callMake(MAKE.urlRisolto,{ragione_sociale:az.ragione_sociale,linkedin_url:urlScelto,runId},"URL risolto");
+    const next = urls.map(u=>u.id===id?{...u,stato:"resolved",scelta:urlScelto}:u);
+    setUrls(next);
+    pushLog("ok",`URL: ${az.ragione_sociale} → ${urlScelto.slice(0,50)}`);
+    showToast("✓ URL confermato — Make aggiornato");
+    checkUnblock(next);
+    setLoad(`u${id}`,false);
+  };
+  const skipUrl = (id) => {
+    const next = urls.map(u=>u.id===id?{...u,stato:"skipped"}:u);
+    setUrls(next); pushLog("warn",`Saltata: ${urls.find(u=>u.id===id)?.ragione_sociale}`);
+    showToast("Azienda saltata",C.yellow); checkUnblock(next);
+  };
+
+  const approveExec = id => setExecs(p=>p.map(e=>e.id===id?{...e,approvato:true}:e));
+  const rejectExec  = id => setExecs(p=>p.map(e=>e.id===id?{...e,approvato:false}:e));
+  const autoApprove = () => { setExecs(p=>p.map(e=>e.approvato===null?{...e,approvato:isTarget(e.ruolo)}:e)); showToast("Auto-approvazione completata"); };
+  const launchEmail = async () => {
+    const approved = execs.filter(e=>e.approvato===true);
+    setLoad("email",true);
+    await callMake(MAKE.cercaEmail,{profiles:approved.map(e=>({nome:e.nome,ruolo:e.ruolo,profileUrl:e.url,azienda:e.azienda})),runId,phantomAgent:PHANTOM.email},"Lancia Phantom email");
+    setFaseS("email","in_corso",{dettaglio:`Phantom email su ${approved.length} profili`});
+    pushLog("ok",`🚀 Phantom email lanciato su ${approved.length} profili`);
+    showToast(`🚀 Phantom email lanciato su ${approved.length} profili`);
+    setLoad("email",false);
+  };
+  const closeError = id => { setErrori(p=>p.map(e=>e.id===id?{...e,stato:"risolto"}:e)); pushLog("ok",`Errore chiuso: ${errori.find(e=>e.id===id)?.azienda}`); showToast("Errore chiuso"); };
+
+  const pendingUrls  = urls.filter(u=>u.stato==="pending").length;
+  const pendingExecs = execs.filter(e=>e.approvato===null).length;
+  const openErrors   = errori.filter(e=>e.stato==="aperto").length;
+  const needsAction  = pendingUrls + openErrors + (execs.length>0&&pendingExecs>0?1:0);
+  const elapsed      = runStart ? Math.floor((clock-new Date(runStart))/1000) : 0;
+  const elapsedStr   = elapsed<60?`${elapsed}s`:elapsed<3600?`${Math.floor(elapsed/60)}m ${elapsed%60}s`:`${Math.floor(elapsed/3600)}h ${Math.floor((elapsed%3600)/60)}m`;
+
+  const TABS = [
+    {key:"run",          label:"Pipeline",     icon:"◈"},
+    {key:"log",          label:"Log",          icon:"≡"},
+    {key:"impostazioni", label:"Impostazioni", icon:"⚙"},
+  ];
+
+  return (
+    <>
+    {splash && (
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,width:"100%",height:"100%",zIndex:9999,background:"#060402",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:28,animation:"splashFadeIn 0.4s ease, splashFadeOut 0.5s ease 4.5s forwards",overflowX:"hidden"}}>
+        {/* Atmospheric glow */}
+        <div style={{position:"absolute",top:"44%",left:"50%",transform:"translate(-50%,-50%)",width:560,height:420,background:"radial-gradient(ellipse 60% 45%, rgba(180,30,10,0.13) 0%, transparent 70%)",pointerEvents:"none"}}/>
+        <div style={{position:"absolute",top:"44%",left:"50%",transform:"translate(-50%,-50%)",width:300,height:220,background:"radial-gradient(ellipse, rgba(255,60,30,0.07) 0%, transparent 65%)",pointerEvents:"none"}}/>
+        {/* Large diagonal 5-claw paw */}
+        <div style={{animation:"crosshairPulse 2.4s ease-in-out infinite",filter:"drop-shadow(0 0 22px rgba(200,40,15,0.55)) drop-shadow(0 0 8px rgba(255,80,40,0.3))"}}>
+          <svg viewBox="0 0 160 150" fill="none" xmlns="http://www.w3.org/2000/svg" style={{width:170,height:160}}>
+            <defs>
+              <linearGradient id="sc1" x1="0" y1="0" x2="0.6" y2="1" gradientUnits="objectBoundingBox">
+                <stop offset="0%" stopColor="#ff6648"/><stop offset="60%" stopColor="#cc2510"/><stop offset="100%" stopColor="#7a0e04"/>
+              </linearGradient>
+              <linearGradient id="sc2" x1="0" y1="0" x2="0.6" y2="1" gradientUnits="objectBoundingBox">
+                <stop offset="0%" stopColor="#ff7a58"/><stop offset="60%" stopColor="#dd3018"/><stop offset="100%" stopColor="#901208"/>
+              </linearGradient>
+              <linearGradient id="sc3" x1="0" y1="0" x2="0.6" y2="1" gradientUnits="objectBoundingBox">
+                <stop offset="0%" stopColor="#ff8868"/><stop offset="55%" stopColor="#e83820"/><stop offset="100%" stopColor="#a01608"/>
+              </linearGradient>
+              <linearGradient id="palmGrad" x1="0" y1="0" x2="1" y2="0.3" gradientUnits="objectBoundingBox">
+                <stop offset="0%" stopColor="#aa2010"/><stop offset="50%" stopColor="#dd3820"/><stop offset="100%" stopColor="#aa2010"/>
+              </linearGradient>
+              <filter id="sg" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="2.5" result="b"/>
+                <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+
+            {/* === CLAW 1 — leftmost, steep angle === */}
+            <path d="M12 132 Q11 120 14 106 Q16 92 19 78 Q22 65 25 54 Q27 44 30 38 Q32 32 34 34 Q36 38 35 50 Q33 62 31 76 Q29 90 30 106 Q31 118 33 132Z" fill="url(#sc1)" filter="url(#sg)"/>
+            {/* inner highlight */}
+            <path d="M25 42 Q27 55 26 70 Q25 84 26 98" stroke="rgba(255,200,170,0.28)" strokeWidth="2" fill="none" strokeLinecap="round"/>
+            {/* sharp tip accent */}
+            <path d="M29 36 Q31 34 33 36" stroke="rgba(255,220,200,0.5)" strokeWidth="1" fill="none" strokeLinecap="round"/>
+
+            {/* === CLAW 2 === */}
+            <path d="M34 130 Q33 117 36 103 Q39 88 43 74 Q47 60 51 48 Q54 38 57 32 Q59 26 61 28 Q63 33 62 46 Q60 59 57 73 Q54 88 55 104 Q56 116 58 130Z" fill="url(#sc2)" filter="url(#sg)"/>
+            <path d="M48 36 Q50 50 49 65 Q48 79 49 94" stroke="rgba(255,200,170,0.28)" strokeWidth="2" fill="none" strokeLinecap="round"/>
+            <path d="M56 30 Q58 28 61 30" stroke="rgba(255,220,200,0.5)" strokeWidth="1" fill="none" strokeLinecap="round"/>
+
+            {/* === CLAW 3 — center, tallest === */}
+            <path d="M58 128 Q57 114 60 99 Q64 83 69 68 Q73 54 77 42 Q80 31 83 25 Q85 19 87 21 Q89 26 88 40 Q86 54 83 69 Q80 84 81 100 Q82 113 84 128Z" fill="url(#sc3)" filter="url(#sg)"/>
+            <path d="M74 30 Q76 44 75 60 Q74 75 75 91" stroke="rgba(255,210,180,0.32)" strokeWidth="2.2" fill="none" strokeLinecap="round"/>
+            <path d="M82 23 Q84 21 87 23" stroke="rgba(255,230,210,0.55)" strokeWidth="1.1" fill="none" strokeLinecap="round"/>
+
+            {/* === CLAW 4 === */}
+            <path d="M82 126 Q82 112 85 98 Q89 83 94 68 Q98 55 102 43 Q105 33 108 27 Q110 21 112 23 Q114 28 112 41 Q110 55 107 70 Q104 84 105 100 Q106 113 108 126Z" fill="url(#sc2)" filter="url(#sg)"/>
+            <path d="M99 31 Q101 45 100 61 Q99 76 100 92" stroke="rgba(255,200,170,0.28)" strokeWidth="2" fill="none" strokeLinecap="round"/>
+            <path d="M107 25 Q109 23 112 25" stroke="rgba(255,220,200,0.5)" strokeWidth="1" fill="none" strokeLinecap="round"/>
+
+            {/* === CLAW 5 — rightmost, most diagonal === */}
+            <path d="M106 124 Q107 111 110 98 Q114 84 118 71 Q122 59 126 49 Q129 40 131 34 Q133 28 135 30 Q137 35 135 47 Q133 60 130 73 Q127 87 128 102 Q129 114 131 124Z" fill="url(#sc1)" filter="url(#sg)"/>
+            <path d="M123 37 Q124 51 123 66 Q122 80 123 95" stroke="rgba(255,200,170,0.25)" strokeWidth="1.8" fill="none" strokeLinecap="round"/>
+            <path d="M130 32 Q132 30 135 32" stroke="rgba(255,220,200,0.45)" strokeWidth="0.9" fill="none" strokeLinecap="round"/>
+
+            {/* === PALM BASE — curved diagonal === */}
+            <path d="M8 138 Q20 128 34 124 Q52 119 71 118 Q92 117 110 120 Q126 123 144 134" stroke="#991808" strokeWidth="13" strokeLinecap="round" fill="none"/>
+            <path d="M8 138 Q20 129 34 125 Q52 120 71 119 Q92 118 110 121 Q126 124 144 134" stroke="url(#palmGrad)" strokeWidth="8" strokeLinecap="round" fill="none"/>
+            {/* palm highlight */}
+            <path d="M20 132 Q40 126 71 125 Q102 124 132 130" stroke="rgba(255,100,60,0.4)" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
+          </svg>
+        </div>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:46,fontWeight:900,letterSpacing:"-0.02em",background:"linear-gradient(135deg,#ff6040 0%,#dd1e08 45%,#ff7050 100%)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1,textTransform:"uppercase"}}>Grizzly</div>
+          <div style={{fontSize:11,color:"#3a1208",letterSpacing:"0.3em",textTransform:"uppercase",marginTop:10}}>Prospecting Pipeline</div>
+        </div>
+        <div style={{display:"flex",gap:7,marginTop:4}}>
+          {[0,1,2].map(i=>(
+            <div key={i} style={{width:5,height:5,borderRadius:"50%",background:"#cc2010",animation:`dotBlink 1s ease-in-out ${i*0.22}s infinite`}}/>
+          ))}
+        </div>
+      </div>
+    )}
+    <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:C.bg,color:C.text,width:"100%",minHeight:"100vh",display:"flex",flexDirection:"column",visibility:splash?"hidden":"visible"}}>
+
+      {/* TOP BAR */}
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"0 8px",display:"flex",alignItems:"stretch",justifyContent:"space-between",flexShrink:0,minHeight:46,flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"stretch",gap:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,paddingRight:20,marginRight:4,borderRight:`1px solid ${C.border}`}}>
+            <div style={{width:28,height:28,flexShrink:0}}>
+              <svg viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg" style={{width:28,height:28}}>
+                <defs>
+                  <linearGradient id="bgGrad" x1="0" y1="0" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#100604"/><stop offset="100%" stopColor="#070302"/>
+                  </linearGradient>
+                  <linearGradient id="c1" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+                    <stop offset="0%" stopColor="#ff5535"/><stop offset="100%" stopColor="#8a1508"/>
+                  </linearGradient>
+                  <linearGradient id="c2" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+                    <stop offset="0%" stopColor="#ff6a45"/><stop offset="100%" stopColor="#a81a0a"/>
+                  </linearGradient>
+                </defs>
+                <rect width="30" height="30" rx="7" fill="url(#bgGrad)"/>
+                {/* 5 claws diagonal, left-bottom to right-top */}
+                {/* Claw 1 - bottom left, most vertical */}
+                <path d="M4 26 Q4.5 21 6 17 Q7 13 8.5 10 Q9.5 8 10 10 Q10 13 9 17 Q8 21 9 26Z" fill="url(#c1)"/>
+                <path d="M6.5 10.5 Q7.5 13 7 17" stroke="rgba(255,180,150,0.3)" strokeWidth="0.7" fill="none" strokeLinecap="round"/>
+                {/* Claw 2 */}
+                <path d="M8 25.5 Q8.5 20 10 16 Q11.5 11 13 8 Q13.5 6 14.5 8 Q14.5 11 13.5 16 Q12.5 20 13.5 25Z" fill="url(#c2)"/>
+                <path d="M11 9 Q11.5 12.5 11 16" stroke="rgba(255,180,150,0.3)" strokeWidth="0.7" fill="none" strokeLinecap="round"/>
+                {/* Claw 3 - center tallest */}
+                <path d="M12 24.5 Q12.5 19 14 15 Q15.5 10 17 7 Q17.5 5 18.5 7 Q18.5 10 17.5 15 Q16.5 19 17.5 24Z" fill="url(#c2)"/>
+                <path d="M15.5 7.5 Q15.5 11 15 15" stroke="rgba(255,180,150,0.35)" strokeWidth="0.7" fill="none" strokeLinecap="round"/>
+                {/* Claw 4 */}
+                <path d="M16 23.5 Q16.5 19 18 15 Q19.5 10 21 8 Q21.5 6 22.5 8 Q22.5 11 21.5 15 Q20.5 19 21.5 23Z" fill="url(#c2)"/>
+                <path d="M19.5 8.5 Q19.5 12 19 16" stroke="rgba(255,180,150,0.3)" strokeWidth="0.7" fill="none" strokeLinecap="round"/>
+                {/* Claw 5 - top right, most diagonal */}
+                <path d="M19.5 22.5 Q20.5 18.5 22 15 Q23.5 11 25 9 Q25.5 7.5 26.5 9 Q26.5 12 25.5 15.5 Q24.5 19 25.5 22.5Z" fill="url(#c1)"/>
+                <path d="M23.5 9.5 Q23.5 13 23 16" stroke="rgba(255,180,150,0.25)" strokeWidth="0.7" fill="none" strokeLinecap="round"/>
+                {/* Palm base - diagonal arc */}
+                <path d="M3.5 27.5 Q7 24.5 11 23.5 Q16 22.5 20 23 Q23.5 23.5 27 26" stroke="#c03020" strokeWidth="3.2" strokeLinecap="round" fill="none"/>
+                <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
+              </svg>
+            </div>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>1.5.4</span>
+          </div>
+          <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
+              <span style={{fontSize:11}}>◈</span>Pipeline
+            </button>
+            {[{key:"log",label:"Log",icon:"≡"},{key:"impostazioni",label:"Impostazioni",icon:"⚙"}].map(t=>(
+              <button key={t.key} className="tab-desktop" onClick={()=>setTab(t.key)} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab===t.key?C.textHi:C.muted,borderBottom:tab===t.key?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
+                <span style={{fontSize:11}}>{t.icon}</span>{t.label}
+              </button>
+            ))}
+            <a className="tab-desktop" href="https://eu2.make.com/2589672/scenarios?folder=485831&tab=all&sort=nameAsc" target="_blank" style={{textDecoration:"none",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:C.muted,borderBottom:"2px solid transparent",marginBottom:-1,flexShrink:0,whiteSpace:"nowrap"}}>
+              <span style={{fontSize:11}}>⌁</span>Scenari
+            </a>
+          <div className="tab-hamburger" style={{position:"relative",flexShrink:0}}>
+            <button onClick={()=>setMenuOpen(v=>!v)} style={{background:"none",border:"none",cursor:"pointer",padding:"0 12px",height:46,display:"flex",alignItems:"center",color:(tab==="log"||tab==="impostazioni")?C.accent:C.muted,borderBottom:(tab==="log"||tab==="impostazioni")?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s"}}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="14" y2="8"/><line x1="2" y1="12" x2="14" y2="12"/>
+              </svg>
+            </button>
+            {menuOpen&&(
+              <>
+                <div onClick={()=>setMenuOpen(false)} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:99}}/>
+                <div style={{position:"absolute",top:48,right:0,zIndex:100,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",minWidth:140,boxShadow:"0 8px 24px rgba(0,0,0,0.4)"}}>
+                  {[{key:"run",label:"Pipeline",icon:"◈"},{key:"log",label:"Log",icon:"≡"},{key:"impostazioni",label:"Impostazioni",icon:"⚙"}].map(t=>(
+                    <button key={t.key} onClick={()=>{setTab(t.key);setMenuOpen(false);}} style={{width:"100%",background:tab===t.key?`${C.accent}18`:"none",border:"none",borderBottom:`1px solid ${C.border}`,cursor:"pointer",padding:"11px 16px",display:"flex",alignItems:"center",gap:8,fontSize:12,fontWeight:500,color:tab===t.key?C.accent:C.text}}>
+                      <span>{t.icon}</span>{t.label}
+                    </button>
+                  ))}
+                  <a href="https://eu2.make.com/2589672/scenarios?folder=485831&tab=all&sort=nameAsc" target="_blank" onClick={()=>setMenuOpen(false)} style={{textDecoration:"none",width:"100%",display:"flex",alignItems:"center",gap:8,fontSize:12,fontWeight:500,color:C.text,padding:"11px 16px",borderBottom:`1px solid ${C.border}`,boxSizing:"border-box"}}>
+                    <span>⌁</span>Scenari
+                  </a>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:12,fontSize:11}}>
+
+          <div style={{display:"flex",alignItems:"center",gap:5}}>
+            <span style={{width:5,height:5,borderRadius:"50%",background:syncErr?C.red:C.green,display:"inline-block",animation:"pulse 3s infinite"}}/>
+            <span style={{color:C.muted,fontSize:10,fontFamily:"'JetBrains Mono',monospace",minWidth:90,display:"inline-block"}}>{syncErr?"sync errore":lastSync?`sync in ${nextSyncIn}s`:"sync..."}</span>
+            <button onClick={(e)=>{e.stopPropagation();forceRefresh();}} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:4,padding:"2px 7px",fontSize:10,color:C.muted,cursor:"pointer",lineHeight:1.4,transition:"color 0.2s"}} onMouseEnter={e=>e.target.style.color="#fff"} onMouseLeave={e=>e.target.style.color=C.muted} title="Forza aggiornamento">↻</button>
+          </div>
+          {runAttivo
+            ?<div style={{display:"flex",alignItems:"center",gap:6,color:C.muted}}><span style={{width:6,height:6,borderRadius:"50%",background:C.green,display:"inline-block",animation:"pulse 2s infinite"}}/><span style={{color:C.text,fontFamily:"'JetBrains Mono',monospace",fontSize:10}}>{runId}</span><span style={{fontFamily:"'JetBrains Mono',monospace",minWidth:52,display:"inline-block"}}>· {elapsedStr}</span></div>
+            :<span style={{color:C.muted}}>Nessun run attivo</span>}
+          <span style={{color:C.muted,fontFamily:"'JetBrains Mono',monospace",fontSize:10,minWidth:60,display:"inline-block",textAlign:"right"}}>{clock.toLocaleTimeString("it-IT")}</span>
+        </div>
+      </div>
+
+      <div style={{flex:1,overflow:"auto"}}>
+
+        {/* ══ AVVIA RUN ══ */}
+        {tab==="impostazioni"&&(
+          <div style={{padding:"16px 20px",animation:"fadeIn .2s ease"}}>
+            <div style={{fontSize:18,fontWeight:700,color:C.textHi,marginBottom:4}}>Impostazioni</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:24}}>Configurazione attiva del pipeline.</div>
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
+              <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.border}`,fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase"}}>WEBHOOK MAKE</div>
+              {[
+                {label:"Pulisci fogli — Sc.0",      url:MAKE.pulizia},
+                {label:"Import CSV — Sc.1",         url:MAKE.importCsv},
+                {label:"Aggiornamento Hubspot",     url:MAKE.hubspot},
+                {label:"Scrivi URL — Review Tool",  url:"https://hook.eu2.make.com/kis7w8iges7cwop9eub9m1tkcax1smdb"},
+              ].map((w,i)=>(
+                <div key={i} className="hovrow" style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",borderBottom:i<3?`1px solid ${C.border}`:""}}>
+                  <span style={{fontSize:11,fontWeight:500,color:C.text,width:220,flexShrink:0}}>{w.label}</span>
+                  <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:C.muted,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.url}</span>
+                  <Tag color={C.green} bg={C.greenDim}>attivo</Tag>
+                </div>
+              ))}
+            </div>
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
+              <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.border}`,fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase"}}>PHANTOM AGENT ID</div>
+              {[
+                {label:"Company URL Finder",  id:PHANTOM.companyFinder},
+              ].map((p,i)=>(
+                <div key={i} className="hovrow" style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",borderBottom:""}}>
+                  <span style={{fontSize:11,fontWeight:500,color:C.text,width:220,flexShrink:0}}>{p.label}</span>
+                  <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:C.muted}}>{p.id}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
+              <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.border}`,fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase"}}>GOOGLE SHEET DI STATO</div>
+              <div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
+                <div style={{display:"flex",gap:8}}><span style={{fontSize:11,color:C.muted,width:120}}>Sheet ID</span><span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:C.text}}>{SHEET_ID.slice(0,22)}...</span></div>
+                <div style={{display:"flex",gap:8}}><span style={{fontSize:11,color:C.muted,width:120}}>Tab</span><span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:C.text}}>{SHEET_NAME}</span></div>
+                <div style={{display:"flex",gap:8}}><span style={{fontSize:11,color:C.muted,width:120}}>Polling</span><span style={{fontSize:11,color:C.text}}>ogni 30 secondi</span></div>
+                <div style={{display:"flex",gap:8}}><span style={{fontSize:11,color:C.muted,width:120}}>Ultimo sync</span><span style={{fontSize:11,color:lastSync?C.green:C.muted}}>{lastSync?fmtAgo(lastSync):"mai"}</span></div>
+                <a href={`https://docs.google.com/spreadsheets/d/${SHEET_ID}`} target="_blank" style={{marginTop:4}}><Btn color={C.accent} bg={C.accentDim}>Apri Google Sheet →</Btn></a>
+              </div>
+            </div>
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden"}}>
+              <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.border}`,fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase"}}>COME AVVIARE UN RUN</div>
+              <div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:12}}>
+                {[
+                  {n:"1",t:"Esporta da EasyBusiness", d:"Seleziona aziende con filtri ATECO, area, fatturato → esporta .xlsx"},
+                  {n:"2",t:"Trascina sul .bat",        d:"Run_Mapper_DragDrop.bat converte xlsx→csv, invia a Make e apre questa dashboard"},
+                  {n:"3",t:"Segui gli Interventi",    d:"Il badge arancione appare quando la pipeline si ferma"},
+                  {n:"4",t:"Controlla gli Errori",    d:"Errori HubSpot con istruzioni precise di risoluzione"},
+                ].map((s,i)=>(
+                  <div key={i} style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+                    <div style={{width:22,height:22,borderRadius:"50%",background:C.accentDim,border:`1px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:C.accent,flexShrink:0}}>{s.n}</div>
+                    <div><div style={{fontSize:12,fontWeight:600,color:C.textHi}}>{s.t}</div><div style={{fontSize:10,color:C.muted,marginTop:2,lineHeight:1.5}}>{s.d}</div></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab==="run"&&(
+          <div className="run-content" style={{padding:"16px 20px",animation:"fadeIn .2s ease"}}>
+            {!runAttivo?(
+              <div style={{textAlign:"center",padding:"60px 0",color:C.muted}}>
+                <div style={{fontSize:36,marginBottom:12}}>◈</div>
+                <div style={{fontSize:14,fontWeight:500,color:C.text,marginBottom:6}}>Nessun run attivo</div>
+                <div style={{fontSize:12,marginBottom:20}}>Avvia il .bat sul desktop con il file EasyBusiness — la dashboard si aggiorna automaticamente dal foglio DASHBOARD_STATUS</div>
+                <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
+                  <Btn color={C.accent} bg={C.accentDim} onClick={avviaDemo}>▶ Carica demo con dati reali</Btn>
+                  <Btn color={"#67e8f9"} bg={"rgba(103,232,249,0.12)"} onClick={()=>{avviaDemo();setTimeout(()=>{setFaseS("dipendenti","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Phantom in esecuzione..."});setDipLastChange(Date.now()-91000);setDipIdle(true);},500);}}>⏱ Demo banner idle</Btn>
+                  <Btn onClick={()=>{avviaDemo();setTimeout(()=>{setFaseS("email","completato",{iniziato:new Date().toISOString(),completato:new Date().toISOString(),dettaglio:"Ricerca email completata"});},500);}}>✅ Demo banner Lemlist</Btn>
+                </div>
+              </div>
+            ):(
+              <>
+                <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:24}}>
+                  {/* Gruppo Aziende */}
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                    <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.12em",color:"#60a5fa",textTransform:"uppercase"}}>🏢 Aziende</span>
+                    <div style={{flex:1,height:1,background:"rgba(96,165,250,0.2)"}}/>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8}}>
+                    {[
+                      {label:"Importate",       value:counters.az_input??"—",  color:"#60a5fa", bg:"rgba(96,165,250,0.07)",  border:"rgba(96,165,250,0.2)"},
+                      {label:"Con Company Page", value:counters.az_output??"—", color:"#34d399", bg:"rgba(52,211,153,0.07)",  border:"rgba(52,211,153,0.2)"},
+                    ].map((k,i)=>(
+                      <div key={i} style={{background:k.bg,border:`1px solid ${k.border}`,borderRadius:6,padding:"10px 14px"}}>
+                        <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:5}}>{k.label}</div>
+                        <div style={{fontSize:24,fontWeight:700,color:k.color,lineHeight:1}}>
+                        {k.value==="—" ? <div className="skeleton" style={{width:32,height:24}}/> : k.value}
+                      </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Gruppo Company URL */}
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:6,marginBottom:2}}>
+                    <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.12em",color:"#a5b4fc",textTransform:"uppercase"}}>🔗 Company URL</span>
+                    <div style={{flex:1,height:1,background:"rgba(165,180,252,0.2)"}}/>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:8}}>
+                    {[
+                      {label:"Easybusiness", value:counters.exec??"—",      color:"#c4b5fd", bg:"rgba(196,181,253,0.07)", border:"rgba(196,181,253,0.2)"},
+                      {label:"Phantom",      value:counters.scartati??"—",  color:C.muted,   bg:C.surface,               border:C.border},
+                    ].map((k,i)=>(
+                      <div key={i} style={{background:k.bg,border:`1px solid ${k.border}`,borderRadius:6,padding:"10px 14px"}}>
+                        <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:5}}>{k.label}</div>
+                        <div style={{fontSize:24,fontWeight:700,color:k.color,lineHeight:1}}>
+                        {k.value==="—" ? <div className="skeleton" style={{width:32,height:24}}/> : k.value}
+                      </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+                  {/* ── PIPELINE ORIZZONTALE ── */}
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,paddingBottom:6}}>
+                    {(()=>{ return fasi.map((fase,i)=>{
+                      const isLemlistActive = fase.id==="lemlist"&&(fase.stato==="attesa_utente"||fase.stato==="in_corso");
+                      const blueCfg = {color:"#3b82f6", bg:"rgba(59,130,246,0.12)", dot:"#3b82f6", label:"Intervento richiesto"};
+                      const cfg = isLemlistActive ? blueCfg : STATO_CFG[fase.stato];
+                      const isActive = fase.stato==="in_corso"||fase.stato==="attesa_utente"||fase.stato==="intervento_richiesto";
+                      const isDone   = fase.stato==="completato";
+                      const isWait   = (fase.stato==="in_attesa"||fase.stato==="bloccato")&&!isLemlistActive;
+                      return (
+                        <div key={fase.id} style={{
+                          
+                          background: isDone?"rgba(34,197,94,0.05)":isActive?"rgba(59,130,246,0.07)":C.surface,
+                          border: isActive?`2px solid ${cfg.color}`:`1px solid ${isDone?"rgba(34,197,94,0.2)":C.border}`,
+                          borderRadius:8, padding:"10px 11px",
+                          opacity: isWait?0.4:1,
+                          position:"relative",
+                          boxShadow: isActive?`0 0 14px ${cfg.color}28`:"none",
+                          transition:"all 0.3s ease",
+                        }}>
+                          {/* Header: icona + badge stato */}
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                            <span style={{fontSize:15}}>{fase.icon}</span>
+                            <span style={{fontSize:8,fontWeight:700,color:cfg.color,background:`${cfg.color}18`,border:`1px solid ${cfg.color}35`,borderRadius:3,padding:"1px 5px",letterSpacing:"0.04em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{cfg.label}</span>
+                          </div>
+                          {/* Nome */}
+                          <div style={{fontSize:11,fontWeight:700,color:isDone?C.muted:isActive?"#f0f6ff":C.text,lineHeight:1.3,marginBottom:3}}>{fase.label}</div>
+                          {/* Dettaglio */}
+                          {fase.dettaglio&&<div style={{fontSize:9,color:C.muted,lineHeight:1.3,marginBottom:5,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{fase.dettaglio}</div>}
+                          {/* Timer */}
+                          {fase.iniziato&&(
+                            <div style={{fontSize:8,color:C.muted,fontFamily:"'JetBrains Mono',monospace",marginBottom:5}}>
+                              ▶ {fmtTime(fase.iniziato)}{fase.completato&&<> · {dur(fase.iniziato,fase.completato)}</>}
+                            </div>
+                          )}
+                          {/* Tasti */}
+                          <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+                            {FASE_LINKS[fase.id]?.sheet&&fase.stato!=="bloccato"&&fase.id!=="company"&&(
+                              <button onClick={()=>openSheet(FASE_LINKS[fase.id].sheet,FASE_LINKS[fase.id].sheetLabel||fase.label)} style={{fontSize:8,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,0.3)`,borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Dati</button>
+                            )}
+                            {FASE_LINKS[fase.id]?.phantom&&(
+                              <a href={FASE_LINKS[fase.id].phantom} target="_blank" style={{textDecoration:"none"}}>
+                                <button style={{fontSize:8,fontWeight:600,color:C.purple,background:C.purpleDim,border:"1px solid rgba(168,85,247,.2)",borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Phantom</button>
+                              </a>
+                            )}
+                            {FASE_LINKS[fase.id]?.monitor&&fase.id!=="url_check"&&fase.id!=="hubspot"&&(
+                              <a href={FASE_LINKS[fase.id].monitor} target="_blank" style={{textDecoration:"none"}}>
+                                <button style={{fontSize:8,fontWeight:600,color:"#67e8f9",background:"rgba(103,232,249,0.12)",border:"1px solid rgba(103,232,249,.2)",borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Monitor</button>
+                              </a>
+                            )}
+                            {fase.id==="hubspot"&&FASE_LINKS["hubspot"]?.monitor&&(
+                              <a href={FASE_LINKS["hubspot"].monitor} target="_blank" style={{textDecoration:"none"}}>
+                                <button style={{fontSize:8,fontWeight:600,color:"#a78bfa",background:"rgba(139,92,246,0.15)",border:"1px solid rgba(139,92,246,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Make</button>
+                              </a>
+                            )}
+                          </div>
+                          {/* Dot attivo */}
+                          {isActive&&<div style={{position:"absolute",top:8,right:8,width:6,height:6,borderRadius:"50%",background:cfg.color,boxShadow:`0 0 7px ${cfg.color}`}}/>}
+                          {/* Shimmer bar in_corso */}
+                          {fase.stato==="in_corso"&&(
+                            <div style={{position:"absolute",bottom:0,left:0,right:0,height:3,background:`${cfg.color}22`,borderRadius:"0 0 6px 6px",overflow:"hidden"}}>
+                              <div style={{position:"absolute",top:0,left:0,width:"40%",height:"100%",background:`linear-gradient(90deg,transparent,${cfg.color},transparent)`,animation:"shimmerBar 1.5s infinite ease-in-out"}}/>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })})()}
+                  </div>
+
+                  {/* ── BANNER AZIENDE SENZA SITO ── */}
+                  {azSenzaSito.length>0&&(
+                    <div style={{background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.35)",borderRadius:6,padding:"12px 16px",display:"flex",flexDirection:"column",gap:8}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                        <div>
+                          <div style={{fontSize:12,fontWeight:700,color:"#fbbf24",marginBottom:2}}>⚠️ Aziende senza sito web ({azSenzaSito.length})</div>
+                          <div style={{fontSize:10,color:C.muted}}>Queste aziende non hanno un sito web nel Prospecting input — aggiungilo prima di procedere</div>
+                        </div>
+                        <div style={{display:"flex",gap:8,flexShrink:0}}>
+                          <a href="https://docs.google.com/spreadsheets/d/1Xk8CuYjriLbsxqafpTkPKSIGyApUAnX7vj7TaRlLHEc/edit?gid=0" target="_blank" style={{textDecoration:"none"}}>
+                            <button style={{padding:"6px 14px",fontSize:11,fontWeight:600,color:"#fbbf24",background:"rgba(245,158,11,0.1)",border:"1px solid rgba(245,158,11,0.3)",borderRadius:5,cursor:"pointer"}}>📊 Apri Foglio</button>
+                          </a>
+                          <button onClick={()=>{companyCeckFiredRef.current=false; fetchAzSenzaSito();}} style={{padding:"6px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#d97706,#f59e0b)",border:"none",borderRadius:5,cursor:"pointer"}}>▶ Continua</button>
+                        </div>
+                      </div>
+                      <div style={{display:"flex",flexDirection:"column",gap:3,maxHeight:120,overflowY:"auto"}}>
+                        {azSenzaSito.map((az,i)=>(
+                          <div key={i} style={{fontSize:10,color:"#fcd34d",fontFamily:"'JetBrains Mono',monospace"}}>• {az.a}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── BANNER AZIONI ── */}
+                  {(fasi.find(f=>f.id==="url_check")?.stato==="attesa_utente"||fasi.find(f=>f.id==="url_check")?.stato==="in_corso")&&(
+                    <div style={{background:"rgba(249,115,22,0.08)",border:"1px solid rgba(249,115,22,0.35)",borderRadius:6,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+                      <div>
+                        <div style={{fontSize:12,fontWeight:700,color:"#fb923c",marginBottom:2}}>🔍 URL ambigui da verificare</div>
+                        <div style={{fontSize:10,color:C.muted}}>Apri lo sheet, verifica gli URL, poi avvia la ricerca dipendenti</div>
+                      </div>
+                      <div style={{display:"flex",gap:8,flexShrink:0}}>
+                        <button onClick={()=>setShowReviewTool(true)} style={{padding:"7px 12px",fontSize:11,fontWeight:600,color:"#fb923c",background:"rgba(249,115,22,0.1)",border:"1px solid rgba(249,115,22,0.3)",borderRadius:5,cursor:"pointer",width:150,textAlign:"center"}}>🔍 URL Review</button>
+                        <button onClick={()=>openSheet(FASE_LINKS["url_check"].sheet,"Prospecting output")} style={{padding:"7px 12px",fontSize:11,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,0.3)`,borderRadius:5,cursor:"pointer",width:130,textAlign:"center"}}>📊 Apri Dati</button>
+                        <button onClick={()=>continuaDopoUrl()} disabled={loading.continua} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:loading.continua?"#1e2a3a":"linear-gradient(135deg,#ea580c,#f97316)",border:"none",borderRadius:5,cursor:loading.continua?"not-allowed":"pointer",width:120,textAlign:"center"}}>
+                          {loading.continua?"...":"▶ Continua"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {fasi.find(f=>f.id==="dipendenti")&&dipIdle&&fasi.find(f=>f.id==="dipendenti")?.stato==="in_corso"&&(
+                    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                      <div style={{background:"rgba(249,115,22,0.08)",border:"1px solid rgba(249,115,22,0.35)",borderRadius:6,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+                        <div>
+                          <div style={{fontSize:12,fontWeight:700,color:"#fb923c",marginBottom:2}}>👥 Cerca dipendenti</div>
+                          <div style={{fontSize:10,color:C.muted}}>Controlla il foglio dipendenti, poi avvia la ricerca email</div>
+                        </div>
+                        <div style={{display:"flex",gap:8,flexShrink:0}}>
+                          <button onClick={()=>openSheet(FASE_LINKS["dipendenti"].sheet,"Dipendenti")} style={{padding:"7px 12px",fontSize:11,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,0.3)`,borderRadius:5,cursor:"pointer",width:130,textAlign:"center"}}>📊 Apri Dati</button>
+                          <button
+                            disabled={loading.avviaEmail}
+                            onClick={async()=>{
+                              setLoad("avviaEmail",true);
+                              setDupCheck(null);
+                              const result = await checkDuplicatiProPersona();
+                              setDupCheck(result);
+                              setLoad("avviaEmail",false);
+                            }}
+                            style={{padding:"7px 16px",fontSize:11,fontWeight:700,color:"#fff",background:loading.avviaEmail?"#1e2a3a":"linear-gradient(135deg,#ea580c,#f97316)",border:"none",borderRadius:5,cursor:loading.avviaEmail?"not-allowed":"pointer",width:180,textAlign:"center"}}>
+                            {loading.avviaEmail?"⏳ Controllo...":dupCheck===null?"▶ Avvia cerca email":"🔍 Ricontrolla"}
+                          </button>
+                        </div>
+                      </div>
+                      {dupCheck?.ok===true&&(
+                        <div style={{background:"rgba(74,222,128,0.08)",border:"1px solid rgba(74,222,128,0.35)",borderRadius:6,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+                          <div>
+                            <div style={{fontSize:12,fontWeight:700,color:"#4ade80",marginBottom:2}}>✅ Nessun duplicato trovato</div>
+                            <div style={{fontSize:10,color:C.muted}}>Pro.Persona è pulito, puoi avviare la ricerca email</div>
+                          </div>
+                          <button onClick={()=>callMake("https://hook.eu2.make.com/htuzcpwibjxykcphlbvdh9agd946t28z",{},"Avvia Cerca Email").then(()=>{setFaseS("dipendenti","completato",{completato:new Date().toISOString()});setFaseS("email","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Phantom Email avviato..."});setDipIdle(false);setDupCheck(null);pushLog("ok","▶ Cerca Email avviato");})} style={{padding:"7px 16px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#ea580c,#f97316)",border:"none",borderRadius:5,cursor:"pointer",width:180,textAlign:"center",flexShrink:0}}>▶ Avvia cerca email</button>
+                        </div>
+                      )}
+                      {dupCheck?.ok===false&&(
+                        <div style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.35)",borderRadius:6,padding:"10px 14px"}}>
+                          <div style={{fontSize:12,fontWeight:700,color:"#f87171",marginBottom:4}}>🚨 Profili duplicati in Pro.Persona</div>
+                          <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Rimuovi i duplicati dal foglio prima di avviare la ricerca email, altrimenti lo scenario si blocca.</div>
+                          <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                            {dupCheck.duplicati.map((d,i)=>(
+                              <div key={i} style={{fontSize:10,color:"#fca5a5",fontFamily:"'JetBrains Mono',monospace"}}>• {d.url} <span style={{color:"#f87171"}}>({d.n}x)</span></div>
+                            ))}
+                          </div>
+                          <div style={{marginTop:8,display:"flex",gap:8}}>
+                            <a href="https://docs.google.com/spreadsheets/d/1y21r84H4Cy2J7hW-bLfXgsD5mfK8KqEcI_apcc_cm-E/edit?gid=811728725#gid=811728725" target="_blank" style={{textDecoration:"none"}}>
+                              <button style={{padding:"5px 12px",fontSize:10,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,0.3)`,borderRadius:4,cursor:"pointer"}}>📊 Apri Pro.Persona</button>
+                            </a>
+                            <button onClick={async()=>{setDupCheck(null);setLoad("avviaEmail",true);const result=await checkDuplicatiProPersona();setDupCheck(result);setLoad("avviaEmail",false);}} style={{padding:"5px 12px",fontSize:10,fontWeight:600,color:"#4ade80",background:"rgba(74,222,128,0.1)",border:"1px solid rgba(74,222,128,0.3)",borderRadius:4,cursor:"pointer"}}>🔄 Ricontrolla</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {fasi.find(f=>f.id==="lemlist")?.stato==="attesa_utente"&&(
+                    <div style={{background:"rgba(37,99,235,0.10)",border:`1px solid rgba(59,130,246,0.4)`,borderRadius:6,padding:"12px 16px",display:"flex",flexDirection:"column",gap:12}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                        <div>
+                          <div style={{fontSize:12,fontWeight:700,color:"#60a5fa",marginBottom:2}}>🚀 Assegna i lead alla campagna</div>
+                          <div style={{fontSize:10,color:C.muted}}>Apri Lemlist e avvia le sequenze per i lead trovati</div>
+                        </div>
+                        <div style={{display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
+                          <a href="https://app-eu1.hubspot.com/contacts/145447510/objects/0-2/views/142976339/list" target="_blank" style={{textDecoration:"none"}}>
+                            <button style={{padding:"7px 16px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#0f4c81,#0ea5e9)",border:"none",borderRadius:5,cursor:"pointer",textAlign:"center"}}>🔗 HubSpot</button>
+                          </a>
+                          <a href="https://app.lemlist.com/teams/tea_wT4jk7upASTbpAtjp/campaigns-next/cam_JZd5CAZbe39QDFzrr/leads" target="_blank" style={{textDecoration:"none",flexShrink:0}}>
+                            <button style={{padding:"7px 16px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer",textAlign:"center"}}>🚀 Lemlist</button>
+                          </a>
+                        </div>
+                      </div>
+                      {/* Tabs */}
+                      <div style={{display:"flex",gap:6,borderBottom:`1px solid rgba(59,130,246,0.2)`,paddingBottom:6}}>
+                        {[{k:"tabella",l:"📋 Tabella"},{k:"sheets",l:"📊 Google Sheets"}].map(t=>(
+                          <button key={t.k} onClick={()=>{setProspectingTab(t.k);if(t.k==="tabella")fetchProspecting();}} style={{fontSize:10,fontWeight:600,padding:"3px 10px",borderRadius:4,border:"none",cursor:"pointer",background:prospectingTab===t.k?"rgba(59,130,246,0.3)":"transparent",color:prospectingTab===t.k?"#93c5fd":C.muted}}>{t.l}</button>
+                        ))}
+                      </div>
+                      {/* Tabella custom col B + E */}
+                      {prospectingTab==="tabella"&&(
+                        <div style={{overflowY:"auto",maxHeight:280,borderRadius:5,border:`1px solid rgba(59,130,246,0.2)`}}>
+                          <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,fontFamily:"'JetBrains Mono',monospace"}}>
+                            <thead>
+                              <tr style={{background:"rgba(59,130,246,0.15)"}}>
+                                <th style={{padding:"6px 10px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Ragione Sociale</th>
+                                <th style={{padding:"6px 10px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Company Page</th>
+                                <th style={{padding:"6px 10px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Sito Web</th>
+                                <th style={{padding:"6px 10px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Fatturato</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {prospectingRows.length===0
+                                ?<tr><td colSpan={2} style={{padding:"14px 10px",textAlign:"center",color:C.muted}}>Caricamento...</td></tr>
+                                :prospectingRows.map((r,i)=>(
+                                  <tr key={i} onClick={()=>setProspectingSelected(s=>{const n=new Set(s);n.has(i)?n.delete(i):null;return n;})} style={{borderBottom:`1px solid rgba(59,130,246,0.1)`,background:prospectingSelected.has(i)?"rgba(16,185,129,0.15)":i%2===0?"transparent":"rgba(59,130,246,0.04)",cursor:"pointer",transition:"background 0.15s"}}>
+                                    <td style={{padding:"5px 10px",color:prospectingSelected.has(i)?"#6ee7b7":C.text,fontWeight:prospectingSelected.has(i)?700:400}}>
+                                      {prospectingSelected.has(i)&&<span style={{marginRight:6}}>✓</span>}{r.b}
+                                    </td>
+                                    <td style={{padding:"5px 10px",color:"#60a5fa",wordBreak:"break-all"}}>
+                                      {r.e&&!r.e.toLowerCase().includes('verific')
+                                        ?<a href={r.e} target="_blank" style={{color:prospectingSelected.has(i)?"#6ee7b7":"#60a5fa"}} onClick={e=>{e.stopPropagation();setProspectingSelected(s=>{const n=new Set(s);n.add(i);return n;});}}>{r.e.replace(/https?:\/\/(www\.)?/,"").slice(0,50)}</a>
+                                        :"—"}
+                                    </td>
+                                    <td style={{padding:"5px 10px",color:C.muted,fontSize:9}}>
+                                      {r.f?<a href={r.f.startsWith('http')?r.f:'https://'+r.f} target="_blank" style={{color:C.muted}} onClick={e=>e.stopPropagation()}>{r.f.replace(/https?:\/\/(www\.)?/,"").slice(0,30)}</a>:"—"}
+                                    </td>
+                                    <td style={{padding:"5px 10px",color:C.muted,fontSize:9,whiteSpace:"nowrap"}}>{r.s||"—"}</td>
+                                  </tr>
+                                ))
+                              }
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      {/* Google Sheets iframe */}
+                      {prospectingTab==="sheets"&&(
+                        <div style={{overflow:"hidden",height:320,borderRadius:5,border:`1px solid rgba(59,130,246,0.2)`}}>
+                          <iframe
+                            src={`https://docs.google.com/spreadsheets/d/${URL_SHEET_ID}/edit?gid=0&rm=minimal`}
+                            style={{width:"133%",height:"133%",border:"none",transform:"scale(0.75)",transformOrigin:"top left"}}
+                            title="Prospecting output"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── IFRAME ── */}
+                  {embedSheet&&(
+                    <div>
+                      <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",padding:"6px 0 8px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                        <span>{embedSheet.label}</span>
+                        <div style={{display:"flex",gap:6}}>
+                          <a href={embedSheet.editUrl} target="_blank" style={{textDecoration:"none"}}>
+                            <button style={{fontSize:10,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>✏ Modifica</button>
+                          </a>
+                          <button onClick={closeSheet} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>✕ Chiudi</button>
+                        </div>
+                      </div>
+                      <div style={{overflow:"hidden",height:320,borderRadius:6,border:`1px solid ${C.border}`}}>
+                        <iframe src={embedSheet.url} style={{width:"133%",height:"133%",border:"none",transform:"scale(0.75)",transformOrigin:"top left"}} title={embedSheet.label}/>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── LOG LIVE ── */}
+                  <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",maxHeight:220,overflowY:"auto"}}>
+                    <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",padding:"7px 14px",borderBottom:`1px solid ${C.border}`}}>Log live</div>
+                    {log.length===0
+                      ?<div style={{padding:14,textAlign:"center",color:C.muted,fontSize:11}}>Nessun evento ancora</div>
+                      :log.map((ev,i)=>{
+                        const ec={ok:{c:C.green,icon:"✓"},warn:{c:C.yellow,icon:"⚠"},error:{c:C.red,icon:"✕"},info:{c:C.accent,icon:"i"},attesa:{c:C.orange,icon:"⏸"}}[ev.tipo]||{c:C.muted,icon:"·"};
+                        return (
+                          <div key={i} className="hovrow" style={{display:"flex",alignItems:"flex-start",gap:10,padding:"7px 14px",borderBottom:i<log.length-1?`1px solid ${C.border}`:"none"}}>
+                            <div style={{width:14,height:14,borderRadius:"50%",background:`${ec.c}18`,border:`1px solid ${ec.c}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,color:ec.c,flexShrink:0,marginTop:2}}>{ec.icon}</div>
+                            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:C.muted,whiteSpace:"nowrap",flexShrink:0,marginTop:1}}>{fmtTime(ev.ts)}</span>
+                            <span style={{fontSize:11,color:ev.tipo==="error"?C.red:ev.tipo==="attesa"?C.orange:ev.tipo==="warn"?C.yellow:C.text,lineHeight:1.4}}>{ev.msg}</span>
+                          </div>
+                        );
+                      })
+                    }
+                  </div>
+
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        
+        {/* ══ ERRORI ══ */}
+        {tab==="errori"&&(
+          <div style={{padding:"16px 20px",animation:"fadeIn .2s ease"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+              <div><div style={{fontSize:18,fontWeight:700,color:C.textHi,marginBottom:4}}>Errori pipeline</div><div style={{fontSize:12,color:C.muted}}>Da Prospecting_output ed Email_verificate</div></div>
+              <div style={{display:"flex",gap:8}}><Tag color={C.red} bg={C.redDim}>{openErrors} aperti</Tag><Tag color={C.green} bg={C.greenDim}>{errori.filter(e=>e.stato==="risolto").length} risolti</Tag></div>
+            </div>
+            {errori.map(err=>{
+              const done=err.stato==="risolto";
+              const tc={INVALID_DOMAIN:{c:C.yellow,bg:C.yellowDim,icon:"🔗"},MISSING_DEAL_ID:{c:C.red,bg:C.redDim,icon:"🔧"}}[err.tipo]||{c:C.muted,bg:"transparent",icon:"?"};
+              return (
+                <div key={err.id} className="hcard" style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:10,opacity:done?.5:1}}>
+                  <div style={{padding:"14px 18px",display:"flex",alignItems:"flex-start",gap:14}}>
+                    <div style={{width:36,height:36,background:tc.bg,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0}}>{tc.icon}</div>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                        <span style={{fontWeight:600,fontSize:13,color:C.textHi}}>{err.azienda}</span>
+                        <Tag color={tc.c} bg={tc.bg}>{err.tipo}</Tag>
+                        <span style={{fontSize:10,color:C.muted}}>{err.scenario}</span>
+                      </div>
+                      <div style={{fontSize:11,color:C.muted,lineHeight:1.5,marginBottom:8}}>{err.msg}</div>
+                      {!done&&<div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:4,padding:"10px 12px"}}><div style={{fontSize:9,fontWeight:700,letterSpacing:"0.08em",color:C.muted,marginBottom:4}}>COME RISOLVERE</div><div style={{fontSize:11,color:C.text,lineHeight:1.6}}>{err.fix}</div></div>}
+                    </div>
+                    {!done?<Btn color={C.green} bg={C.greenDim} border="rgba(34,197,94,.4)" onClick={()=>closeError(err.id)}>✓ Risolto</Btn>:<Tag color={C.green} bg={C.greenDim}>✓ Chiuso</Tag>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ══ LOG ══ */}
+        {tab==="log"&&(
+          <div style={{padding:24,animation:"fadeIn .2s ease"}}>
+            <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:12}}>Log eventi {runId?`— ${runId}`:"— nessun run attivo"}</div>
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden"}}>
+              {log.length===0?<div style={{padding:20,textAlign:"center",color:C.muted,fontSize:11}}>Nessun evento — avvia un run</div>
+               :log.map((ev,i)=>{
+                const ec={ok:{c:C.green,icon:"✓"},warn:{c:C.yellow,icon:"⚠"},error:{c:C.red,icon:"✕"},info:{c:C.accent,icon:"i"},attesa:{c:C.orange,icon:"⏸"}}[ev.tipo]||{c:C.muted,icon:"·"};
+                return (
+                  <div key={i} className="hovrow" style={{display:"flex",alignItems:"flex-start",gap:12,padding:"10px 16px",borderBottom:i<log.length-1?`1px solid ${C.border}`:"none"}}>
+                    <div style={{width:16,height:16,borderRadius:"50%",background:`${ec.c}18`,border:`1px solid ${ec.c}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,color:ec.c,flexShrink:0,marginTop:2}}>{ec.icon}</div>
+                    <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:C.muted,whiteSpace:"nowrap",flexShrink:0,marginTop:1}}>{fmtTime(ev.ts)}</span>
+                    <span style={{fontSize:12,color:ev.tipo==="error"?C.red:ev.tipo==="attesa"?C.orange:ev.tipo==="warn"?C.yellow:C.text,lineHeight:1.5}}>{ev.msg}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {toast&&(
+        <div style={{position:"fixed",bottom:20,right:20,zIndex:999,background:C.surfaceHi,border:`1px solid ${C.borderHi}`,borderLeft:`3px solid ${toast.color}`,borderRadius:6,padding:"11px 16px",fontSize:12,color:C.textHi,animation:"slideUp .2s ease",boxShadow:"0 8px 32px rgba(0,0,0,.5)"}}>
+          {toast.msg}
+        </div>
+      )}
+    </div>
+
+      {showReviewTool&&(
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:1000,background:"rgba(0,0,0,0.85)",display:"flex",flexDirection:"column"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 16px",background:"#0d1117",borderBottom:"1px solid rgba(255,255,255,0.1)",flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:14}}>🔍</span>
+              <span style={{fontSize:13,fontWeight:700,color:"#f1f5f9"}}>Rivedi URL ambigui</span>
+              <span style={{fontSize:11,color:"#4a6080",background:"rgba(255,255,255,0.05)",padding:"2px 8px",borderRadius:10,border:"1px solid rgba(255,255,255,0.08)"}}>Prospecting output</span>
+            </div>
+            <button onClick={()=>setShowReviewTool(false)} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",color:"#f87171",borderRadius:6,padding:"5px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ Chiudi</button>
+          </div>
+          {reviewBlobUrl&&<iframe src={reviewBlobUrl} style={{flex:1,border:"none",width:"100%"}} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation"/>}
+        </div>
+      )}
+  );
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
