@@ -247,7 +247,7 @@ function App() {
   // ── Leggi URL da valutare dal foglio URL_da_valutare ─────────────────────────
   const fetchUrlSheet = useCallback(async () => {
     try {
-      const url = `https://docs.google.com/spreadsheets/d/${URL_SHEET_ID}/gviz/tq?tqx=out:json&t=${Date.now()}`;
+      const url = `https://docs.google.com/spreadsheets/d/${URL_SHEET_ID}/gviz/tq?tqx=out:json&headers=1&t=${Date.now()}`;
       const res = await fetch(url);
       const raw = await res.text();
       const json = JSON.parse(raw.replace(/^[^(]+\(/, "").replace(/\);?$/, ""));
