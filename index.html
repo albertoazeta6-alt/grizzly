@@ -251,11 +251,9 @@ function App() {
       const res = await fetch(url);
       const raw = await res.text();
       const json = JSON.parse(raw.replace(/^[^(]+\(/, "").replace(/\);?$/, ""));
-      const allRows = json.table.rows;
+      const rows = json.table.rows;
       const cols = json.table.cols.map(c => c.label || "");
-      if (!allRows || allRows.length === 0) return;
-      // Salta sempre la riga 0 (intestazioni) che gviz include come dato
-      const rows = allRows.slice(1);
+      if (!rows || rows.length === 0) return;
       const get = (cells, i) => cells[i]?.v ?? "";
       // Mappa indici colonne — struttura esatta: Title_Phantom | Ragione sociale | LinkedinURL_Phantom | LinkedinURL_Easybusiness | LinkiedinURL_da_ricercare | Sito web
       const iRs   = cols.findIndex(c => c.toLowerCase().includes("ragione"));
@@ -276,7 +274,12 @@ function App() {
           fatturato:       iFat  >= 0 ? get(c, iFat)  : "",
           stato:           "pending",
         };
-      }).filter(r => r.ragione_sociale);
+      }).filter(r => {
+        if (!r.ragione_sociale) return false;
+        // Escludi la riga di intestazione se gviz la include nei dati
+        const v = r.ragione_sociale.toLowerCase().replace(/[\s_]/g, "");
+        return !v.startsWith("ragionesociale") && !v.startsWith("ragione");
+      });
       if (parsed.length > 0) {
         setUrls(parsed);
         pushLog("info", `URL da valutare aggiornati: ${parsed.length} aziende dal foglio`);
