@@ -506,15 +506,15 @@ function App() {
   // Usa sessionStorage keyed su runId per evitare trigger su refresh di pagina
   useEffect(() => {
     const importFase = fasi.find(f => f.id === "import");
-    if (importFase?.stato === "completato" && !companyCeckFiredRef.current) {
+    if (importFase?.stato === "completato" && !companyCeckFiredRef.current && runId) {
       const ssKey = `grizzly_company_fired_${runId}`;
-      if (runId && sessionStorage.getItem(ssKey)) {
+      if (localStorage.getItem(ssKey)) {
         // Già triggerato per questo run in questa sessione browser: non rifarlo
         companyCeckFiredRef.current = true;
         return;
       }
       companyCeckFiredRef.current = true;
-      if (runId) sessionStorage.setItem(ssKey, '1');
+      localStorage.setItem(ssKey, '1');
       fetchAzSenzaSito();
     }
     if (importFase?.stato !== "completato") {
