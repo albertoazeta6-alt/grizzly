@@ -234,7 +234,7 @@ function App() {
   const [syncErr, setSyncErr]       = useState(false);
   const [prospectingRows, setProspectingRows] = useState([]);
   const [azSenzaSito, setAzSenzaSito] = useState([]);
-  const companyCeckFiredRef = React.useRef(false);
+  const companyCeckFiredRef  = React.useRef(false);
   const [prospectingTab, setProspectingTab]   = useState("tabella"); // "tabella" | "sheets"
   const [prospectingSelected, setProspectingSelected] = useState(()=>{
     try { const s=localStorage.getItem('grizzly_selected'); return s?new Set(JSON.parse(s)):new Set(); } catch(e){ return new Set(); }
@@ -277,7 +277,6 @@ function App() {
       }).filter(r => r.ragione_sociale && !/^ragione.?sociale$/i.test(r.ragione_sociale.trim()));
       if (parsed.length > 0) {
         setUrls(parsed);
-        pushLog("info", `URL da valutare aggiornati: ${parsed.length} aziende dal foglio`);
       }
     } catch(e) {
       // fallback silenzioso — usa i dati statici
