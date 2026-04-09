@@ -503,18 +503,22 @@ function App() {
   }, [fasi, fetchProspecting]);
 
   // Quando import è completato, controlla aziende senza sito (una sola volta per run)
-  // Usa sessionStorage keyed su runId per evitare trigger su refresh di pagina
+  // Guard tripla: (1) runId caricato, (2) company non già avviata nel foglio, (3) localStorage
   useEffect(() => {
-    const importFase = fasi.find(f => f.id === "import");
-    if (importFase?.stato === "completato" && !companyCeckFiredRef.current && runId) {
-      const ssKey = `grizzly_company_fired_${runId}`;
-      if (localStorage.getItem(ssKey)) {
-        // Già triggerato per questo run in questa sessione browser: non rifarlo
+    const importFase  = fasi.find(f => f.id === "import");
+    const companyFase = fasi.find(f => f.id === "company");
+    // Se company è già in_corso/completato nel foglio → Make ha già ricevuto il webhook
+    const companyGiaAvviata = ["in_corso","completato","attesa_utente"].includes(companyFase?.stato);
+
+    if (importFase?.stato === "completato" && !companyCeckFiredRef.current && runId && !companyGiaAvviata) {
+      const lsKey = `grizzly_company_fired_${runId}`;
+      if (localStorage.getItem(lsKey)) {
+        // Già triggerato: reimposta il ref e non fare nulla
         companyCeckFiredRef.current = true;
         return;
       }
       companyCeckFiredRef.current = true;
-      localStorage.setItem(ssKey, '1');
+      localStorage.setItem(lsKey, '1');
       fetchAzSenzaSito();
     }
     if (importFase?.stato !== "completato") {
