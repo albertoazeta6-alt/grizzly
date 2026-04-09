@@ -235,7 +235,6 @@ function App() {
   const [prospectingRows, setProspectingRows] = useState([]);
   const [azSenzaSito, setAzSenzaSito] = useState([]);
   const companyCeckFiredRef = React.useRef(false);
-  const prevImportStatoRef  = React.useRef("unknown"); // traccia lo stato precedente per evitare trigger su refresh
   const [prospectingTab, setProspectingTab]   = useState("tabella"); // "tabella" | "sheets"
   const [prospectingSelected, setProspectingSelected] = useState(()=>{
     try { const s=localStorage.getItem('grizzly_selected'); return s?new Set(JSON.parse(s)):new Set(); } catch(e){ return new Set(); }
@@ -504,21 +503,25 @@ function App() {
   }, [fasi, fetchProspecting]);
 
   // Quando import è completato, controlla aziende senza sito (una sola volta per run)
-  // Scatta SOLO se import transita da in_corso → completato in questa sessione,
-  // NON su refresh quando import era già completato al caricamento della pagina
+  // Usa sessionStorage keyed su runId per evitare trigger su refresh di pagina
   useEffect(() => {
     const importFase = fasi.find(f => f.id === "import");
-    const currentStato = importFase?.stato;
-    if (currentStato === "completato" && prevImportStatoRef.current === "in_corso" && !companyCeckFiredRef.current) {
+    if (importFase?.stato === "completato" && !companyCeckFiredRef.current) {
+      const ssKey = `grizzly_company_fired_${runId}`;
+      if (runId && sessionStorage.getItem(ssKey)) {
+        // Già triggerato per questo run in questa sessione browser: non rifarlo
+        companyCeckFiredRef.current = true;
+        return;
+      }
       companyCeckFiredRef.current = true;
+      if (runId) sessionStorage.setItem(ssKey, '1');
       fetchAzSenzaSito();
     }
-    if (currentStato !== "completato") {
+    if (importFase?.stato !== "completato") {
       companyCeckFiredRef.current = false;
       setAzSenzaSito([]);
     }
-    prevImportStatoRef.current = currentStato;
-  }, [fasi, fetchAzSenzaSito]);
+  }, [fasi, fetchAzSenzaSito, runId]);
 
   // Fetch contatori al mount e ogni 30s
   useEffect(() => {
