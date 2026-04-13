@@ -98,7 +98,7 @@ const PHANTOM = {
   dipendenti:    "2957075371643920",
   email:         "7176684592672454",
 };
-const PHANTOM_API_KEY = "xu1jK4ZaFm6X0VJ7VhMBpZGK3W15gSN4TnItNOIbCUk"; // API key PhantomBuster
+const PHANTOM_API_KEY = ""; // ← inserisci qui la tua API key PhantomBuster
 const PHANTOM_FASE_MAP = {
   company:    "163962132206802",
   dipendenti: "2957075371643920",
@@ -398,18 +398,23 @@ function App() {
   const fetchPhantomOutput = useCallback(async (faseId) => {
     const agentId = PHANTOM_FASE_MAP[faseId];
     if (!agentId || !PHANTOM_API_KEY) return;
+    const headers = { "X-Phantombuster-Key": PHANTOM_API_KEY };
     try {
-      const res = await fetch(
-        `https://api.phantombuster.com/api/v2/agents/fetch-output?id=${agentId}`,
-        { headers: { "X-Phantombuster-Key": PHANTOM_API_KEY } }
-      );
-      if (!res.ok) return;
-      const data = await res.json();
+      // Chiamate parallele: output testo + stato/progresso
+      const [resOut, resFetch] = await Promise.all([
+        fetch(`https://api.phantombuster.com/api/v2/agents/fetch-output?id=${agentId}`, { headers }),
+        fetch(`https://api.phantombuster.com/api/v2/agents/fetch?id=${agentId}`,        { headers }),
+      ]);
+      const dataOut   = resOut.ok   ? await resOut.json()   : {};
+      const dataFetch = resFetch.ok ? await resFetch.json() : {};
+      // Progresso: PhantomBuster restituisce output.progress o progress direttamente
+      const prog = dataFetch?.output?.progress ?? dataFetch?.progress ?? null;
       setPhantomOutput(prev => ({
         ...prev,
         [faseId]: {
-          output:    data.output     || "",
-          status:    data.status     || "unknown",
+          output:    dataOut.output  || "",
+          status:    dataFetch.status || dataOut.status || "unknown",
+          progress:  typeof prog === "object" ? prog : null,   // {percent, label}
           updatedAt: new Date(),
         }
       }));
@@ -1141,7 +1146,12 @@ function App() {
                             <span style={{fontSize:10,fontWeight:700,color:"#a78bfa",letterSpacing:"0.08em",textTransform:"uppercase"}}>
                               Phantom Console — {activeFase.label}
                             </span>
-                            {isRunning&&<span style={{fontSize:8,color:"#a78bfa",animation:"pulse 1.4s infinite"}}>● in esecuzione</span>}
+                            {isRunning&&out?.progress&&(
+                              <span style={{fontSize:9,color:"#a78bfa",fontFamily:"'JetBrains Mono',monospace"}}>
+                                {out.progress.percent!=null?`${out.progress.percent}%`:""}{out.progress.label?` · ${out.progress.label}`:""}
+                              </span>
+                            )}
+                            {isRunning&&!out?.progress&&<span style={{fontSize:8,color:"#a78bfa",animation:"pulse 1.4s infinite"}}>● in esecuzione</span>}
                           </div>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
                             {out?.updatedAt&&<span style={{fontSize:9,color:"#4b5e78"}}>{fmtAgo(out.updatedAt)}</span>}
@@ -1153,6 +1163,17 @@ function App() {
                             )}
                           </div>
                         </div>
+                        {out?.progress?.percent!=null&&(
+                          <div style={{padding:"6px 12px",background:"rgba(168,85,247,0.06)",borderBottom:"1px solid rgba(168,85,247,0.12)"}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                              <span style={{fontSize:9,color:"#a78bfa",fontFamily:"'JetBrains Mono',monospace"}}>{out.progress.label||""}</span>
+                              <span style={{fontSize:10,fontWeight:700,color:"#a78bfa",fontFamily:"'JetBrains Mono',monospace"}}>{out.progress.percent}%</span>
+                            </div>
+                            <div style={{height:3,background:"rgba(168,85,247,0.15)",borderRadius:2,overflow:"hidden"}}>
+                              <div style={{height:"100%",width:`${out.progress.percent}%`,background:"linear-gradient(90deg,#7c3aed,#a78bfa)",borderRadius:2,transition:"width .6s ease"}}/>
+                            </div>
+                          </div>
+                        )}
                         <div style={{padding:"10px 12px",maxHeight:220,overflowY:"auto",fontFamily:"'JetBrains Mono',monospace",fontSize:9,lineHeight:1.8,color:"#94a3b8"}}>
                           {lastLines.length > 0 ? lastLines.map((l,i) => {
                             const isErr = /error|failed|exception/i.test(l);
