@@ -1086,6 +1086,20 @@ function App() {
 
         {tab==="run"&&(
           <div className="run-content" style={{padding:"16px 20px",animation:"fadeIn .2s ease"}}>
+            {runAttivo&&(
+              <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+                <button onClick={()=>{
+                  if(!window.confirm("Avviare una nuova run? Lo stato attuale verrà azzerato.")) return;
+                  setRunAttivo(false); setRunId(null); setRunStart(null);
+                  setFasi(FASI_INIT.map(f=>({...f}))); setLog([]); setExecs([]);
+                  setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
+                  setErrori(DEFAULT_ERRORI.map(e=>({...e,stato:"aperto"})));
+                  setCsvFile(null); setTab("run");
+                }} style={{fontSize:11,fontWeight:600,padding:"5px 14px",background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.25)",color:"#f87171",borderRadius:5,cursor:"pointer"}}>
+                  ＋ Nuova Run
+                </button>
+              </div>
+            )}
             {!runAttivo?(
               <div style={{maxWidth:520,margin:"0 auto",padding:"40px 0"}}>
                 {/* Dropzone */}
