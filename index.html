@@ -514,8 +514,20 @@ function App() {
 
   // Quando import è completato, controlla aziende senza sito (una sola volta per run)
   useEffect(() => {
-    const importFase = fasi.find(f => f.id === "import");
-    if (importFase?.stato === "completato" && !companyCeckFiredRef.current) {
+    const importFase  = fasi.find(f => f.id === "import");
+    const companyFase = fasi.find(f => f.id === "company");
+    // Se company è già avviata (dati letti dallo sheet al reload) non rilanciare
+    const companyGiaAvviata = ["in_corso","completato","attesa_utente"].includes(companyFase?.stato);
+    if (importFase?.stato === "completato" && !companyCeckFiredRef.current && !companyGiaAvviata) {
+      // Guard localStorage — evita rilancio al reload se già eseguito per questo runId
+      if (runId) {
+        const lsKey = `grizzly_company_fired_${runId}`;
+        if (localStorage.getItem(lsKey)) {
+          companyCeckFiredRef.current = true;
+          return;
+        }
+        localStorage.setItem(lsKey, '1');
+      }
       companyCeckFiredRef.current = true;
       fetchAzSenzaSito();
     }
@@ -523,7 +535,7 @@ function App() {
       companyCeckFiredRef.current = false;
       setAzSenzaSito([]);
     }
-  }, [fasi, fetchAzSenzaSito]);
+  }, [fasi, fetchAzSenzaSito, runId]);
 
   // Fetch contatori al mount e ogni 30s
   useEffect(() => {
