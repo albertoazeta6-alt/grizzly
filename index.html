@@ -266,7 +266,8 @@ function App() {
   const [runAttivo, setRunAttivo]   = useState(false);
   const [runId, setRunId]           = useState(null);
   const [runStart, setRunStart]     = useState(null);
-  const newRunModeRef = React.useRef(false); // blocca il polling dal ripristinare lo stato
+  const newRunModeRef  = React.useRef(false);
+  const ignoredRunIdRef = React.useRef(null); // runId da ignorare durante reset
   const [campagna, setCampagna]     = useState("Impianti & Automazioni Nord");
   const [fasi, setFasi]             = useState(FASI_INIT);
   const [log, setLog]               = useState([]);
@@ -505,7 +506,7 @@ function App() {
         setNextSyncIn(30);
         setSyncErr(false);
         // Aggiorna run_id e campagna dall'ultima riga
-        if (parsed.run_id && !newRunModeRef.current) {
+        if (parsed.run_id && !newRunModeRef.current && parsed.run_id !== ignoredRunIdRef.current) {
           setRunId(parsed.run_id);
           setCampagna(parsed.campagna || campagna);
           setRunAttivo(true);
@@ -732,6 +733,7 @@ function App() {
     const id = `RUN-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${String(Math.floor(Math.random()*900)+100)}`;
     const ts = new Date().toISOString();
     newRunModeRef.current = false;
+    ignoredRunIdRef.current = null;
     setRunId(id); setRunStart(ts); setRunAttivo(true);
     localStorage.setItem(`grizzly_runStart_${id}`, ts);
     setLog([]); setFasi(FASI_INIT); setExecs([]);
@@ -1093,6 +1095,7 @@ function App() {
                 <button onClick={async ()=>{
                   if(!window.confirm("Avviare una nuova run? Lo stato attuale verrà azzerato.")) return;
                   newRunModeRef.current = true;
+                  ignoredRunIdRef.current = runId; // ignora il vecchio runId nel polling
                   setRunAttivo(false); setRunId(null); setRunStart(null);
                   setFasi(FASI_INIT.map(f=>({...f}))); setLog([]); setExecs([]);
                   setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
