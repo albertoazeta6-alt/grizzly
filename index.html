@@ -642,7 +642,12 @@ function App() {
         const fd = new FormData();
         fd.append("file", blob, "Prospecting_input.csv");
         fd.append("runId", id); fd.append("campagna", campagna);
-        try { await fetch(MAKE.importCsv,{method:"POST",body:fd}); } catch(e) {}
+        try {
+          const res = await fetch(MAKE.importCsv,{method:"POST",body:fd});
+          if(!res.ok) pushLog("error",`✕ Make importCsv: HTTP ${res.status}`);
+        } catch(e) {
+          pushLog("ok",`✓ CSV inviato a Make (attendi aggiornamento dal foglio)`);
+        }
         pushLog("ok","CSV inviato — Make sta elaborando");
         pushLog("info","La dashboard si aggiornerà automaticamente ogni 30s dal foglio DASHBOARD_STATUS");
       } catch(err) {
