@@ -141,7 +141,7 @@ const STATO_CFG = {
 // ── EASYBUSINESS MAPPER ───────────────────────────────────────────────────────
 const EB_TARGET = ["Social Media","Ragione sociale","Partita IVA","Indirizzo 1","CAP","Città","Regione/provincia","Regione","E-mail","PEC","Sito web","Numero dipendenti per fascia","ATECO code (IT 2007)","ATECO description (IT 2007)","Data di creazione","Fatturato lordo","Classe di rischio"];
 const EB_ALIASES = {"email":"E-mail","e-mail":"E-mail","pec email":"PEC","p.e.c.":"PEC","sito":"Sito web","sito web":"Sito web","ragione sociale":"Ragione sociale","partita iva":"Partita IVA","indirizzo":"Indirizzo 1","cap":"CAP","citta":"Città","regione/provincia":"Regione/provincia","regione":"Regione","numero dipendenti per fascia":"Numero dipendenti per fascia","ateco code (it 2007)":"ATECO code (IT 2007)","ateco  description  (it 2007)":"ATECO description (IT 2007)","ateco description (it 2007)":"ATECO description (IT 2007)","data di creazione":"Data di creazione","fatturato lordo":"Fatturato lordo","classe di rischio":"Classe di rischio","social media":"Social Media","email nominative dirigenti*":"Social Media"};
-function ebNorm(s){return(s||'').trim().normalize('NFKD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ');}
+function ebNorm(s){return(s||'').trim().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ');}
 async function processEasybusinessFile(file){
   const buf = await file.arrayBuffer();
   const wb  = XLSX.read(buf,{type:'array'});
@@ -968,21 +968,24 @@ function App() {
 
         {tab==="run"&&(
           <div className="run-content" style={{padding:"16px 20px",animation:"fadeIn .2s ease"}}>
-            {runAttivo&&(
+            {runAttivo&&runId&&(
               <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
                 <button onClick={async()=>{
                   if(!window.confirm("Avviare una nuova run? Lo stato attuale verrà azzerato.")) return;
                   ignoredRunIdRef.current = runId;
-                  setRunAttivo(false); setRunId(null); setRunStart(null);
-                  setFasi(FASI_INIT.map(f=>({...f}))); setLog([]); setExecs([]);
+                  // Lancia subito pulizia e mette import in_corso
+                  setLog([]); setExecs([]);
                   setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
                   setErrori(DEFAULT_ERRORI.map(e=>({...e,stato:"aperto"})));
-                  setCsvFile(null);
+                  setCsvFile(null); setRunId(null); setRunStart(null);
+                  setFasi(FASI_INIT.map(f=>f.id==="import"?{...f,stato:"in_corso",dettaglio:"Pulizia Google Sheet..."}:{...f}));
+                  setRunAttivo(true);
                   try { await fetch(MAKE.pulizia,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({secret:"grizzly2026"})}); } catch(e){}
+                  pushLog("ok","✓ Pulizia fogli avviata");
                 }} style={{fontSize:11,fontWeight:600,padding:"5px 14px",background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.25)",color:"#f87171",borderRadius:5,cursor:"pointer"}}>＋ Nuova Run</button>
               </div>
             )}
-            {!runAttivo?(
+            {(!runAttivo || !runId)?(
               <div style={{maxWidth:520,margin:"0 auto",padding:"40px 0"}}>
                 <div className="dropzone" style={{marginBottom:14}}
                   onDragOver={e=>{e.preventDefault();e.currentTarget.classList.add('over');}}
