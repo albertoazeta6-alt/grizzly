@@ -263,7 +263,7 @@ function App() {
       const iCit  = cols.findIndex(c => c.toLowerCase().includes("citt"));
       const iFat  = cols.findIndex(c => c.toLowerCase().includes("fatturato"));
       const iMatch  = 22; // colonna W (0-based) — contiene "best match" se già verificato
-      const iResult = cols.findIndex(c => /linkiedinurl_da_ricercare|linkedin.*da.ricercare/i.test(c)); // col E — URL già scelto
+      const iResult = 4;  // colonna E (0-based) — "URL Da Verificare" = da fare, URL reale = già risolto
       const parsed = rows.map((row, i) => {
         const c = row.c || [];
         return {
@@ -276,17 +276,15 @@ function App() {
           fatturato:       iFat  >= 0 ? get(c, iFat)  : "",
           stato:           "pending",
           match_type:      get(c, iMatch),
-          url_scelto:      iResult >= 0 ? get(c, iResult) : "",
+          url_scelto:      get(c, iResult),
         };
       }).filter(r => r.ragione_sociale && !/^ragione.?sociale$/i.test(r.ragione_sociale.trim()))
         .filter(r => !/best.?match/i.test(r.match_type))           // escludi best match (col W)
         .filter(r => /url\s*da\s*verificare/i.test(r.url_scelto)); // mostra solo col E = "URL Da Verificare"
       const totale = rows.filter(r => { const c = r.c||[]; const rs = get(c, iRs); return rs && !/^ragione.?sociale$/i.test(rs.trim()); }).length;
       const esclusi = totale - parsed.length;
-      if (parsed.length > 0) {
-        setUrls(parsed);
-        pushLog("info", `URL da valutare: ${parsed.length} da verificare${esclusi > 0 ? ` (${esclusi} già risolti o best match)` : ""}`);
-      }
+      setUrls(parsed);
+      pushLog("info", `URL da valutare: ${parsed.length} da verificare${esclusi > 0 ? ` (${esclusi} già risolti o best match)` : ""}`);
     } catch(e) {
       // fallback silenzioso — usa i dati statici
     }
