@@ -476,7 +476,13 @@ function App() {
           setRunId(parsed.run_id);
           setCampagna(parsed.campagna || campagna);
           setRunAttivo(true);
-          if(!runStart) setRunStart(new Date().toISOString());
+          if(!runStart) {
+            const lsRs = `grizzly_runStart_${parsed.run_id}`;
+            const saved = localStorage.getItem(lsRs);
+            const ts = saved || parsed.byFase?.['import']?.timestamp || new Date().toISOString();
+            setRunStart(ts);
+            if(!saved) localStorage.setItem(lsRs, ts);
+          }
         }
         // Aggiorna TUTTE le fasi usando l'ultima riga per ciascuna
         if (parsed.byFase) {
@@ -488,12 +494,20 @@ function App() {
               pushLog(s.stato === "attesa_utente" ? "attesa" : s.stato === "completato" ? "ok" : "info",
                 `${f.label}: ${s.stato} — ${s.dettaglio}`);
             }
+            const lsIni  = `grizzly_ini_${parsed.run_id}_${f.id}`;
+            const lsComp = `grizzly_comp_${parsed.run_id}_${f.id}`;
+            const savedIni  = localStorage.getItem(lsIni);
+            const savedComp = localStorage.getItem(lsComp);
+            const iniziato   = f.iniziato || savedIni || s.timestamp || new Date().toISOString();
+            const completato = s.stato === "completato" ? (f.completato || savedComp || s.timestamp || new Date().toISOString()) : f.completato;
+            if (iniziato  && !savedIni)  localStorage.setItem(lsIni,  iniziato);
+            if (completato && !savedComp) localStorage.setItem(lsComp, completato);
             return {
               ...f,
               stato: s.stato,
               dettaglio: s.dettaglio || f.dettaglio,
-              iniziato: f.iniziato || s.timestamp || new Date().toISOString(),
-              completato: s.stato === "completato" ? (f.completato || s.timestamp || new Date().toISOString()) : f.completato,
+              iniziato,
+              completato,
             };
           }));
         }
@@ -547,8 +561,13 @@ function App() {
 
   // Quando import è completato, controlla aziende senza sito (una sola volta per run)
   useEffect(() => {
-    const importFase = fasi.find(f => f.id === "import");
-    if (importFase?.stato === "completato" && !companyCeckFiredRef.current) {
+    const importFase  = fasi.find(f => f.id === "import");
+    const companyFase = fasi.find(f => f.id === "company");
+    const companyGiaAvviata = ["in_corso","completato","attesa_utente"].includes(companyFase?.stato);
+    if (importFase?.stato === "completato" && !companyCeckFiredRef.current && !companyGiaAvviata && runId) {
+      const lsKey = `grizzly_company_fired_${runId}`;
+      if (localStorage.getItem(lsKey)) { companyCeckFiredRef.current = true; return; }
+      localStorage.setItem(lsKey, '1');
       companyCeckFiredRef.current = true;
       fetchAzSenzaSito();
     }
@@ -556,7 +575,7 @@ function App() {
       companyCeckFiredRef.current = false;
       setAzSenzaSito([]);
     }
-  }, [fasi, fetchAzSenzaSito]);
+  }, [fasi, fetchAzSenzaSito, runId]);
 
   // Fetch contatori al mount e ogni 30s
   useEffect(() => {
