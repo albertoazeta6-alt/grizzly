@@ -147,9 +147,15 @@ async function processEasybusinessFile(file){
   const wb  = XLSX.read(buf,{type:'array'});
   const ws  = wb.Sheets[wb.SheetNames[0]];
   const rawAll = XLSX.utils.sheet_to_json(ws,{defval:''});
-  // Filtra righe completamente vuote (Excel include spesso righe vuote extra)
-  const raw = rawAll.filter(row => Object.values(row).some(v => String(v).trim() !== ''));
+  // Filtra righe completamente vuote — controlla solo le colonne target (ignora __EMPTY ecc.)
+  const raw = rawAll.filter(row => {
+    const vals = Object.entries(row).filter(([k])=>!k.startsWith('__')).map(([,v])=>String(v).trim());
+    return vals.some(v=>v!=='');
+  });
   if(!raw.length) throw new Error('File vuoto');
+  // DEBUG: log foglio e conteggi
+  const dbg = `Sheet: ${wb.SheetNames[0]} | Tutte righe: ${rawAll.length} | Dopo filtro: ${raw.length} | Colonne: ${Object.keys(rawAll[0]||{}).join(', ').slice(0,80)}`;
+  console.log('[EB DEBUG]', dbg);
   const targetByNorm = Object.fromEntries(EB_TARGET.map(t=>[ebNorm(t),t]));
   const mapping = {};
   for(const col of Object.keys(raw[0])){
