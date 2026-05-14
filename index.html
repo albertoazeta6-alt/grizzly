@@ -518,16 +518,14 @@ function App() {
     const companyFase = fasi.find(f => f.id === "company");
     // Se company è già avviata (dati letti dallo sheet al reload) non rilanciare
     const companyGiaAvviata = ["in_corso","completato","attesa_utente"].includes(companyFase?.stato);
-    if (importFase?.stato === "completato" && !companyCeckFiredRef.current && !companyGiaAvviata) {
-      // Guard localStorage — evita rilancio al reload se già eseguito per questo runId
-      if (runId) {
-        const lsKey = `grizzly_company_fired_${runId}`;
-        if (localStorage.getItem(lsKey)) {
-          companyCeckFiredRef.current = true;
-          return;
-        }
-        localStorage.setItem(lsKey, '1');
+    if (importFase?.stato === "completato" && !companyCeckFiredRef.current && !companyGiaAvviata && runId) {
+      // runId obbligatorio: se non è ancora caricato dallo sheet, aspetta il prossimo ciclo
+      const lsKey = `grizzly_company_fired_${runId}`;
+      if (localStorage.getItem(lsKey)) {
+        companyCeckFiredRef.current = true;
+        return;
       }
+      localStorage.setItem(lsKey, '1');
       companyCeckFiredRef.current = true;
       fetchAzSenzaSito();
     }
