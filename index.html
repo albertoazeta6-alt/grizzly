@@ -255,6 +255,10 @@ function App() {
       const cols = json.table.cols.map(c => c.label || "");
       if (!rows || rows.length === 0) return;
       const get = (cells, i) => cells[i]?.v ?? "";
+      // DEBUG temporaneo — mostra colonne e valore col E per prima riga
+      const cols0 = json.table.cols.map(c => c.label || "");
+      pushLog("info", `[DEBUG] cols(0-5): ${cols0.slice(0,6).join(" | ")}`);
+      if (rows[0]) { const c0 = rows[0].c||[]; pushLog("info", `[DEBUG] row0 col4="${get(c0,4)}" col22="${get(c0,22)}"`); }
       // Mappa indici colonne — struttura esatta: Title_Phantom | Ragione sociale | LinkedinURL_Phantom | LinkedinURL_Easybusiness | LinkiedinURL_da_ricercare | Sito web
       const iRs   = cols.findIndex(c => c.toLowerCase().includes("ragione"));
       const iSito = cols.findIndex(c => c.toLowerCase().includes("sito"));
