@@ -910,6 +910,21 @@ function App() {
             ?<div style={{display:"flex",alignItems:"center",gap:6,color:C.muted}}><span style={{width:6,height:6,borderRadius:"50%",background:C.green,display:"inline-block",animation:"pulse 2s infinite"}}/><span style={{color:C.text,fontFamily:"'JetBrains Mono',monospace",fontSize:10}}>{runId}</span><span style={{fontFamily:"'JetBrains Mono',monospace",minWidth:52,display:"inline-block"}}>· {elapsedStr}</span></div>
             :<span style={{color:C.muted}}>Nessun run attivo</span>}
           <span style={{color:C.muted,fontFamily:"'JetBrains Mono',monospace",fontSize:10,minWidth:60,display:"inline-block",textAlign:"right"}}>{clock.toLocaleTimeString("it-IT")}</span>
+          {runAttivo&&runId&&!dropzoneMode&&(
+            <button onClick={async()=>{
+              if(!window.confirm("Avviare una nuova run? Lo stato attuale verrà azzerato.")) return;
+              ignoredRunIdRef.current = runId;
+              setDropzoneMode(true);
+              setLog([]); setExecs([]);
+              setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
+              setErrori(DEFAULT_ERRORI.map(e=>({...e,stato:"aperto"})));
+              setCsvFile(null); setRunId(null); setRunStart(null);
+              setFasi(FASI_INIT.map(f=>f.id==="import"?{...f,stato:"in_corso",dettaglio:"Pulizia Google Sheet..."}:{...f}));
+              setRunAttivo(true);
+              try { await fetch(MAKE.pulizia,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({secret:"grizzly2026"})}); } catch(e){}
+              pushLog("ok","✓ Pulizia fogli avviata");
+            }} style={{fontSize:11,fontWeight:600,padding:"4px 12px",background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.25)",color:"#f87171",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>＋ Nuova Run</button>
+          )}
         </div>
       </div>
 
@@ -977,23 +992,6 @@ function App() {
 
         {tab==="run"&&(
           <div className="run-content" style={{padding:"16px 20px",animation:"fadeIn .2s ease"}}>
-            {runAttivo&&runId&&!dropzoneMode&&(
-              <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
-                <button onClick={async()=>{
-                  if(!window.confirm("Avviare una nuova run? Lo stato attuale verrà azzerato.")) return;
-                  ignoredRunIdRef.current = runId;
-                  setDropzoneMode(true);
-                  setLog([]); setExecs([]);
-                  setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
-                  setErrori(DEFAULT_ERRORI.map(e=>({...e,stato:"aperto"})));
-                  setCsvFile(null); setRunId(null); setRunStart(null);
-                  setFasi(FASI_INIT.map(f=>f.id==="import"?{...f,stato:"in_corso",dettaglio:"Pulizia Google Sheet..."}:{...f}));
-                  setRunAttivo(true);
-                  try { await fetch(MAKE.pulizia,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({secret:"grizzly2026"})}); } catch(e){}
-                  pushLog("ok","✓ Pulizia fogli avviata");
-                }} style={{fontSize:11,fontWeight:600,padding:"5px 14px",background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.25)",color:"#f87171",borderRadius:5,cursor:"pointer"}}>＋ Nuova Run</button>
-              </div>
-            )}
             {(!runAttivo || dropzoneMode)?(
               <div style={{maxWidth:520,margin:"0 auto",padding:"40px 0"}}>
                 <div className="dropzone" style={{marginBottom:14}}
