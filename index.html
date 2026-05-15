@@ -326,11 +326,17 @@ function App() {
         };
       }).filter(r => r.ragione_sociale && !/^ragione.?sociale$/i.test(r.ragione_sociale.trim()));
 
-      // Verifica che Make.com abbia finito: tutte le righe devono avere col E valorizzata
+      // Verifica che Make.com abbia finito — due controlli:
+      // 1. Il foglio URL deve avere almeno tante righe quante le aziende con company page trovata
+      const expectedRows = counters.az_output || 0;
+      if (expectedRows > 0 && allRows.length < expectedRows) {
+        pushLog("info", `⏳ Foglio URL in attesa righe (${allRows.length}/${expectedRows})...`);
+        return;
+      }
+      // 2. Tutte le righe devono avere col E valorizzata (agente ha finito)
       const totaleRighe = allRows.length;
       const righeConColE = allRows.filter(r => (r.url_scelto || '').trim() !== '').length;
       if (totaleRighe > 0 && righeConColE < totaleRighe) {
-        // Make.com sta ancora scrivendo — aspetta il prossimo polling
         pushLog("info", `⏳ Foglio URL in elaborazione (${righeConColE}/${totaleRighe} processate)...`);
         return;
       }
@@ -351,7 +357,7 @@ function App() {
     } catch(e) {
       // fallback silenzioso — usa i dati statici
     }
-  }, []);
+  }, [counters]);
 
     // ── Monitora righe executives + scartati ─────────────────────────────────────
   const fetchDipendentiCount = useCallback(async () => {
