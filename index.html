@@ -270,6 +270,7 @@ function App() {
   const [reviewDebugMode, setReviewDebugMode] = useState(false);
   const [reviewBlobUrl, setReviewBlobUrl] = useState(null);
   const [counters, setCounters] = useState({az_input:null, az_output:null, exec:null, scartati:null, mail_ok:null, mail_no:null});
+  const azOutputRef = React.useRef(0); // ref stabile per evitare loop in fetchUrlSheet
   const [dipLastCount, setDipLastCount]   = useState(null);  // n righe totali foglio dipendenti
   const [dipLastChange, setDipLastChange] = useState(null);  // timestamp ultimo cambio
   const [dipIdle, setDipIdle]             = useState(false); // true = fermo da 90
@@ -328,7 +329,7 @@ function App() {
 
       // Verifica che Make.com abbia finito — due controlli:
       // 1. Il foglio URL deve avere almeno tante righe quante le aziende con company page trovata
-      const expectedRows = counters.az_output || 0;
+      const expectedRows = azOutputRef.current || 0;
       if (expectedRows > 0 && allRows.length < expectedRows) {
         pushLog("info", `⏳ Foglio URL in attesa righe (${allRows.length}/${expectedRows})...`);
         return;
@@ -357,7 +358,7 @@ function App() {
     } catch(e) {
       // fallback silenzioso — usa i dati statici
     }
-  }, [counters]);
+  }, []);
 
     // ── Monitora righe executives + scartati ─────────────────────────────────────
   const fetchDipendentiCount = useCallback(async () => {
@@ -420,6 +421,7 @@ function App() {
       fetchCol("1x8C39EaD1PzKQ0LJ9RsusIxAa9eJKmRwMxzPVj2Flng","401214721", 4),                      // col E — senza email
     ]);
     setCounters({az_input, az_output, exec, scartati, mail_ok, mail_no});
+    if (az_output) azOutputRef.current = az_output;
   }, []);
 
   const fetchProspecting = useCallback(async () => {
