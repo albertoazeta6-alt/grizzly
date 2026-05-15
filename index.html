@@ -309,7 +309,7 @@ function App() {
       const iFat  = cols.findIndex(c => c.toLowerCase().includes("fatturato"));
       const iResult = 4; // col E — "URL Da Verificare" = da fare
       const iMatch  = 22; // col W — "best match" = già verificato
-      const parsed = rows.map((row, i) => {
+      const allRows = rows.map((row, i) => {
         const c = row.c || [];
         return {
           id: i + 1,
@@ -322,10 +322,23 @@ function App() {
           stato:           "pending",
           url_scelto:      get(c, iResult),
           match_type:      get(c, iMatch),
+          _raw:            c, // conserva raw per il check col E
         };
-      }).filter(r => r.ragione_sociale && !/^ragione.?sociale$/i.test(r.ragione_sociale.trim()))
+      }).filter(r => r.ragione_sociale && !/^ragione.?sociale$/i.test(r.ragione_sociale.trim()));
+
+      // Verifica che Make.com abbia finito: tutte le righe devono avere col E valorizzata
+      const totaleRighe = allRows.length;
+      const righeConColE = allRows.filter(r => (r.url_scelto || '').trim() !== '').length;
+      if (totaleRighe > 0 && righeConColE < totaleRighe) {
+        // Make.com sta ancora scrivendo — aspetta il prossimo polling
+        pushLog("info", `⏳ Foglio URL in elaborazione (${righeConColE}/${totaleRighe} processate)...`);
+        return;
+      }
+
+      const parsed = allRows
         .filter(r => !/best.?match/i.test(r.match_type))
         .filter(r => /url\s*da\s*verificare/i.test(r.url_scelto));
+
       // Sempre aggiorna urls e segnala il completamento del fetch
       setUrls(parsed);
       setUrlCheckReady(true);
