@@ -658,7 +658,7 @@ function App() {
     if(csvFile) pushLog("info",`File: ${csvFile.name}`);
 
     setFaseS("import","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Pulizia Google Sheet..."});
-    await callMake(MAKE.pulizia,{runId:id,campagna},"Pulisci fogli");
+    await callMake(MAKE.pulizia,{runId:id,campagna,secret:"grizzly2026"},"Pulisci fogli");
 
     if(csvFile) {
       try {
@@ -707,10 +707,21 @@ function App() {
   const openSheet = (url, label) => setEmbedSheet({url: url.replace("/edit", "/preview").replace(/[?#].*$/, ""), editUrl: url, label});
   const closeSheet = () => setEmbedSheet(null);
 
-    const continuaDopoUrl = async () => {
+  const continuaDopoUrl = async () => {
     setLoad("continua", true);
+    // Guard: evita chiamate duplicate per lo stesso runId
+    if (runId) {
+      const lsKey = `grizzly_hubspot_fired_${runId}`;
+      if (localStorage.getItem(lsKey)) {
+        pushLog("warn", "⚠ Webhook HubSpot già inviato per questo run — ignorato");
+        showToast("⚠ Webhook HubSpot già avviato per questo run");
+        setLoad("continua", false);
+        return;
+      }
+      localStorage.setItem(lsKey, '1');
+    }
     try { localStorage.removeItem('grizzly_selected'); setProspectingSelected(new Set()); } catch(e) {}
-    await callMake("https://hook.eu2.make.com/z9eimytqdgpuulhuo6ky66yrt7p1ll6j", {}, "Aggiornamento Hubspot");
+    await callMake("https://hook.eu2.make.com/z9eimytqdgpuulhuo6ky66yrt7p1ll6j", { secret: "grizzly2026", runId: runId || "" }, "Aggiornamento Hubspot");
     setFaseS("url_check", "completato", {completato: new Date().toISOString(), dettaglio: "URL verificati manualmente"});
     setFaseS("hubspot", "in_corso", {iniziato: new Date().toISOString(), dettaglio: "Aggiornamento aziende su HubSpot..."});
     pushLog("ok", "▶ Aggiornamento Hubspot avviato");
@@ -726,7 +737,7 @@ function App() {
     if(!urlScelto?.trim()) return;
     setLoad(`u${id}`,true);
     const az = urls.find(u=>u.id===id);
-    await callMake(MAKE.urlRisolto,{ragione_sociale:az.ragione_sociale,linkedin_url:urlScelto,runId},"URL risolto");
+    await callMake(MAKE.urlRisolto,{ragione_sociale:az.ragione_sociale,linkedin_url:urlScelto,runId,secret:"grizzly2026"},"URL risolto");
     const next = urls.map(u=>u.id===id?{...u,stato:"resolved",scelta:urlScelto}:u);
     setUrls(next);
     pushLog("ok",`URL: ${az.ragione_sociale} → ${urlScelto.slice(0,50)}`);
@@ -746,7 +757,7 @@ function App() {
   const launchEmail = async () => {
     const approved = execs.filter(e=>e.approvato===true);
     setLoad("email",true);
-    await callMake(MAKE.cercaEmail,{profiles:approved.map(e=>({nome:e.nome,ruolo:e.ruolo,profileUrl:e.url,azienda:e.azienda})),runId,phantomAgent:PHANTOM.email},"Lancia Phantom email");
+    await callMake(MAKE.cercaEmail,{profiles:approved.map(e=>({nome:e.nome,ruolo:e.ruolo,profileUrl:e.url,azienda:e.azienda})),runId,phantomAgent:PHANTOM.email,secret:"grizzly2026"},"Lancia Phantom email");
     setFaseS("email","in_corso",{dettaglio:`Phantom email su ${approved.length} profili`});
     pushLog("ok",`🚀 Phantom email lanciato su ${approved.length} profili`);
     showToast(`🚀 Phantom email lanciato su ${approved.length} profili`);
@@ -1224,7 +1235,7 @@ function App() {
                             <div style={{fontSize:12,fontWeight:700,color:"#4ade80",marginBottom:2}}>✅ Nessun duplicato trovato</div>
                             <div style={{fontSize:10,color:C.muted}}>Pro.Persona è pulito, puoi avviare la ricerca email</div>
                           </div>
-                          <button onClick={()=>callMake("https://hook.eu2.make.com/htuzcpwibjxykcphlbvdh9agd946t28z",{},"Avvia Cerca Email").then(()=>{setFaseS("dipendenti","completato",{completato:new Date().toISOString()});setFaseS("email","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Phantom Email avviato..."});setDipIdle(false);setDupCheck(null);pushLog("ok","▶ Cerca Email avviato");})} style={{padding:"7px 16px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#ea580c,#f97316)",border:"none",borderRadius:5,cursor:"pointer",width:180,textAlign:"center",flexShrink:0}}>▶ Avvia cerca email</button>
+                          <button onClick={()=>callMake("https://hook.eu2.make.com/htuzcpwibjxykcphlbvdh9agd946t28z",{secret:"grizzly2026",runId},"Avvia Cerca Email").then(()=>{setFaseS("dipendenti","completato",{completato:new Date().toISOString()});setFaseS("email","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Phantom Email avviato..."});setDipIdle(false);setDupCheck(null);pushLog("ok","▶ Cerca Email avviato");})} style={{padding:"7px 16px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#ea580c,#f97316)",border:"none",borderRadius:5,cursor:"pointer",width:180,textAlign:"center",flexShrink:0}}>▶ Avvia cerca email</button>
                         </div>
                       )}
                       {dupCheck?.ok===false&&(
