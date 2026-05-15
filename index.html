@@ -702,9 +702,7 @@ function App() {
     pushLog("info",`Run ${id} avviato — campagna: ${campagna}`);
     if(csvFile) pushLog("info",`File: ${csvFile.name}`);
 
-    setFaseS("import","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Pulizia Google Sheet..."});
-    await callMake(MAKE.pulizia,{runId:id,campagna,secret:"grizzly2026"},"Pulisci fogli");
-
+    // Pulizia già eseguita dal tasto "Nuova Run" — non richiamare qui per evitare doppia cancellazione dati
     if(csvFile) {
       try {
         setFaseS("import","in_corso",{dettaglio:"Elaborazione file..."});
