@@ -1,0 +1,19 @@
+{
+  "_note": "Rinomina questo file in grizzly-config.json, compila con i tuoi valori e importalo da Grizzly > Impostazioni > Importa Config",
+  "sheet_id": "IL_TUO_GOOGLE_SHEET_ID",
+  "make": {
+    "pulizia":    "https://hook.eu2.make.com/IL_TUO_WEBHOOK_PULIZIA",
+    "importCsv":  "https://hook.eu2.make.com/IL_TUO_WEBHOOK_IMPORT",
+    "company":    "https://hook.eu2.make.com/IL_TUO_WEBHOOK_COMPANY",
+    "urlRisolto": "https://hook.eu2.make.com/IL_TUO_WEBHOOK_URL_RISOLTO",
+    "hubspot":    "https://hook.eu2.make.com/IL_TUO_WEBHOOK_HUBSPOT",
+    "cercaDip":   "https://hook.eu2.make.com/IL_TUO_WEBHOOK_CERCA_DIP",
+    "cercaEmail": "https://hook.eu2.make.com/IL_TUO_WEBHOOK_CERCA_EMAIL"
+  },
+  "phantom": {
+    "companyFinder": "IL_TUO_PHANTOM_COMPANY_FINDER_ID",
+    "urlValutare":   "IL_TUO_PHANTOM_URL_VALUTARE_ID",
+    "dipendenti":    "IL_TUO_PHANTOM_DIPENDENTI_ID",
+    "email":         "IL_TUO_PHANTOM_EMAIL_ID"
+  }
+}
