@@ -78,10 +78,11 @@
 const {useState,useEffect,useRef,useCallback} = React;
 
 // ── CONFIGURAZIONE ────────────────────────────────────────────────────────────
-let SHEET_ID     = "1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE";
-let URL_SHEET_ID = "1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE";
+const SHEET_ID   = "1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE";
+const URL_SHEET_ID = "1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE";
 
 const SHEET_NAME = "DASHBOARD_STATUS";
+const SHEET_API  = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(SHEET_NAME)}&t=${Date.now()}`;
 
 const MAKE = {
   pulizia:    "https://hook.eu2.make.com/zz716twsajwlpvl3pboo6nm2mre9bltb",
@@ -98,21 +99,6 @@ const PHANTOM = {
   dipendenti:    "2957075371643920",
   email:         "7176684592672454",
 };
-
-// ── CARICA CONFIG DA LOCALSTORAGE (sovrascrive i default) ─────────────────────
-(function() {
-  try {
-    const saved = localStorage.getItem('grizzly_config');
-    if (!saved) return;
-    const cfg = JSON.parse(saved);
-    if (cfg.sheet_id) { SHEET_ID = cfg.sheet_id; URL_SHEET_ID = cfg.sheet_id; }
-    if (cfg.make)     Object.assign(MAKE, cfg.make);
-    if (cfg.phantom)  Object.assign(PHANTOM, cfg.phantom);
-    console.log('[Grizzly] Config caricata da localStorage');
-  } catch(e) { console.warn('[Grizzly] Errore caricamento config:', e); }
-})();
-
-const getSheetApi = () => `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(SHEET_NAME)}&t=${Date.now()}`;
 
 // ── DATI REALI (da Google Sheet) ──────────────────────────────────────────────
 const DEFAULT_URLS   = [{"id": 1, "ragione_sociale": "R & A TECNICA S.R.L.", "sito": "http://www.reatecnica.it", "url_phantom": "https://linkedin.com/company/reatecnica", "url_easybusiness": "https://www.linkedin.com/company/r-%26-a-tecnica-s.r.l.", "citta": "ORBASSANO", "fatturato": "€ 7.835.152,00", "ateco": "Installazione di impianti elettrici in edifici o in altre opere di costruzione (inclusa manutenzione e riparazione)", "stato": "pending"}, {"id": 2, "ragione_sociale": "MAX AUTOMAZIONI S.R.L.", "sito": "http://www.maxautomazioni.it", "url_phantom": "https://linkedin.com/company/maxpro-s-r-l", "url_easybusiness": "", "citta": "CORIGLIANO-ROSSANO", "fatturato": "€ 5.569.561,00", "ateco": "Installazione di impianti elettrici in edifici o in altre opere di costruzione (inclusa manutenzione e riparazione)", "stato": "pending"}, {"id": 3, "ragione_sociale": "MA.PI. IMPIANTI SOCIETA' A RESPONSABILITA' LIMITATA DA INDICARE", "sito": "http://www.mapiimpianti.it", "url_phantom": "", "url_easybusiness": "", "citta": "OSIMO", "fatturato": "€ 5.490.976,00", "ateco": "Installazione di impianti idraulici, di riscaldamento e di condizionamento dell'aria (inclusa manutenzione e riparazione) in edifici o in altre opere di costruzione", "stato": "pending"}, {"id": 4, "ragione_sociale": "ITA PROGETTI S.R.L.", "sito": "http://www.itaprogetti.it", "url_phantom": "https://linkedin.com/company/ita-progetti", "url_easybusiness": "", "citta": "SAN GIORGIO DI NOGARO", "fatturato": "€ 5.346.488,00", "ateco": "Installazione di impianti elettrici in edifici o in altre opere di costruzione (inclusa manutenzione e riparazione)", "stato": "pending"}, {"id": 5, "ragione_sociale": "CENTRO CONDUZIONI TERMICHE S.R.L.", "sito": "http://www.centroconduzionitermiche.com", "url_phantom": "https://linkedin.com/company/g-m-impianti-srl-di-cussotto-giorgio", "url_easybusiness": "", "citta": "TORINO", "fatturato": "€ 6.910.751,00", "ateco": "Installazione di impianti idraulici, di riscaldamento e di condizionamento dell'aria (inclusa manutenzione e riparazione) in edifici o in altre opere di costruzione", "stato": "pending"}, {"id": 6, "ragione_sociale": "ELETTRO G.T. S.R.L.", "sito": "http://www.elettrogt.it", "url_phantom": "", "url_easybusiness": "", "citta": "TRIVERO", "fatturato": "€ 5.391.294,00", "ateco": "Installazione di impianti elettrici in edifici o in altre opere di costruzione (inclusa manutenzione e riparazione)", "stato": "pending"}, {"id": 7, "ragione_sociale": "MONFREDINI FAUSTO S.R.L.", "sito": "http://www.monfredini.com", "url_phantom": "https://linkedin.com/company/arca-certificazione", "url_easybusiness": "", "citta": "BORGO LARES", "fatturato": "€ 5.270.025,00", "ateco": "Installazione di impianti elettrici in edifici o in altre opere di costruzione (inclusa manutenzione e riparazione)", "stato": "pending"}, {"id": 8, "ragione_sociale": "CO.I.M.I. SRL", "sito": "http://www.coimi.it", "url_phantom": "https://linkedin.com/company/imisrl", "url_easybusiness": "", "citta": "VOLVERA", "fatturato": "€ 9.425.508,00", "ateco": "Installazione di impianti idraulici, di riscaldamento e di condizionamento dell'aria (inclusa manutenzione e riparazione) in edifici o in altre opere di costruzione", "stato": "pending"}, {"id": 9, "ragione_sociale": "AS IMPIANTI S.R.L.", "sito": "http://www.astotalsecurity.com", "url_phantom": "https://linkedin.com/company/as-impianti-tecnici-s-r-l", "url_easybusiness": "", "citta": "ROSTA", "fatturato": "€ 5.617.176,00", "ateco": "Installazione di impianti elettronici (inclusa manutenzione e riparazione)", "stato": "pending"}];
@@ -298,27 +284,6 @@ function App() {
     try { const s=localStorage.getItem('grizzly_selected'); return s?new Set(JSON.parse(s)):new Set(); } catch(e){ return new Set(); }
   });
   const fileRef = useRef();
-  const configFileRef = useRef();
-
-  const exportConfig = () => {
-    const cfg = { sheet_id: SHEET_ID, make: {...MAKE}, phantom: {...PHANTOM} };
-    const blob = new Blob([JSON.stringify(cfg, null, 2)], {type:'application/json'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = 'grizzly-config.json'; a.click();
-    showToast('✓ Config esportata');
-  };
-
-  const importConfig = async (file) => {
-    try {
-      const text = await file.text();
-      const cfg = JSON.parse(text);
-      if (!cfg.sheet_id && !cfg.make && !cfg.phantom) throw new Error('File non valido');
-      localStorage.setItem('grizzly_config', JSON.stringify(cfg));
-      showToast('✓ Config importata — ricarico...');
-      setTimeout(() => window.location.reload(), 1200);
-    } catch(e) { showToast('✕ ' + e.message, C.red); }
-  };
-
 
   // ── Orologio ──────────────────────────────────────────────────────────────
   useEffect(() => { const t = setInterval(()=>{ setClock(new Date()); setNextSyncIn(n=>n>0?n-1:30); },1000); return ()=>clearInterval(t); }, []);
@@ -1057,30 +1022,6 @@ function App() {
                 <div style={{display:"flex",gap:8}}><span style={{fontSize:11,color:C.muted,width:120}}>Polling</span><span style={{fontSize:11,color:C.text}}>ogni 30 secondi</span></div>
                 <div style={{display:"flex",gap:8}}><span style={{fontSize:11,color:C.muted,width:120}}>Ultimo sync</span><span style={{fontSize:11,color:lastSync?C.green:C.muted}}>{lastSync?fmtAgo(lastSync):"mai"}</span></div>
                 <a href={`https://docs.google.com/spreadsheets/d/${SHEET_ID}`} target="_blank" style={{marginTop:4}}><Btn color={C.accent} bg={C.accentDim}>Apri Google Sheet →</Btn></a>
-              </div>
-            </div>
-            {/* ── CONFIG IMPORT/EXPORT ── */}
-            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
-              <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.border}`,fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase"}}>CONFIGURAZIONE</div>
-              <div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
-                <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
-                  Esporta la configurazione attiva come file JSON da custodire come backup. Per applicare una nuova configurazione, importa il file JSON — Grizzly si ricaricherà automaticamente.
-                </div>
-                <div style={{display:"flex",gap:10,marginTop:4}}>
-                  <button onClick={exportConfig} style={{flex:1,padding:"8px 0",fontSize:11,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,0.3)`,borderRadius:5,cursor:"pointer"}}>
-                    ↓ Esporta Config
-                  </button>
-                  <button onClick={()=>configFileRef.current?.click()} style={{flex:1,padding:"8px 0",fontSize:11,fontWeight:600,color:C.green,background:C.greenDim,border:`1px solid rgba(34,197,94,0.3)`,borderRadius:5,cursor:"pointer"}}>
-                    ↑ Importa Config
-                  </button>
-                  <input ref={configFileRef} type="file" accept=".json" style={{display:"none"}} onChange={e=>{if(e.target.files[0])importConfig(e.target.files[0]);}}/>
-                </div>
-                {localStorage.getItem('grizzly_config') && (
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:10,color:C.green,background:C.greenDim,padding:"6px 10px",borderRadius:4}}>
-                    <span>✓ Config personalizzata attiva</span>
-                    <button onClick={()=>{localStorage.removeItem('grizzly_config');showToast('Config rimossa — ricarico...');setTimeout(()=>window.location.reload(),1200);}} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:10}}>Rimuovi</button>
-                  </div>
-                )}
               </div>
             </div>
             <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden"}}>
