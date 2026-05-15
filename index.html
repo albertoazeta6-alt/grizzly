@@ -246,6 +246,7 @@ function App() {
   const [runAttivo, setRunAttivo]   = useState(false);
   const [dropzoneMode, setDropzoneMode] = useState(false);
   const [autoProceedUrl, setAutoProceedUrl] = useState(false);
+  const [urlCheckReady, setUrlCheckReady]   = useState(false); // true dopo fetchUrlSheet
   const ignoredRunIdRef = React.useRef(null);
   const [runId, setRunId]           = useState(null);
   const [runStart, setRunStart]     = useState(null);
@@ -320,6 +321,7 @@ function App() {
       }).filter(r => r.ragione_sociale && !/^ragione.?sociale$/i.test(r.ragione_sociale.trim()));
       if (parsed.length > 0) {
         setUrls(parsed);
+        setUrlCheckReady(true); // fetch completato
         pushLog("info", `URL da valutare aggiornati: ${parsed.length} aziende dal foglio`);
         if (parsed.length === 0) {
           pushLog("ok", "✓ Tutti gli URL già verificati — procedo automaticamente ad HubSpot");
@@ -552,7 +554,10 @@ function App() {
   useEffect(() => {
     const urlFase = fasi.find(f => f.id === "url_check");
     if (urlFase?.stato === "attesa_utente") {
+      setUrlCheckReady(false); // reset prima del fetch
       fetchUrlSheet();
+    } else {
+      setUrlCheckReady(false);
     }
   }, [fasi, fetchUrlSheet]);
 
@@ -1203,7 +1208,7 @@ function App() {
                   )}
 
                   {/* ── BANNER AZIONI ── */}
-                  {fasi.find(f=>f.id==="url_check")?.stato==="attesa_utente" && urls.filter(u=>u.stato==="pending").length>0&&(
+                  {fasi.find(f=>f.id==="url_check")?.stato==="attesa_utente" && urlCheckReady && urls.filter(u=>u.stato==="pending").length>0&&(
                     <div style={{background:"rgba(249,115,22,0.08)",border:"1px solid rgba(249,115,22,0.35)",borderRadius:6,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
                       <div>
                         <div style={{fontSize:12,fontWeight:700,color:"#fb923c",marginBottom:2}}>🔍 URL ambigui da verificare</div>
