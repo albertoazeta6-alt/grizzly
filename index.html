@@ -306,6 +306,8 @@ function App() {
       const iEb   = cols.findIndex(c => /linkedinurl_easy/i.test(c));
       const iCit  = cols.findIndex(c => c.toLowerCase().includes("citt"));
       const iFat  = cols.findIndex(c => c.toLowerCase().includes("fatturato"));
+      const iResult = 4; // col E — "URL Da Verificare" = da fare
+      const iMatch  = 22; // col W — "best match" = già verificato
       const parsed = rows.map((row, i) => {
         const c = row.c || [];
         return {
@@ -317,16 +319,20 @@ function App() {
           citta:           iCit  >= 0 ? get(c, iCit)  : "",
           fatturato:       iFat  >= 0 ? get(c, iFat)  : "",
           stato:           "pending",
+          url_scelto:      get(c, iResult),
+          match_type:      get(c, iMatch),
         };
-      }).filter(r => r.ragione_sociale && !/^ragione.?sociale$/i.test(r.ragione_sociale.trim()));
+      }).filter(r => r.ragione_sociale && !/^ragione.?sociale$/i.test(r.ragione_sociale.trim()))
+        .filter(r => !/best.?match/i.test(r.match_type))
+        .filter(r => /url\s*da\s*verificare/i.test(r.url_scelto));
+      // Sempre aggiorna urls e segnala il completamento del fetch
+      setUrls(parsed);
+      setUrlCheckReady(true);
       if (parsed.length > 0) {
-        setUrls(parsed);
-        setUrlCheckReady(true); // fetch completato
-        pushLog("info", `URL da valutare aggiornati: ${parsed.length} aziende dal foglio`);
-        if (parsed.length === 0) {
-          pushLog("ok", "✓ Tutti gli URL già verificati — procedo automaticamente ad HubSpot");
-          setAutoProceedUrl(true);
-        }
+        pushLog("info", `URL da valutare: ${parsed.length} da verificare`);
+      } else {
+        pushLog("ok", "✓ Nessun URL da verificare — procedo automaticamente ad HubSpot");
+        setAutoProceedUrl(true);
       }
     } catch(e) {
       // fallback silenzioso — usa i dati statici
