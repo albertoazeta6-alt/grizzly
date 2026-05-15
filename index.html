@@ -998,7 +998,7 @@ function App() {
               setRunAttivo(true);
               try { await fetch(MAKE.pulizia,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({secret:"grizzly2026"})}); } catch(e){}
               pushLog("ok","✓ Pulizia fogli avviata");
-            }} style={{fontSize:11,fontWeight:600,padding:"4px 12px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>＋ Nuova Run</button>
+            }} style={{fontSize:11,fontWeight:600,padding:"4px 12px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>Nuova Run</button>
           )}
           <button onClick={()=>{setReviewDebugMode(true);setShowReviewTool(true);}} title="Debug: vedi tutto il foglio URL senza filtri" style={{fontSize:11,fontWeight:600,padding:"4px 10px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>🔍</button>
         </div>
