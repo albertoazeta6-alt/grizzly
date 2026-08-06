@@ -37,7 +37,7 @@ $msg = "auto: $timestamp"
 
 & $git add -A
 & $git commit -m $msg
-& $git push
+& $git push -u origin HEAD
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "`nPush completato: $msg" -ForegroundColor Green
