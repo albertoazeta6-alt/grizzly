@@ -1,7 +1,4 @@
-# Ignora tutto
+# Ignora tutto eccetto index.html alla root e .gitignore
 *
-
-# Eccetto grizzly/index.html
-!grizzly/
-!grizzly/index.html
+!index.html
 !.gitignore
