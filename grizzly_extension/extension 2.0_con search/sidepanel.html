@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grizzly</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111418;
+    --surface2: #181c22;
+    --border: #1e2530;
+    --border2: #2a3340;
+    --text: #c8d0db;
+    --text2: #7a8899;
+    --hi: #f0f4f8;
+    --accent: #f59e0b;
+    --accent2: rgba(245,158,11,0.12);
+    --green: #10b981;
+    --green2: rgba(16,185,129,0.12);
+    --red: #ef4444;
+    --red2: rgba(239,68,68,0.10);
+    --blue: #3b82f6;
+    --blue2: rgba(59,130,246,0.12);
+    --mono: 'Space Mono', monospace;
+    --sans: 'DM Sans', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  
+  html, body {
+    height: 100%;
+  }
+  body {
+    background: var(--bg);
+    font-family: var(--sans);
+    color: var(--text);
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  /* ── HEADER ── */
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    min-height: 18px;
+  }
+  .logo {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+  }
+  .logo span { color: var(--text2); font-size: 11px; }
+
+
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.3} }
+
+  /* ── TABS ── */
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .tab {
+    flex: 1;
+    padding: 8px 2px;
+    text-align: center;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text2);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    min-width: 0;
+    white-space: nowrap;
+  }
+  .radio-option {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 9px 11px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .radio-option:hover { border-color: var(--border2); }
+  .radio-option.selected { background: var(--accent2); border-color: var(--accent); }
+  .radio-dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 1px solid var(--border2);
+    flex-shrink: 0;
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .radio-option.selected .radio-dot { border-color: var(--accent); }
+  .radio-option.selected .radio-dot::after {
+    content: '';
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .radio-label { font-size: 11px; color: var(--hi); font-weight: 500; }
+  .radio-sub { font-size: 10px; color: var(--text2); margin-top: 2px; line-height: 1.45; }
+  .badge-recommended {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--accent2);
+    color: var(--accent);
+    margin-left: 4px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+  }
+  .source-chip {
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    margin-right: 4px;
+    display: inline-block;
+  }
+  .source-chip.company { background: var(--blue2); color: var(--blue); }
+  .source-chip.search { background: var(--accent2); color: var(--accent); }
+  /* Card distinte per i due metodi di estrazione */
+  .batch-source-card {
+    border-radius: 4px;
+    padding: 12px;
+    margin-bottom: 14px;
+  }
+  .batch-source-card.company {
+    background: #0d1218;
+    border: 1px solid rgba(59,130,246,0.25);
+    border-left: 3px solid var(--blue);
+  }
+  .batch-source-card.search {
+    background: #161310;
+    border: 1px solid rgba(245,158,11,0.3);
+    border-left: 3px solid var(--accent);
+  }
+  .batch-source-card .toggle-row,
+  .batch-source-card .field { border-color: rgba(245,158,11,0.15); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  /* ── CONTENT ── */
+  .content {
+    padding: 14px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  #tab-run {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* ── SEZIONE SETTINGS ── */
+  .section-title {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text2);
+    margin-bottom: 8px;
+    margin-top: 16px;
+  }
+  .section-title:first-child { margin-top: 0; }
+
+  .field { margin-bottom: 8px; }
+  .field label {
+    display: block;
+    font-size: 10px;
+    color: var(--text2);
+    margin-bottom: 4px;
+    font-weight: 500;
+  }
+  .field input, .field select {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 7px 9px;
+    font-size: 11px;
+    color: var(--hi);
+    font-family: var(--mono);
+    outline: none;
+    transition: border 0.15s;
+  }
+  .field input:focus, .field select:focus { border-color: var(--accent); }
+  .field input::placeholder { color: var(--border2); }
+  .field select option { background: var(--surface2); }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-label { font-size: 12px; color: var(--text); }
+  .toggle-sub { font-size: 10px; color: var(--text2); margin-top: 1px; }
+
+  .toggle {
+    position: relative;
+    width: 34px; height: 18px;
+    flex-shrink: 0;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; inset: 0;
+    background: var(--border2);
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .slider:before {
+    content: "";
+    position: absolute;
+    width: 12px; height: 12px;
+    left: 3px; top: 3px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+  .toggle input:checked + .slider { background: var(--accent); }
+  .toggle input:checked + .slider:before { transform: translateX(16px); }
+
+  /* ── KEYWORD TAGS ── */
+  .keyword-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    min-height: 42px;
+  }
+  .kw-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    background: var(--accent2);
+    border: 1px solid rgba(245,158,11,0.25);
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent);
+    font-family: var(--mono);
+  }
+  .kw-tag .remove {
+    cursor: pointer;
+    opacity: 0.6;
+    font-size: 11px;
+    line-height: 1;
+  }
+  .kw-tag .remove:hover { opacity: 1; }
+  .kw-input-row { display: flex; gap: 6px; margin-top: 6px; }
+  .kw-input-row input {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 11px;
+    color: var(--hi);
+    font-family: var(--mono);
+    outline: none;
+  }
+  .kw-input-row input:focus { border-color: var(--accent); }
+
+  /* ── BUTTONS ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--sans);
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    border: 1px solid;
+    transition: all 0.15s;
+  }
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #000;
+  }
+  .btn-primary:hover { background: #d97706; }
+  .btn-primary:disabled { background: var(--border2); border-color: var(--border2); color: var(--text2); cursor: not-allowed; }
+  .btn-secondary {
+    background: transparent;
+    border-color: var(--border2);
+    color: var(--text);
+  }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-danger {
+    background: var(--red2);
+    border-color: rgba(239,68,68,0.3);
+    color: var(--red);
+  }
+  .btn-sm { padding: 5px 10px; font-size: 10px; }
+  .btn-full { width: 100%; justify-content: center; }
+
+  /* ── RUN TAB ── */
+  .company-banner {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+  }
+  .company-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--hi);
+    margin-bottom: 4px;
+  }
+  .company-url {
+    font-size: 10px;
+    color: var(--text2);
+    font-family: var(--mono);
+    word-break: break-all;
+  }
+  .company-notfound {
+    font-size: 12px;
+    color: var(--text2);
+    font-style: italic;
+  }
+
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+    width: 100%;
+  }
+  .controls .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .results-toolbar {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.3fr) minmax(84px, 110px);
+    gap: 6px;
+    width: 100%;
+    align-items: stretch;
+  }
+  .results-toolbar .btn {
+    width: 100%;
+    justify-content: center;
+    min-width: 0;
+  }
+  .kw-row input.kw-key,
+  .kw-row input.kw-weight,
+  .kw-input-row input {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 8px 10px;
+    font: inherit;
+    box-sizing: border-box;
+    outline: none;
+  }
+  .kw-row input.kw-key::placeholder,
+  .kw-input-row input::placeholder {
+    color: var(--text2);
+  }
+  .kw-row input.kw-key:focus,
+  .kw-row input.kw-weight:focus,
+  .kw-input-row input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(239,168,39,0.25);
+  }
+  @media (max-width: 520px) {
+    .results-toolbar {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .mode-selector {
+    display: flex;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 14px;
+  }
+  .mode-btn {
+    flex: 1;
+    padding: 7px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--text2);
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    font-family: var(--sans);
+    transition: all 0.15s;
+  }
+  .mode-btn.active {
+    background: var(--accent2);
+    color: var(--accent);
+  }
+
+  /* ── STATS ── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+    width: 100%;
+  }
+  .stat-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 10px;
+    text-align: center;
+  }
+  .stat-num {
+    font-family: var(--mono);
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--hi);
+    line-height: 1;
+    margin-bottom: 3px;
+  }
+  .stat-num.green { color: var(--green); }
+  .stat-num.amber { color: var(--accent); }
+  .stat-num.red { color: var(--red); }
+  .stat-label { font-size: 9px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; }
+
+  /* ── CONTACT CARDS (approval mode) ── */
+  .contact-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    animation: fadeIn 0.2s ease;
+  }
+  .contact-card.approved { border-color: rgba(16,185,129,0.3); background: rgba(16,185,129,0.04); }
+  .contact-card.rejected { opacity: 0.4; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)} }
+
+  .contact-name { font-size: 13px; font-weight: 600; color: var(--hi); margin-bottom: 2px; }
+  .contact-role { font-size: 11px; color: var(--accent); margin-bottom: 6px; }
+  .contact-email { font-size: 10px; color: var(--green); font-family: var(--mono); margin-bottom: 8px; }
+  .contact-email.searching { color: var(--text2); font-style: italic; }
+  .contact-email.notfound { color: var(--red); }
+
+  .contact-actions { display: flex; gap: 6px; }
+
+  /* ── LOG ── */
+  .log-container {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    overflow-y: auto;
+    font-family: var(--mono);
+    font-size: 10px;
+    flex: 1 1 auto;
+    min-height: 260px;
+    scroll-behavior: smooth;
+  }
+  .log-entry {
+    display: flex;
+    gap: 8px;
+    padding: 5px 10px;
+    border-bottom: 1px solid var(--border);
+    line-height: 1.4;
+    align-items: flex-start;
+  }
+  .log-entry:last-child { border-bottom: none; }
+  .log-time { color: var(--text2); white-space: nowrap; flex-shrink: 0; }
+  .log-icon { flex-shrink: 0; }
+  .log-msg { color: var(--text); word-break: break-word; }
+  .log-entry.ok .log-msg { color: var(--green); }
+  .log-entry.error .log-msg { color: var(--red); }
+  .log-entry.warn .log-msg { color: var(--accent); }
+  .log-entry.info .log-msg { color: var(--blue); }
+
+  .log-empty { padding: 20px; text-align: center; color: var(--text2); font-size: 11px; }
+
+  /* ── RESULTS TAB ── */
+  .result-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+  }
+  .result-name { font-size: 12px; font-weight: 600; color: var(--hi); }
+  .result-meta { font-size: 10px; color: var(--text2); margin-top: 2px; }
+  .result-email { font-size: 10px; color: var(--green); font-family: var(--mono); margin-top: 3px; }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
+  .badge-green { background: var(--green2); color: var(--green); }
+  .badge-amber { background: var(--accent2); color: var(--accent); }
+  .badge-red { background: var(--red2); color: var(--red); }
+
+  .divider { height: 1px; background: var(--border); margin: 14px 0; }
+  .empty-state { text-align: center; padding: 32px 16px; color: var(--text2); font-size: 12px; }
+  .empty-icon { font-size: 28px; margin-bottom: 8px; }
+
+  /* ── RESULT ACTIONS (usate in risultati e batch) ── */
+  .result-reason { font-size: 10px; color: var(--text2); margin-top: 3px; font-style: italic; }
+  .result-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+
+  /* ── LOG PROGRESS WIDE ── */
+  .log-progress-wide {
+    display: flex;
+    align-items: center;
+    background: rgba(245,158,11,0.06);
+    border: 1px solid rgba(245,158,11,0.35);
+    border-radius: 5px;
+    padding: 7px 12px;
+    margin-bottom: 10px;
+    gap: 0;
+  }
+
+  /* ── BATCH TAB ── */
+  .batch-textarea {
+    width: 100%;
+    min-height: 110px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--hi);
+    outline: none;
+    resize: vertical;
+    line-height: 1.6;
+  }
+  .batch-textarea:focus { border-color: var(--accent); }
+  .batch-textarea::placeholder { color: var(--border2); }
+
+  .batch-progress-wrap {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+  .batch-progress-bar-bg {
+    background: var(--border);
+    border-radius: 3px;
+    height: 5px;
+    overflow: hidden;
+    margin-bottom: 6px;
+  }
+  .batch-progress-bar {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.4s ease;
+  }
+  .batch-progress-text {
+    font-size: 10px;
+    color: var(--text2);
+    font-family: var(--mono);
+  }
+
+  .batch-company-group {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .batch-company-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .batch-company-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--hi);
+  }
+  .batch-contact-item {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-top: none;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 0;
+  }
+  .batch-contact-item:last-child { border-bottom: none; }
+  .batch-no-contacts {
+    padding: 12px;
+    font-size: 11px;
+    color: var(--text2);
+    font-style: italic;
+  }
+  .batch-results-toolbar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+</style>
+</head>
+<body>
+
+<div class="header"></div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="batch">🔍 Scraping</div>
+  <div class="tab" data-tab="run">📋 Log</div>
+  <div class="tab" data-tab="results">👥 Risultati</div>
+  <div class="tab" data-tab="keywords">🏷 Keyword</div>
+  <div class="tab" data-tab="settings">⚙ Config</div>
+</div>
+
+<!-- ══ TAB LOG (ex Run) ══ -->
+<div id="tab-run" class="content" style="display:none">
+
+  <!-- Stats riepilogo sessione -->
+  <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
+    <div class="stat-card">
+      <div class="stat-num" id="logStatTotal">0</div>
+      <div class="stat-label">Aziende in lista</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" id="logStatProcessed">0</div>
+      <div class="stat-label">Aziende Processate</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num green" id="logStatLeads">0</div>
+      <div class="stat-label">Lead in target</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num amber" id="logStatEmails">0</div>
+      <div class="stat-label">Email trovate</div>
+    </div>
+  </div>
+
+  <!-- Wide progress bar (visibile durante il batch) -->
+  <div style="display:none;align-items:center;gap:8px" id="logProgressOuter">
+    <div id="logProgressWrap" class="log-progress-wide" style="flex:1;margin:0">
+      <div class="stat-num amber" id="logProgressCounter" style="font-size:15px;letter-spacing:-0.02em;white-space:nowrap;margin:0">0 / 0</div>
+      <div style="flex:1;margin:0 10px;background:var(--border);border-radius:3px;height:5px;overflow:hidden">
+        <div id="logProgressBar" style="background:var(--accent);width:0%;height:100%;border-radius:3px;transition:width 0.4s ease"></div>
+      </div>
+      <div id="logProgressText" style="font-size:10px;color:var(--accent);font-family:var(--mono);white-space:nowrap">—</div>
+    </div>
+    <button id="btnStopBatchLog" class="btn btn-danger" style="flex-shrink:0;padding:7px 12px;font-size:11px">⏹ Stop</button>
+  </div>
+
+  <div class="section-title">Log attività</div>
+  <div class="log-container" id="logContainer">
+    <div class="log-empty">Avvia un batch per vedere le attività qui</div>
+  </div>
+
+</div>
+
+<!-- ══ TAB BATCH ══ -->
+<div id="tab-batch" class="content">
+
+  <!-- Barra di progresso (visibile durante l'esecuzione) -->
+  <div id="batchProgress" class="batch-progress-wrap" style="display:none">
+    <div class="batch-progress-bar-bg">
+      <div class="batch-progress-bar" id="batchProgressBar" style="width:0%"></div>
+    </div>
+    <div class="batch-progress-text" id="batchProgressText">In attesa...</div>
+  </div>
+
+  <!-- Input URL — due card distinte per i due metodi -->
+  <div id="batchInputSection">
+
+    <!-- Avvia in cima -->
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button id="btnStartBatch" class="btn btn-secondary" style="flex:1">🔍 Cerca buyer persona</button>
+      <button id="btnStopBatch" class="btn btn-danger" style="display:none">⏹ Stop</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button id="btnEnrichFromSupabase" class="btn btn-secondary" style="flex:1;font-size:11px">✉ Cerca email contatti selezionati da Grizzly</button>
+      <button id="btnStopEnrichSupabase" class="btn btn-danger" style="display:none;font-size:11px">⏹ Stop</button>
+    </div>
+
+    <!-- ── CARD COMPANY ─────────────────────────────────────────────────── -->
+    <div class="batch-source-card company">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <span class="source-chip company">COMPANY</span>
+        <span style="font-size:12px;font-weight:600;color:var(--hi)">Aziende</span>
+        <span style="font-size:10px;color:var(--text2);margin-left:4px">· lascia vuoto per caricare da Supabase</span>
+      </div>
+      <div id="sheetLoadMsg" style="display:none;font-size:10px;margin-bottom:6px;font-family:var(--mono)"></div>
+      <textarea id="batchUrls" class="batch-textarea" style="min-height:80px"
+        placeholder="https://www.linkedin.com/company/azienda-uno/&#10;https://www.linkedin.com/company/azienda-due/"></textarea>
+      <div id="batchCompanyCount" style="font-size:10px;color:var(--text2);margin-top:6px;font-family:var(--mono);min-height:14px"></div>
+    </div>
+
+    <!-- ── CARD RICERCA (collassabile) ──────────────────────────────────── -->
+    <div class="batch-source-card search">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" id="batchSearchHeader">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="source-chip search">RICERCA</span>
+          <span style="font-size:12px;font-weight:600;color:var(--hi)">Persone (Persona-First)</span>
+        </div>
+        <span id="batchSearchToggle" style="font-size:14px;color:var(--text2);transition:transform 0.2s">▸</span>
+      </div>
+      <div id="batchSearchBody" style="display:none;margin-top:10px">
+        <div style="font-size:10px;color:var(--text2);margin-bottom:8px;line-height:1.45">
+          Estrae persone da una SERP LinkedIn filtrata. Parte dalla persona, recupera l'email via Apollo, scarta chi non ha email.
+        </div>
+        <textarea id="batchSearchUrls" class="batch-textarea" style="min-height:60px"
+          placeholder="https://www.linkedin.com/search/results/people/?keywords=responsabile%20service&geoUrn=..."></textarea>
+        <div id="batchSearchCount" style="font-size:10px;color:var(--text2);margin-top:6px;margin-bottom:10px;font-family:var(--mono);min-height:14px"></div>
+
+        <!-- Max pagine -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(245,158,11,0.15)">
+          <div style="flex:1;min-width:0;padding-right:10px">
+            <div style="font-size:11px;color:var(--text)">Max pagine per ricerca</div>
+            <div style="font-size:10px;color:var(--text2);margin-top:1px">~10 profili per pagina · default 5</div>
+          </div>
+          <input type="number" id="cfgSearchMaxPages" value="5" min="1" max="20" style="width:55px;background:var(--bg);border:1px solid var(--border2);border-radius:3px;padding:5px 6px;font-family:var(--mono);font-size:11px;text-align:center;color:var(--hi);outline:none" />
+        </div>
+
+        <!-- Strategia email -->
+        <div style="padding:10px 0 4px;border-top:1px solid rgba(245,158,11,0.15)">
+          <div style="font-size:11px;color:var(--text);margin-bottom:6px">Strategia email</div>
+          <div class="radio-option selected" data-strategy="apollo_fallback">
+            <div class="radio-dot"></div>
+            <div style="flex:1;min-width:0">
+              <div class="radio-label">Apollo + fallback<span class="badge-recommended">CONSIGLIATO</span></div>
+              <div class="radio-sub">Apollo per primo. Se non trova → fallback su Dropcontact e Lemlist.</div>
+            </div>
+          </div>
+          <div class="radio-option" data-strategy="apollo_only">
+            <div class="radio-dot"></div>
+            <div style="flex:1;min-width:0">
+              <div class="radio-label">Solo Apollo</div>
+              <div class="radio-sub">Se Apollo non ha l'email → scarta. Massimo risparmio crediti.</div>
+            </div>
+          </div>
+          <div class="radio-option" data-strategy="standard_cascade">
+            <div class="radio-dot"></div>
+            <div style="flex:1;min-width:0">
+              <div class="radio-label">Cascata standard</div>
+              <div class="radio-sub">Dropcontact → Lemlist → Apollo.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Toggle scoring keyword -->
+        <div class="toggle-row" style="padding:9px 0;border-top:1px solid rgba(245,158,11,0.15);border-bottom:none;margin-top:6px">
+          <div>
+            <div class="toggle-label">Applica scoring keyword</div>
+            <div class="toggle-sub">Default OFF: hai già filtrato a monte con LinkedIn</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="cfgSearchApplyScoring"><span class="slider"></span></label>
+        </div>
+
+        <!-- Resume cache -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 0 2px;border-top:1px solid rgba(245,158,11,0.15);margin-top:2px">
+          <div style="flex:1;min-width:0;padding-right:10px">
+            <div style="font-size:11px;color:var(--text)">Riprendi dove avevo lasciato</div>
+            <div id="searchProgressInfo" style="font-size:10px;color:var(--text2);margin-top:1px">Nessuna ricerca in cache</div>
+          </div>
+          <button id="btnResetSearchProgress" class="btn btn-secondary btn-sm" disabled>🔄 Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Riepilogo totale -->
+    <div id="batchTotalSummary" style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:8px 12px;margin-bottom:12px;font-size:11px;color:var(--text2);font-family:var(--mono);min-height:16px;display:none"></div>
+
+  </div>
+
+
+</div>
+
+<!-- ══ TAB RESULTS ══ -->
+<div id="tab-results" class="content" style="display:none">
+  <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+    <button id="btnEnrichBatch" class="btn btn-primary btn-sm" style="flex:1">✉ Cerca email</button>
+    <button id="btnExportBatch" class="btn btn-secondary btn-sm">⬇ CSV</button>
+  </div>
+  <div id="batchResultsList">
+    <div class="empty-state">
+      <div class="empty-icon">🚀</div>
+      Avvia un batch per vedere i risultati qui
+    </div>
+  </div>
+</div>
+
+<!-- ══ TAB KEYWORDS ══ -->
+<div id="tab-keywords" class="content" style="display:none">
+
+  <div style="display:flex;gap:6px;margin-bottom:12px">
+    <button id="btnExportKeywords" class="btn btn-secondary btn-sm" style="flex:1">⬇ Esporta</button>
+    <button id="btnImportKeywords" class="btn btn-secondary btn-sm" style="flex:1">⬆ Importa</button>
+    <input type="file" id="importKeywordsFile" accept=".json" style="display:none">
+  </div>
+
+  <div class="section-title">Target & Pesi</div>
+  <div class="keyword-container" id="kwContainer"></div>
+  <div class="toggle-sub" style="margin-top:6px">Modifica keyword e peso direttamente. Keyword corte (IT, AD) fanno match solo come parola intera.</div>
+  <div class="kw-input-row">
+    <input type="text" id="kwInput" placeholder="Aggiungi keyword..." />
+    <button id="btnAddKeyword" class="btn btn-secondary btn-sm">+</button>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section-title">Penalità</div>
+  <div class="keyword-container" id="penaltyContainer"></div>
+  <div class="toggle-sub" style="margin-top:6px">Queste parole abbassano lo score (pesi negativi). Puoi modificarle o rimuoverle.</div>
+  <div class="kw-input-row">
+    <input type="text" id="penaltyInput" placeholder="Aggiungi penalità..." />
+    <button id="btnAddPenalty" class="btn btn-secondary btn-sm">+</button>
+  </div>
+
+  <div class="divider"></div>
+
+  <button id="btnSaveKeywords" class="btn btn-primary btn-full">💾 Salva keyword</button>
+  <div id="kwSaveMsg" style="text-align:center;font-size:11px;color:var(--green);margin-top:8px;display:none">✓ Salvato</div>
+
+</div>
+
+<!-- ══ TAB SETTINGS ══ -->
+<div id="tab-settings" class="content" style="display:none">
+
+  <div class="section-title">⬡ Supabase — Database</div>
+  <div class="field"><label>Project URL</label><input type="text" id="cfgSupabaseUrl" placeholder="https://xxxx.supabase.co" /></div>
+  <div class="field"><label>Anon Key</label><input type="password" id="cfgSupabaseKey" placeholder="eyJhbGci..." /></div>
+  <div class="toggle-row">
+    <div><div class="toggle-label">Scrivi contatti su Supabase</div><div class="toggle-sub">Salva automaticamente i contatti trovati nel DB (stato: trovato)</div></div>
+    <label class="toggle"><input type="checkbox" id="cfgSupabaseEnabled"><span class="slider"></span></label>
+  </div>
+  <div class="divider"></div>
+
+  <div class="section-title">API Keys</div>
+  <div class="field">
+    <label>Lemlist API Key (solo Find Email)</label>
+    <input type="password" id="cfgLemlistKey" placeholder="la_tua_api_key" />
+  </div>
+  <div class="field">
+    <label>Dropcontact API Key</label>
+    <input type="password" id="cfgDropcontactKey" placeholder="dropcontact_api_key" />
+  </div>
+
+  <div class="field">
+    <label>Apollo API Key</label>
+    <input type="password" id="cfgApolloKey" placeholder="apollo_api_key" />
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section-title">Limiti & Sicurezza</div>
+  <div class="toggle-row">
+    <div>
+      <div class="toggle-label">Usa Dropcontact</div>
+      <div class="toggle-sub">Primo tentativo consigliato</div>
+    </div>
+    <label class="toggle"><input type="checkbox" id="useDropcontact" checked><span class="slider"></span></label>
+  </div>
+  <div class="toggle-row">
+    <div>
+      <div class="toggle-label">Usa Lemlist Find Email</div>
+      <div class="toggle-sub">Fallback enrichment email</div>
+    </div>
+    <label class="toggle"><input type="checkbox" id="useLemlistEmail" checked><span class="slider"></span></label>
+  </div>
+  <div class="toggle-row">
+    <div>
+      <div class="toggle-label">Usa Apollo</div>
+      <div class="toggle-sub">Terzo tentativo dopo Dropcontact e Lemlist</div>
+    </div>
+    <label class="toggle"><input type="checkbox" id="useApollo"><span class="slider"></span></label>
+  </div>
+  <div class="field" style="margin-top:12px">
+    <label>Max profili per sessione</label>
+    <input type="number" id="cfgMaxProfiles" value="30" min="5" max="100" />
+  </div>
+  <div class="field">
+    <label>Delay tra profili (secondi)</label>
+    <input type="number" id="cfgDelay" value="5" min="1" max="15" />
+    <div class="toggle-sub" style="margin-top:4px">Vale per il flow Company (delay tra contatti) e per il flow Ricerca (scala tutte le pause "umane": lettura, scroll, decisione di paginare). Default 5 = massima prudenza umana. Abbassa a 3 se vuoi più velocità, alza a 7-10 se vuoi quasi-real-time-zero.</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div style="display:flex;gap:6px;margin-bottom:8px">
+    <button id="btnExportConfig" class="btn btn-secondary btn-sm" style="flex:1">⬇ Esporta Config</button>
+    <button id="btnImportConfig" class="btn btn-secondary btn-sm" style="flex:1">⬆ Importa Config</button>
+    <input type="file" id="importConfigInput" accept=".json" style="display:none">
+  </div>
+
+  <button id="btnSaveSettings" class="btn btn-primary btn-full">💾 Salva configurazione</button>
+  <div id="saveMsg" style="text-align:center;font-size:11px;color:var(--green);margin-top:8px;display:none">✓ Salvato</div>
+
+</div>
+
+<script src="sidepanel.js"></script>
+</body>
+</html>

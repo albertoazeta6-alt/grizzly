@@ -1,0 +1,1348 @@
+{
+    "name": "1. Import Pro. Input v2",
+    "flow": [
+        {
+            "id": 1,
+            "module": "gateway:CustomWebHook",
+            "version": 1,
+            "parameters": {
+                "hook": 3954618,
+                "maxResults": 1
+            },
+            "mapper": {},
+            "metadata": {
+                "designer": {
+                    "x": 0,
+                    "y": 0
+                },
+                "restore": {
+                    "parameters": {
+                        "hook": {
+                            "data": {
+                                "editable": "true"
+                            },
+                            "label": "Import_XLSX webhook"
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "name": "hook",
+                        "type": "hook:gateway-webhook",
+                        "label": "Webhook",
+                        "required": true
+                    },
+                    {
+                        "name": "maxResults",
+                        "type": "number",
+                        "label": "Maximum number of results"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 2,
+            "module": "csv:ParseCSV",
+            "version": 1,
+            "parameters": {
+                "relax": false,
+                "colCount": null,
+                "delimiter": ",",
+                "csvHeaders": "",
+                "delimiterType": "other",
+                "csvContainsHeaders": true
+            },
+            "mapper": {
+                "csv": "{{1.file.data}}"
+            },
+            "metadata": {
+                "designer": {
+                    "x": 300,
+                    "y": 0
+                },
+                "restore": {
+                    "parameters": {
+                        "delimiterType": {
+                            "label": "Other"
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "name": "colCount",
+                        "type": "number",
+                        "label": "Number of columns"
+                    },
+                    {
+                        "name": "csvContainsHeaders",
+                        "type": "boolean",
+                        "label": "CSV contains headers",
+                        "required": true
+                    },
+                    {
+                        "name": "delimiterType",
+                        "type": "select",
+                        "label": "Delimiter",
+                        "required": true,
+                        "validate": {
+                            "enum": [
+                                ",",
+                                "\t",
+                                "other"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "relax",
+                        "type": "boolean",
+                        "label": "Preserve quotes inside unquoted field",
+                        "required": true
+                    },
+                    {
+                        "name": "csvHeaders",
+                        "type": "text",
+                        "label": "CSV headers (recommended)"
+                    },
+                    {
+                        "name": "delimiter",
+                        "type": "text",
+                        "label": "Delimiter character",
+                        "required": true,
+                        "validate": {
+                            "max": 1,
+                            "min": 1
+                        }
+                    }
+                ],
+                "expect": [
+                    {
+                        "name": "csv",
+                        "type": "text",
+                        "label": "CSV",
+                        "required": true
+                    }
+                ]
+            }
+        },
+        {
+            "id": 4,
+            "module": "google-sheets:addRow",
+            "version": 2,
+            "parameters": {
+                "__IMTCONN__": 11280601
+            },
+            "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "values": {
+                    "0": "{{2.col1}}",
+                    "1": "{{2.col2}}",
+                    "2": "{{2.col3}}",
+                    "3": "{{2.col4}}",
+                    "4": "{{2.col5}}",
+                    "5": "{{2.col6}}",
+                    "6": "{{2.col7}}",
+                    "7": "{{2.col8}}",
+                    "8": "{{2.col9}}",
+                    "9": "{{2.col10}}",
+                    "10": "{{2.col11}}",
+                    "11": "{{2.col12}}",
+                    "12": "{{2.col13}}",
+                    "13": "{{2.col14}}",
+                    "14": "{{2.col15}}",
+                    "15": "{{2.col16}}",
+                    "16": "{{2.col17}}"
+                },
+                "sheetId": "Sheet1",
+                "spreadsheetId": "/1Xk8CuYjriLbsxqafpTkPKSIGyApUAnX7vj7TaRlLHEc",
+                "includesHeaders": true,
+                "insertDataOption": "INSERT_ROWS",
+                "valueInputOption": "USER_ENTERED",
+                "insertUnformatted": false
+            },
+            "metadata": {
+                "designer": {
+                    "x": 600,
+                    "y": 0,
+                    "name": "Scrivo Pro.Input"
+                },
+                "restore": {
+                    "expect": {
+                        "from": {
+                            "label": "My Drive"
+                        },
+                        "mode": {
+                            "label": "Search by path"
+                        },
+                        "sheetId": {
+                            "label": "Sheet1"
+                        },
+                        "spreadsheetId": {
+                            "path": [
+                                "Prospecting_input"
+                            ]
+                        },
+                        "includesHeaders": {
+                            "label": "Yes",
+                            "nested": [
+                                {
+                                    "name": "values",
+                                    "spec": [
+                                        {
+                                            "name": "0",
+                                            "type": "text",
+                                            "label": "Social Media (A)"
+                                        },
+                                        {
+                                            "name": "1",
+                                            "type": "text",
+                                            "label": "Ragione sociale (B)"
+                                        },
+                                        {
+                                            "name": "2",
+                                            "type": "text",
+                                            "label": "Partita IVA (C)"
+                                        },
+                                        {
+                                            "name": "3",
+                                            "type": "text",
+                                            "label": "Indirizzo 1 (D)"
+                                        },
+                                        {
+                                            "name": "4",
+                                            "type": "text",
+                                            "label": "CAP (E)"
+                                        },
+                                        {
+                                            "name": "5",
+                                            "type": "text",
+                                            "label": "Città (F)"
+                                        },
+                                        {
+                                            "name": "6",
+                                            "type": "text",
+                                            "label": "Regione/provincia (G)"
+                                        },
+                                        {
+                                            "name": "7",
+                                            "type": "text",
+                                            "label": "Regione (H)"
+                                        },
+                                        {
+                                            "name": "8",
+                                            "type": "text",
+                                            "label": "E-mail (I)"
+                                        },
+                                        {
+                                            "name": "9",
+                                            "type": "text",
+                                            "label": "PEC (J)"
+                                        },
+                                        {
+                                            "name": "10",
+                                            "type": "text",
+                                            "label": "Sito web (K)"
+                                        },
+                                        {
+                                            "name": "11",
+                                            "type": "text",
+                                            "label": "Numero dipendenti per fascia (L)"
+                                        },
+                                        {
+                                            "name": "12",
+                                            "type": "text",
+                                            "label": "ATECO code (IT 2007) (M)"
+                                        },
+                                        {
+                                            "name": "13",
+                                            "type": "text",
+                                            "label": "ATECO description (IT 2007) (N)"
+                                        },
+                                        {
+                                            "name": "14",
+                                            "type": "text",
+                                            "label": "Data di creazione (O)"
+                                        },
+                                        {
+                                            "name": "15",
+                                            "type": "text",
+                                            "label": "Fatturato lordo (P)"
+                                        },
+                                        {
+                                            "name": "16",
+                                            "type": "text",
+                                            "label": "Classe di rischio (Q)"
+                                        },
+                                        {
+                                            "name": "17",
+                                            "type": "text",
+                                            "label": "(R)"
+                                        },
+                                        {
+                                            "name": "18",
+                                            "type": "text",
+                                            "label": "(S)"
+                                        },
+                                        {
+                                            "name": "19",
+                                            "type": "text",
+                                            "label": "(T)"
+                                        },
+                                        {
+                                            "name": "20",
+                                            "type": "text",
+                                            "label": "(U)"
+                                        },
+                                        {
+                                            "name": "21",
+                                            "type": "text",
+                                            "label": "(V)"
+                                        },
+                                        {
+                                            "name": "22",
+                                            "type": "text",
+                                            "label": "(W)"
+                                        },
+                                        {
+                                            "name": "23",
+                                            "type": "text",
+                                            "label": "(X)"
+                                        },
+                                        {
+                                            "name": "24",
+                                            "type": "text",
+                                            "label": "(Y)"
+                                        },
+                                        {
+                                            "name": "25",
+                                            "type": "text",
+                                            "label": "(Z)"
+                                        },
+                                        {
+                                            "name": "26",
+                                            "type": "text",
+                                            "label": "(AA)"
+                                        },
+                                        {
+                                            "name": "27",
+                                            "type": "text",
+                                            "label": "(AB)"
+                                        },
+                                        {
+                                            "name": "28",
+                                            "type": "text",
+                                            "label": "(AC)"
+                                        },
+                                        {
+                                            "name": "29",
+                                            "type": "text",
+                                            "label": "(AD)"
+                                        },
+                                        {
+                                            "name": "30",
+                                            "type": "text",
+                                            "label": "(AE)"
+                                        },
+                                        {
+                                            "name": "31",
+                                            "type": "text",
+                                            "label": "(AF)"
+                                        },
+                                        {
+                                            "name": "32",
+                                            "type": "text",
+                                            "label": "(AG)"
+                                        },
+                                        {
+                                            "name": "33",
+                                            "type": "text",
+                                            "label": "(AH)"
+                                        },
+                                        {
+                                            "name": "34",
+                                            "type": "text",
+                                            "label": "(AI)"
+                                        },
+                                        {
+                                            "name": "35",
+                                            "type": "text",
+                                            "label": "(AJ)"
+                                        },
+                                        {
+                                            "name": "36",
+                                            "type": "text",
+                                            "label": "(AK)"
+                                        },
+                                        {
+                                            "name": "37",
+                                            "type": "text",
+                                            "label": "(AL)"
+                                        },
+                                        {
+                                            "name": "38",
+                                            "type": "text",
+                                            "label": "(AM)"
+                                        },
+                                        {
+                                            "name": "39",
+                                            "type": "text",
+                                            "label": "(AN)"
+                                        },
+                                        {
+                                            "name": "40",
+                                            "type": "text",
+                                            "label": "(AO)"
+                                        },
+                                        {
+                                            "name": "41",
+                                            "type": "text",
+                                            "label": "(AP)"
+                                        },
+                                        {
+                                            "name": "42",
+                                            "type": "text",
+                                            "label": "(AQ)"
+                                        },
+                                        {
+                                            "name": "43",
+                                            "type": "text",
+                                            "label": "(AR)"
+                                        },
+                                        {
+                                            "name": "44",
+                                            "type": "text",
+                                            "label": "(AS)"
+                                        },
+                                        {
+                                            "name": "45",
+                                            "type": "text",
+                                            "label": "(AT)"
+                                        },
+                                        {
+                                            "name": "46",
+                                            "type": "text",
+                                            "label": "(AU)"
+                                        },
+                                        {
+                                            "name": "47",
+                                            "type": "text",
+                                            "label": "(AV)"
+                                        },
+                                        {
+                                            "name": "48",
+                                            "type": "text",
+                                            "label": "(AW)"
+                                        },
+                                        {
+                                            "name": "49",
+                                            "type": "text",
+                                            "label": "(AX)"
+                                        },
+                                        {
+                                            "name": "50",
+                                            "type": "text",
+                                            "label": "(AY)"
+                                        }
+                                    ],
+                                    "type": "collection",
+                                    "label": "Values"
+                                }
+                            ]
+                        },
+                        "insertDataOption": {
+                            "mode": "chose",
+                            "label": "Insert rows"
+                        },
+                        "valueInputOption": {
+                            "mode": "chose",
+                            "label": "User entered"
+                        },
+                        "insertUnformatted": {
+                            "mode": "chose"
+                        }
+                    },
+                    "parameters": {
+                        "__IMTCONN__": {
+                            "data": {
+                                "scoped": "true",
+                                "connection": "google"
+                            },
+                            "label": "My Google connection (albertoazeta6@gmail.com)"
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "name": "__IMTCONN__",
+                        "type": "account:google",
+                        "label": "Connection",
+                        "required": true
+                    }
+                ],
+                "expect": [
+                    {
+                        "name": "mode",
+                        "type": "select",
+                        "label": "Search Method",
+                        "required": true,
+                        "validate": {
+                            "enum": [
+                                "select",
+                                "fromAll",
+                                "map"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "insertUnformatted",
+                        "type": "boolean",
+                        "label": "Unformatted",
+                        "required": true
+                    },
+                    {
+                        "name": "valueInputOption",
+                        "type": "select",
+                        "label": "Value input option",
+                        "validate": {
+                            "enum": [
+                                "USER_ENTERED",
+                                "RAW"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "insertDataOption",
+                        "type": "select",
+                        "label": "Insert data option",
+                        "validate": {
+                            "enum": [
+                                "INSERT_ROWS",
+                                "OVERWRITE"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "from",
+                        "type": "select",
+                        "label": "Drive",
+                        "required": true,
+                        "validate": {
+                            "enum": [
+                                "drive",
+                                "share",
+                                "team"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "spreadsheetId",
+                        "type": "file",
+                        "label": "Spreadsheet ID",
+                        "required": true
+                    },
+                    {
+                        "name": "sheetId",
+                        "type": "select",
+                        "label": "Sheet Name",
+                        "required": true
+                    },
+                    {
+                        "name": "includesHeaders",
+                        "type": "select",
+                        "label": "Table contains headers",
+                        "required": true,
+                        "validate": {
+                            "enum": [
+                                true,
+                                false
+                            ]
+                        }
+                    },
+                    {
+                        "name": "values",
+                        "spec": [
+                            {
+                                "name": "0",
+                                "type": "text",
+                                "label": "Social Media (A)"
+                            },
+                            {
+                                "name": "1",
+                                "type": "text",
+                                "label": "Ragione sociale (B)"
+                            },
+                            {
+                                "name": "2",
+                                "type": "text",
+                                "label": "Partita IVA (C)"
+                            },
+                            {
+                                "name": "3",
+                                "type": "text",
+                                "label": "Indirizzo 1 (D)"
+                            },
+                            {
+                                "name": "4",
+                                "type": "text",
+                                "label": "CAP (E)"
+                            },
+                            {
+                                "name": "5",
+                                "type": "text",
+                                "label": "Città (F)"
+                            },
+                            {
+                                "name": "6",
+                                "type": "text",
+                                "label": "Regione/provincia (G)"
+                            },
+                            {
+                                "name": "7",
+                                "type": "text",
+                                "label": "Regione (H)"
+                            },
+                            {
+                                "name": "8",
+                                "type": "text",
+                                "label": "E-mail (I)"
+                            },
+                            {
+                                "name": "9",
+                                "type": "text",
+                                "label": "PEC (J)"
+                            },
+                            {
+                                "name": "10",
+                                "type": "text",
+                                "label": "Sito web (K)"
+                            },
+                            {
+                                "name": "11",
+                                "type": "text",
+                                "label": "Numero dipendenti per fascia (L)"
+                            },
+                            {
+                                "name": "12",
+                                "type": "text",
+                                "label": "ATECO code (IT 2007) (M)"
+                            },
+                            {
+                                "name": "13",
+                                "type": "text",
+                                "label": "ATECO description (IT 2007) (N)"
+                            },
+                            {
+                                "name": "14",
+                                "type": "text",
+                                "label": "Data di creazione (O)"
+                            },
+                            {
+                                "name": "15",
+                                "type": "text",
+                                "label": "Fatturato lordo (P)"
+                            },
+                            {
+                                "name": "16",
+                                "type": "text",
+                                "label": "Classe di rischio (Q)"
+                            },
+                            {
+                                "name": "17",
+                                "type": "text",
+                                "label": "(R)"
+                            },
+                            {
+                                "name": "18",
+                                "type": "text",
+                                "label": "(S)"
+                            },
+                            {
+                                "name": "19",
+                                "type": "text",
+                                "label": "(T)"
+                            },
+                            {
+                                "name": "20",
+                                "type": "text",
+                                "label": "(U)"
+                            },
+                            {
+                                "name": "21",
+                                "type": "text",
+                                "label": "(V)"
+                            },
+                            {
+                                "name": "22",
+                                "type": "text",
+                                "label": "(W)"
+                            },
+                            {
+                                "name": "23",
+                                "type": "text",
+                                "label": "(X)"
+                            },
+                            {
+                                "name": "24",
+                                "type": "text",
+                                "label": "(Y)"
+                            },
+                            {
+                                "name": "25",
+                                "type": "text",
+                                "label": "(Z)"
+                            },
+                            {
+                                "name": "26",
+                                "type": "text",
+                                "label": "(AA)"
+                            },
+                            {
+                                "name": "27",
+                                "type": "text",
+                                "label": "(AB)"
+                            },
+                            {
+                                "name": "28",
+                                "type": "text",
+                                "label": "(AC)"
+                            },
+                            {
+                                "name": "29",
+                                "type": "text",
+                                "label": "(AD)"
+                            },
+                            {
+                                "name": "30",
+                                "type": "text",
+                                "label": "(AE)"
+                            },
+                            {
+                                "name": "31",
+                                "type": "text",
+                                "label": "(AF)"
+                            },
+                            {
+                                "name": "32",
+                                "type": "text",
+                                "label": "(AG)"
+                            },
+                            {
+                                "name": "33",
+                                "type": "text",
+                                "label": "(AH)"
+                            },
+                            {
+                                "name": "34",
+                                "type": "text",
+                                "label": "(AI)"
+                            },
+                            {
+                                "name": "35",
+                                "type": "text",
+                                "label": "(AJ)"
+                            },
+                            {
+                                "name": "36",
+                                "type": "text",
+                                "label": "(AK)"
+                            },
+                            {
+                                "name": "37",
+                                "type": "text",
+                                "label": "(AL)"
+                            },
+                            {
+                                "name": "38",
+                                "type": "text",
+                                "label": "(AM)"
+                            },
+                            {
+                                "name": "39",
+                                "type": "text",
+                                "label": "(AN)"
+                            },
+                            {
+                                "name": "40",
+                                "type": "text",
+                                "label": "(AO)"
+                            },
+                            {
+                                "name": "41",
+                                "type": "text",
+                                "label": "(AP)"
+                            },
+                            {
+                                "name": "42",
+                                "type": "text",
+                                "label": "(AQ)"
+                            },
+                            {
+                                "name": "43",
+                                "type": "text",
+                                "label": "(AR)"
+                            },
+                            {
+                                "name": "44",
+                                "type": "text",
+                                "label": "(AS)"
+                            },
+                            {
+                                "name": "45",
+                                "type": "text",
+                                "label": "(AT)"
+                            },
+                            {
+                                "name": "46",
+                                "type": "text",
+                                "label": "(AU)"
+                            },
+                            {
+                                "name": "47",
+                                "type": "text",
+                                "label": "(AV)"
+                            },
+                            {
+                                "name": "48",
+                                "type": "text",
+                                "label": "(AW)"
+                            },
+                            {
+                                "name": "49",
+                                "type": "text",
+                                "label": "(AX)"
+                            },
+                            {
+                                "name": "50",
+                                "type": "text",
+                                "label": "(AY)"
+                            }
+                        ],
+                        "type": "collection",
+                        "label": "Values"
+                    }
+                ],
+                "advanced": true
+            }
+        },
+        {
+            "id": 37,
+            "module": "google-sheets:addRow",
+            "version": 2,
+            "parameters": {
+                "__IMTCONN__": 11280601
+            },
+            "filter": {
+                "name": "Ultima riga?",
+                "conditions": [
+                    [
+                        {
+                            "a": "{{2.col18}}",
+                            "b": "{{2.col19}}",
+                            "o": "text:equal"
+                        }
+                    ]
+                ]
+            },
+            "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "values": {
+                    "0": "{{now}}",
+                    "1": "Lemlist",
+                    "2": "import",
+                    "3": "completato",
+                    "4": "Importazione lista aziende",
+                    "5": "{{now}}",
+                    "6": "1. Import Pro.input V2"
+                },
+                "sheetId": "DASHBOARD_STATUS",
+                "spreadsheetId": "/1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE",
+                "includesHeaders": true,
+                "insertDataOption": "INSERT_ROWS",
+                "useColumnHeaders": false,
+                "valueInputOption": "USER_ENTERED",
+                "insertUnformatted": false
+            },
+            "metadata": {
+                "designer": {
+                    "x": 900,
+                    "y": 0,
+                    "name": "STATUS"
+                },
+                "restore": {
+                    "expect": {
+                        "from": {
+                            "label": "My Drive"
+                        },
+                        "mode": {
+                            "label": "Search by path"
+                        },
+                        "sheetId": {
+                            "label": "DASHBOARD_STATUS"
+                        },
+                        "spreadsheetId": {
+                            "path": [
+                                "Prospecting_output"
+                            ]
+                        },
+                        "includesHeaders": {
+                            "label": "Yes"
+                        },
+                        "insertDataOption": {
+                            "mode": "chose",
+                            "label": "Insert rows"
+                        },
+                        "useColumnHeaders": {
+                            "label": "No",
+                            "nested": [
+                                {
+                                    "name": "values",
+                                    "spec": [
+                                        {
+                                            "name": "0",
+                                            "type": "text",
+                                            "label": "run_id (A)"
+                                        },
+                                        {
+                                            "name": "1",
+                                            "type": "text",
+                                            "label": "campagna (B)"
+                                        },
+                                        {
+                                            "name": "2",
+                                            "type": "text",
+                                            "label": "fase (C)"
+                                        },
+                                        {
+                                            "name": "3",
+                                            "type": "text",
+                                            "label": "stato (D)"
+                                        },
+                                        {
+                                            "name": "4",
+                                            "type": "text",
+                                            "label": "dettaglio (E)"
+                                        },
+                                        {
+                                            "name": "5",
+                                            "type": "text",
+                                            "label": "timestamp (F)"
+                                        },
+                                        {
+                                            "name": "6",
+                                            "type": "text",
+                                            "label": "aziende_tot (G)"
+                                        },
+                                        {
+                                            "name": "7",
+                                            "type": "text",
+                                            "label": "url_pendenti (H)"
+                                        },
+                                        {
+                                            "name": "8",
+                                            "type": "text",
+                                            "label": "errori_aperti (I)"
+                                        },
+                                        {
+                                            "name": "9",
+                                            "type": "text",
+                                            "label": "leads_lemlist (J)"
+                                        },
+                                        {
+                                            "name": "10",
+                                            "type": "text",
+                                            "label": "(K)"
+                                        },
+                                        {
+                                            "name": "11",
+                                            "type": "text",
+                                            "label": "(L)"
+                                        },
+                                        {
+                                            "name": "12",
+                                            "type": "text",
+                                            "label": "(M)"
+                                        },
+                                        {
+                                            "name": "13",
+                                            "type": "text",
+                                            "label": "(N)"
+                                        },
+                                        {
+                                            "name": "14",
+                                            "type": "text",
+                                            "label": "(O)"
+                                        },
+                                        {
+                                            "name": "15",
+                                            "type": "text",
+                                            "label": "(P)"
+                                        },
+                                        {
+                                            "name": "16",
+                                            "type": "text",
+                                            "label": "(Q)"
+                                        },
+                                        {
+                                            "name": "17",
+                                            "type": "text",
+                                            "label": "(R)"
+                                        },
+                                        {
+                                            "name": "18",
+                                            "type": "text",
+                                            "label": "(S)"
+                                        },
+                                        {
+                                            "name": "19",
+                                            "type": "text",
+                                            "label": "(T)"
+                                        },
+                                        {
+                                            "name": "20",
+                                            "type": "text",
+                                            "label": "(U)"
+                                        },
+                                        {
+                                            "name": "21",
+                                            "type": "text",
+                                            "label": "(V)"
+                                        },
+                                        {
+                                            "name": "22",
+                                            "type": "text",
+                                            "label": "(W)"
+                                        },
+                                        {
+                                            "name": "23",
+                                            "type": "text",
+                                            "label": "(X)"
+                                        },
+                                        {
+                                            "name": "24",
+                                            "type": "text",
+                                            "label": "(Y)"
+                                        },
+                                        {
+                                            "name": "25",
+                                            "type": "text",
+                                            "label": "(Z)"
+                                        }
+                                    ],
+                                    "type": "collection",
+                                    "label": "Values in columns",
+                                    "metadata": [
+                                        [
+                                            [
+                                                "run_id",
+                                                "campagna",
+                                                "fase",
+                                                "stato",
+                                                "dettaglio",
+                                                "timestamp",
+                                                "aziende_tot",
+                                                "url_pendenti",
+                                                "errori_aperti",
+                                                "leads_lemlist"
+                                            ]
+                                        ]
+                                    ]
+                                }
+                            ]
+                        },
+                        "valueInputOption": {
+                            "mode": "chose",
+                            "label": "User entered"
+                        },
+                        "insertUnformatted": {
+                            "mode": "chose"
+                        }
+                    },
+                    "parameters": {
+                        "__IMTCONN__": {
+                            "data": {
+                                "scoped": "true",
+                                "connection": "google"
+                            },
+                            "label": "My Google connection (albertoazeta6@gmail.com)"
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "name": "__IMTCONN__",
+                        "type": "account:google",
+                        "label": "Connection",
+                        "required": true
+                    }
+                ],
+                "expect": [
+                    {
+                        "name": "mode",
+                        "type": "select",
+                        "label": "Search Method",
+                        "required": true,
+                        "validate": {
+                            "enum": [
+                                "select",
+                                "fromAll",
+                                "map"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "insertUnformatted",
+                        "type": "boolean",
+                        "label": "Unformatted",
+                        "required": true
+                    },
+                    {
+                        "name": "valueInputOption",
+                        "type": "select",
+                        "label": "Value input option",
+                        "validate": {
+                            "enum": [
+                                "USER_ENTERED",
+                                "RAW"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "insertDataOption",
+                        "type": "select",
+                        "label": "Insert data option",
+                        "validate": {
+                            "enum": [
+                                "INSERT_ROWS",
+                                "OVERWRITE"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "from",
+                        "type": "select",
+                        "label": "Drive",
+                        "required": true,
+                        "validate": {
+                            "enum": [
+                                "drive",
+                                "share",
+                                "team"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "spreadsheetId",
+                        "type": "file",
+                        "label": "Spreadsheet Name",
+                        "required": true
+                    },
+                    {
+                        "name": "sheetId",
+                        "type": "select",
+                        "label": "Sheet Name",
+                        "required": true
+                    },
+                    {
+                        "name": "includesHeaders",
+                        "type": "select",
+                        "label": "Table contains headers",
+                        "required": true,
+                        "validate": {
+                            "enum": [
+                                true,
+                                false
+                            ]
+                        }
+                    },
+                    {
+                        "name": "useColumnHeaders",
+                        "type": "select",
+                        "label": "Use column headers as IDs of the columns",
+                        "required": true,
+                        "validate": {
+                            "enum": [
+                                true,
+                                false
+                            ]
+                        }
+                    },
+                    {
+                        "name": "values",
+                        "spec": [
+                            {
+                                "name": "0",
+                                "type": "text",
+                                "label": "run_id (A)"
+                            },
+                            {
+                                "name": "1",
+                                "type": "text",
+                                "label": "campagna (B)"
+                            },
+                            {
+                                "name": "2",
+                                "type": "text",
+                                "label": "fase (C)"
+                            },
+                            {
+                                "name": "3",
+                                "type": "text",
+                                "label": "stato (D)"
+                            },
+                            {
+                                "name": "4",
+                                "type": "text",
+                                "label": "dettaglio (E)"
+                            },
+                            {
+                                "name": "5",
+                                "type": "text",
+                                "label": "timestamp (F)"
+                            },
+                            {
+                                "name": "6",
+                                "type": "text",
+                                "label": "aziende_tot (G)"
+                            },
+                            {
+                                "name": "7",
+                                "type": "text",
+                                "label": "url_pendenti (H)"
+                            },
+                            {
+                                "name": "8",
+                                "type": "text",
+                                "label": "errori_aperti (I)"
+                            },
+                            {
+                                "name": "9",
+                                "type": "text",
+                                "label": "leads_lemlist (J)"
+                            },
+                            {
+                                "name": "10",
+                                "type": "text",
+                                "label": "(K)"
+                            },
+                            {
+                                "name": "11",
+                                "type": "text",
+                                "label": "(L)"
+                            },
+                            {
+                                "name": "12",
+                                "type": "text",
+                                "label": "(M)"
+                            },
+                            {
+                                "name": "13",
+                                "type": "text",
+                                "label": "(N)"
+                            },
+                            {
+                                "name": "14",
+                                "type": "text",
+                                "label": "(O)"
+                            },
+                            {
+                                "name": "15",
+                                "type": "text",
+                                "label": "(P)"
+                            },
+                            {
+                                "name": "16",
+                                "type": "text",
+                                "label": "(Q)"
+                            },
+                            {
+                                "name": "17",
+                                "type": "text",
+                                "label": "(R)"
+                            },
+                            {
+                                "name": "18",
+                                "type": "text",
+                                "label": "(S)"
+                            },
+                            {
+                                "name": "19",
+                                "type": "text",
+                                "label": "(T)"
+                            },
+                            {
+                                "name": "20",
+                                "type": "text",
+                                "label": "(U)"
+                            },
+                            {
+                                "name": "21",
+                                "type": "text",
+                                "label": "(V)"
+                            },
+                            {
+                                "name": "22",
+                                "type": "text",
+                                "label": "(W)"
+                            },
+                            {
+                                "name": "23",
+                                "type": "text",
+                                "label": "(X)"
+                            },
+                            {
+                                "name": "24",
+                                "type": "text",
+                                "label": "(Y)"
+                            },
+                            {
+                                "name": "25",
+                                "type": "text",
+                                "label": "(Z)"
+                            }
+                        ],
+                        "type": "collection",
+                        "label": "Values in columns",
+                        "metadata": [
+                            [
+                                [
+                                    "run_id",
+                                    "campagna",
+                                    "fase",
+                                    "stato",
+                                    "dettaglio",
+                                    "timestamp",
+                                    "aziende_tot",
+                                    "url_pendenti",
+                                    "errori_aperti",
+                                    "leads_lemlist"
+                                ]
+                            ]
+                        ]
+                    }
+                ]
+            }
+        }
+    ],
+    "metadata": {
+        "instant": true,
+        "version": 1,
+        "scenario": {
+            "roundtrips": 1,
+            "maxErrors": 3,
+            "autoCommit": true,
+            "autoCommitTriggerLast": true,
+            "sequential": false,
+            "slots": null,
+            "confidential": false,
+            "dataloss": false,
+            "dlq": false,
+            "freshVariables": false
+        },
+        "designer": {
+            "orphans": []
+        },
+        "zone": "eu2.make.com",
+        "notes": []
+    }
+}
