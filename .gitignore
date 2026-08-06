@@ -1,2 +1,7 @@
-grizzly_impostazioni.json 
-grizzly_impostazioni.json 
+# Ignora tutto
+*
+
+# Eccetto grizzly/index.html
+!grizzly/
+!grizzly/index.html
+!.gitignore
