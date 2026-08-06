@@ -1362,7 +1362,7 @@ function App() {
       // Nessuna selezione → prendo tutti gli ID eligibili da Supabase
       try {
         const {url:sbUrl, key:sbKey} = getSbCreds();
-        const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata)&limit=500`, {
+        const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id&stato=in.(email_trovata,email_non_trovata)&limit=500`, {
           headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`}
         });
         const rows = r.ok ? await r.json() : [];
