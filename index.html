@@ -153,7 +153,7 @@ async function loadSettings() {
 async function saveSetting(chiave, valore) {
   const {url,key} = getSbCreds(); if(!url||!key) return false;
   try {
-    const r = await fetch(`${url}/rest/v1/settings`, {
+    const r = await fetch(`${url}/rest/v1/settings?on_conflict=chiave`, {
       method: "POST",
       headers: {
         apikey: key, Authorization: `Bearer ${key}`,
@@ -259,7 +259,7 @@ const dur     = (a,b) => {if(!a||!b)return null;const s=Math.floor((new Date(b)-
 const SectionHead = ({title}) => (
   <div style={{padding:"10px 16px",borderBottom:"1px solid #1e2a3a",fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:"#4b5e78",textTransform:"uppercase"}}>{title}</div>
 );
-const SettingRow = ({chiave,label,tipo="text",placeholder="",settingEdit,setSettingEdit,sbSettings,setSbSettings,sbSaving,setSbSaving}) => {
+const SettingRow = ({chiave,label,tipo="text",placeholder="",settingEdit,setSettingEdit,sbSettings,setSbSettings,sbSaving,setSbSaving,showToast}) => {
   const val = settingEdit[chiave]!==undefined ? settingEdit[chiave] : (sbSettings[chiave]||"");
   const dirty = settingEdit[chiave]!==undefined && settingEdit[chiave]!==(sbSettings[chiave]||"");
   const saving = !!sbSaving[chiave];
@@ -267,7 +267,8 @@ const SettingRow = ({chiave,label,tipo="text",placeholder="",settingEdit,setSett
   const save = async () => {
     setSbSaving(s=>({...s,[chiave]:true}));
     const ok = await saveSetting(chiave, settingEdit[chiave]);
-    if(ok){ setSbSettings(s=>({...s,[chiave]:settingEdit[chiave]})); setSettingEdit(s=>{const n={...s};delete n[chiave];return n;}); }
+    if(ok){ setSbSettings(s=>({...s,[chiave]:settingEdit[chiave]})); setSettingEdit(s=>{const n={...s};delete n[chiave];return n;}); if(showToast) showToast("✓ Salvato"); }
+    else { if(showToast) showToast("⚠ Errore salvataggio — controlla connessione Supabase","#f59e0b"); }
     setSbSaving(s=>({...s,[chiave]:false}));
   };
   return (
@@ -1690,7 +1691,7 @@ function App() {
 
         {/* ══ AVVIA RUN ══ */}
         {tab==="impostazioni"&&(()=>{
-          const sr = {settingEdit,setSettingEdit,sbSettings,setSbSettings,sbSaving,setSbSaving};
+          const sr = {settingEdit,setSettingEdit,sbSettings,setSbSettings,sbSaving,setSbSaving,showToast};
           const saveSbCreds = () => {
             const u = (settingEdit.__sb_url||"").trim();
             const k = (settingEdit.__sb_key||"").trim();
