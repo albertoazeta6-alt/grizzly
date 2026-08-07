@@ -1297,9 +1297,10 @@ function App() {
       });
       if (!r.ok) return;
       const fresh = await r.json();
-      const freshIds = new Set(fresh.map(f=>f.id));
+      const freshMap = Object.fromEntries(fresh.map(f=>[f.id, f]));
       setContattiRun(p => {
-        const aggiornati = p.rows.filter(row => freshIds.has(row.id));
+        // Aggiorna dati righe esistenti senza rimuoverle (potrebbero mancare per filtro ts)
+        const aggiornati = p.rows.map(row => freshMap[row.id] || row);
         const existingIds = new Set(aggiornati.map(r=>r.id));
         const nuovi = fresh.filter(r=>!existingIds.has(r.id));
         return {...p, rows:[...aggiornati, ...nuovi]};
