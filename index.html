@@ -986,7 +986,8 @@ function App() {
               const cl = sj?.ultimo_run?.classificate ?? "?";
               const er = sj?.ultimo_run?.errori ?? "?";
               const cur = sj?.ultimo_run?.nome_corrente ? ` · ora: ${sj.ultimo_run.nome_corrente}` : "";
-              pushLog("info", `⟳ Classificazione: ${n} rimanenti · ${cl} classificate · ${er} errori${cur}`);
+              const lastErr = sj?.ultimo_run?.ultimo_errore ? ` — errore: ${sj.ultimo_run.ultimo_errore}` : "";
+              pushLog(er > 0 && cl === 0 ? "warn" : "info", `⟳ Classificazione: ${n} rimanenti · ${cl} classificate · ${er} errori${cur}${lastErr}`);
             } else {
               pushLog("info", `⟳ Classificazione in corso: ${n} azien${n===1?"da":"de"} rimanenti`);
             }
@@ -1786,7 +1787,6 @@ function App() {
             <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
               <SectionHead title="WEBHOOK MAKE"/>
               <SettingRow chiave="make_webhook_company"  label="Lancia Phantom URL" {...sr}/>
-              <SettingRow chiave="make_webhook_hubspot"  label="Aggiorna Hubspot" {...sr}/>
               <SettingRow chiave="make_webhook_email"    label="Carica Contatti" {...sr}/>
             </div>
 
@@ -1800,8 +1800,6 @@ function App() {
             <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
               <SectionHead title="API KEYS"/>
               <SettingRow chiave="openai_api_key"      label="OpenAI"        tipo="secret" {...sr}/>
-              <SettingRow chiave="hubspot_api_key"     label="HubSpot"       tipo="secret" {...sr}/>
-              <SettingRow chiave="lemlist_api_key"     label="Lemlist"       tipo="secret" {...sr}/>
               <SettingRow chiave="phantom_api_key"     label="Phantombuster" tipo="secret" {...sr}/>
               <SettingRow chiave="dropcontact_api_key" label="Dropcontact"   tipo="secret" {...sr}/>
               <SettingRow chiave="apollo_api_key"      label="Apollo.io"     tipo="secret" {...sr}/>
