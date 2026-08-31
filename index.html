@@ -790,7 +790,7 @@ function App() {
 
 
   useEffect(()=>{
-    if(tab === 'code'){
+    if(tab === 'revisione'){
       const blob = new Blob([REVIEW_TOOL_HTML], {type:'text/html'});
       const url = URL.createObjectURL(blob);
       setReviewBlobUrl(url);
@@ -1646,16 +1646,21 @@ function App() {
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
             </button>
-            {[{key:"revisione",label:"Code",icon:"⚡"},{key:"impostazioni",label:"Impostazioni",icon:"⚙"}].map(t=>(
-              <button key={t.key} className="tab-desktop" onClick={()=>setTab(t.key)} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab===t.key?C.textHi:C.muted,borderBottom:tab===t.key?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
-                <span style={{fontSize:11}}>{t.icon}</span>{t.label}
-                {t.key==="revisione"&&(codeQueue.siti.length+codeQueue.urlAmbigue.length+codeQueue.contatti.length)>0&&(
-                  <span style={{background:C.orange,color:"#07090f",borderRadius:8,fontSize:9,fontWeight:700,padding:"1px 5px",minWidth:16,textAlign:"center"}}>{codeQueue.siti.length+codeQueue.urlAmbigue.length+codeQueue.contatti.length}</span>
-                )}
-              </button>
-            ))}
+            {[
+              {key:"revisione",sub:"url_ambigui",label:"URL Ambigui",icon:"🔗",badge:codeQueue.urlAmbigue?.length||0},
+              {key:"revisione",sub:"siti_mancanti",label:"Siti Mancanti",icon:"🌐",badge:codeQueue.siti?.length||0},
+              {key:"impostazioni",label:"Impostazioni",icon:"⚙",badge:0}
+            ].map((t,i)=>{
+              const active = tab===t.key && (!t.sub || codeSubTab===t.sub);
+              return (
+                <button key={i} className="tab-desktop" onClick={()=>{setTab(t.key);if(t.sub)setCodeSubTab(t.sub);}} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:active?C.textHi:C.muted,borderBottom:active?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
+                  <span style={{fontSize:11}}>{t.icon}</span>{t.label}
+                  {t.badge>0&&<span style={{background:C.orange,color:"#07090f",borderRadius:8,fontSize:9,fontWeight:700,padding:"1px 5px",minWidth:16,textAlign:"center"}}>{t.badge}</span>}
+                </button>
+              );
+            })}
           <div className="tab-hamburger" style={{position:"relative",flexShrink:0}}>
-            <button onClick={()=>setMenuOpen(v=>!v)} style={{background:"none",border:"none",cursor:"pointer",padding:"0 12px",height:46,display:"flex",alignItems:"center",color:(tab==="impostazioni"||tab==="revisione")?C.accent:C.muted,borderBottom:(tab==="impostazioni"||tab==="revisione")?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s"}}>
+            <button onClick={()=>setMenuOpen(v=>!v)} style={{background:"none",border:"none",cursor:"pointer",padding:"0 12px",height:46,display:"flex",alignItems:"center",color:tab!=="run"?C.accent:C.muted,borderBottom:tab!=="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s"}}>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                 <line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="14" y2="8"/><line x1="2" y1="12" x2="14" y2="12"/>
               </svg>
@@ -1664,11 +1669,19 @@ function App() {
               <>
                 <div onClick={()=>setMenuOpen(false)} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:99}}/>
                 <div style={{position:"absolute",top:48,right:0,zIndex:100,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",minWidth:140,boxShadow:"0 8px 24px rgba(0,0,0,0.4)"}}>
-                  {[{key:"run",label:"Pipeline",icon:"◈"},{key:"revisione",label:"Code",icon:"⚡"},{key:"impostazioni",label:"Impostazioni",icon:"⚙"}].map(t=>(
-                    <button key={t.key} onClick={()=>{setTab(t.key);setMenuOpen(false);}} style={{width:"100%",background:tab===t.key?`${C.accent}18`:"none",border:"none",borderBottom:`1px solid ${C.border}`,cursor:"pointer",padding:"11px 16px",display:"flex",alignItems:"center",gap:8,fontSize:12,fontWeight:500,color:tab===t.key?C.accent:C.text}}>
-                      <span>{t.icon}</span>{t.label}
-                    </button>
-                  ))}
+                  {[
+                    {key:"run",label:"Pipeline",icon:"◈",sub:null},
+                    {key:"revisione",label:"URL Ambigui",icon:"🔗",sub:"url_ambigui"},
+                    {key:"revisione",label:"Siti Mancanti",icon:"🌐",sub:"siti_mancanti"},
+                    {key:"impostazioni",label:"Impostazioni",icon:"⚙",sub:null}
+                  ].map((t,i)=>{
+                    const active = tab===t.key && (!t.sub || codeSubTab===t.sub);
+                    return (
+                      <button key={i} onClick={()=>{setTab(t.key);if(t.sub)setCodeSubTab(t.sub);setMenuOpen(false);}} style={{width:"100%",background:active?`${C.accent}18`:"none",border:"none",borderBottom:`1px solid ${C.border}`,cursor:"pointer",padding:"11px 16px",display:"flex",alignItems:"center",gap:8,fontSize:12,fontWeight:500,color:active?C.accent:C.text}}>
+                        <span>{t.icon}</span>{t.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </>
             )}
@@ -1707,7 +1720,7 @@ function App() {
               pushLog("ok","✓ Pulizia fogli avviata");
             }} style={{fontSize:11,fontWeight:600,padding:"4px 12px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>Nuova Run</button>
           )}
-          <button onClick={()=>{setTab('code');setCodeSubTab('url_ambigui');}} title="Vai a URL LN Ambigui" style={{fontSize:11,fontWeight:600,padding:"4px 10px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>🔍</button>
+          <button onClick={()=>{setTab('code');setCodeSubTab('url_ambigui');}} title="Vai a URL Ambigui" style={{fontSize:11,fontWeight:600,padding:"4px 10px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>🔍</button>
         </div>
       </div>
 
@@ -2554,7 +2567,7 @@ function App() {
             <div style={{display:"flex",flexDirection:"column",height:"100%",animation:"fadeIn .2s ease"}}>
               {/* Sub-tab navbar */}
               <div style={{display:"flex",alignItems:"center",gap:0,borderBottom:`1px solid ${C.border}`,flexShrink:0,paddingLeft:4}}>
-                {[{id:'url_ambigui',label:'🔗 URL LN Ambigui',count:codeQueue.urlAmbigue?.length||0},{id:'siti_mancanti',label:'🌐 Siti Mancanti',count:codeQueue.siti?.length||0}].map(t=>(
+                {[{id:'url_ambigui',label:'🔗 URL Ambigui',count:codeQueue.urlAmbigue?.length||0},{id:'siti_mancanti',label:'🌐 Siti Mancanti',count:codeQueue.siti?.length||0}].map(t=>(
                   <button key={t.id} onClick={()=>setCodeSubTab(t.id)} style={{padding:"10px 16px",fontSize:12,fontWeight:codeSubTab===t.id?700:500,color:codeSubTab===t.id?C.textHi:C.muted,background:"none",border:"none",borderBottom:codeSubTab===t.id?`2px solid ${C.accent}`:"2px solid transparent",cursor:"pointer",display:"flex",alignItems:"center",gap:6,marginBottom:-1}}>
                     {t.label}
                     {t.count>0&&<span style={{fontSize:10,fontWeight:700,background:C.accentDim,color:C.accent,borderRadius:99,padding:"1px 6px"}}>{t.count}</span>}
@@ -2566,7 +2579,14 @@ function App() {
               {codeSubTab==='url_ambigui'&&(
                 <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column"}}>
                   {!sbReady&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>⚡ Configura Supabase in Impostazioni</div>}
-                  {sbReady&&reviewBlobUrl&&<iframe src={reviewBlobUrl} style={{flex:1,border:"none",width:"100%"}} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
+                  {sbReady&&codeQueue.loaded&&codeQueue.urlAmbigue.length===0&&(
+                    <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}>
+                      <div style={{fontSize:28}}>✓</div>
+                      <div style={{fontSize:14,fontWeight:600,color:C.green}}>Nessun URL ambiguo</div>
+                      <div style={{fontSize:12,color:C.muted}}>Tutti gli URL LinkedIn sono stati verificati</div>
+                    </div>
+                  )}
+                  {sbReady&&codeQueue.urlAmbigue.length>0&&reviewBlobUrl&&<iframe src={reviewBlobUrl} style={{flex:1,border:"none",width:"100%"}} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
                     onLoad={e=>{
                       const {url:sbUrl, key:sbKey} = getSbCreds();
                       e.target.contentWindow?.postMessage({action:'sbCreds', url:sbUrl, key:sbKey},'*');
