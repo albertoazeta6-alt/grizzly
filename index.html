@@ -453,6 +453,7 @@ function App() {
   const [showReviewTool, setShowReviewTool] = useState(false);
   const [reviewDebugMode, setReviewDebugMode] = useState(false);
   const [reviewBlobUrl, setReviewBlobUrl] = useState(null);
+  const [codeSubTab, setCodeSubTab] = useState('url_ambigui');
   const [counters, setCounters] = useState({az_input:null, az_output:null, exec:null, scartati:null, mail_ok:null, mail_no:null});
   const azOutputRef = React.useRef(0); // ref stabile per evitare loop in fetchUrlSheet
   const fasiRef = React.useRef([]);
@@ -789,15 +790,13 @@ function App() {
 
 
   useEffect(()=>{
-    if(showReviewTool){
+    if(tab === 'code'){
       const blob = new Blob([REVIEW_TOOL_HTML], {type:'text/html'});
       const url = URL.createObjectURL(blob);
       setReviewBlobUrl(url);
       return ()=>{ URL.revokeObjectURL(url); setReviewBlobUrl(null); };
-    } else {
-      setReviewDebugMode(false);
     }
-  }, [showReviewTool]);
+  }, [tab]);
 
   // Listener per messaggi dall'iframe Review Tool (approveUrl)
   useEffect(() => {
@@ -1708,7 +1707,7 @@ function App() {
               pushLog("ok","✓ Pulizia fogli avviata");
             }} style={{fontSize:11,fontWeight:600,padding:"4px 12px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>Nuova Run</button>
           )}
-          <button onClick={()=>{setReviewDebugMode(true);setShowReviewTool(true);}} title="Debug: vedi tutto il foglio URL senza filtri" style={{fontSize:11,fontWeight:600,padding:"4px 10px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>🔍</button>
+          <button onClick={()=>{setTab('code');setCodeSubTab('url_ambigui');}} title="Vai a URL LN Ambigui" style={{fontSize:11,fontWeight:600,padding:"4px 10px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>🔍</button>
         </div>
       </div>
 
@@ -2068,7 +2067,7 @@ function App() {
                         <div style={{fontSize:10,color:C.muted}}>Apri lo sheet, verifica gli URL, poi avvia la ricerca dipendenti</div>
                       </div>
                       <div style={{display:"flex",gap:8,flexShrink:0}}>
-                        <button onClick={()=>setShowReviewTool(true)} style={{padding:"7px 12px",fontSize:11,fontWeight:600,color:"#fb923c",background:"rgba(249,115,22,0.1)",border:"1px solid rgba(249,115,22,0.3)",borderRadius:5,cursor:"pointer",width:150,textAlign:"center"}}>🔍 URL LN Review</button>
+                        <button onClick={()=>{setTab('code');setCodeSubTab('url_ambigui');}} style={{padding:"7px 12px",fontSize:11,fontWeight:600,color:"#fb923c",background:"rgba(249,115,22,0.1)",border:"1px solid rgba(249,115,22,0.3)",borderRadius:5,cursor:"pointer",width:150,textAlign:"center"}}>🔍 URL LN Review</button>
                         <button onClick={()=>openSheet(FASE_LINKS["url_check"].sheet,"Prospecting output")} style={{padding:"7px 12px",fontSize:11,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,0.3)`,borderRadius:5,cursor:"pointer",width:130,textAlign:"center"}}>📊 Apri Dati</button>
                         <button onClick={()=>continuaDopoUrl()} disabled={loading.continua} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:loading.continua?"#1e2a3a":"linear-gradient(135deg,#ea580c,#f97316)",border:"none",borderRadius:5,cursor:loading.continua?"not-allowed":"pointer",width:120,textAlign:"center"}}>
                           {loading.continua?"...":"▶ Continua"}
@@ -2552,38 +2551,43 @@ function App() {
           );
 
           return (
-            <div style={{padding:"16px 20px",animation:"fadeIn .2s ease"}}>
-              {/* Intestazione */}
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
-                <div>
-                  <div style={{fontSize:18,fontWeight:700,color:C.textHi,marginBottom:4}}>Code di Revisione</div>
-                  <div style={{fontSize:12,color:C.muted}}>Interventi manuali in attesa · {totalPending} elementi</div>
-                </div>
-                <div style={{display:"flex",gap:8}}>
-                  <button onClick={()=>setShowReviewTool(true)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 14px",fontSize:11,fontWeight:600,color:"#fb923c",background:"rgba(249,115,22,0.1)",border:"1px solid rgba(249,115,22,0.3)",borderRadius:4,cursor:"pointer"}}>
-                    🔍 URL LN Review
+            <div style={{display:"flex",flexDirection:"column",height:"100%",animation:"fadeIn .2s ease"}}>
+              {/* Sub-tab navbar */}
+              <div style={{display:"flex",alignItems:"center",gap:0,borderBottom:`1px solid ${C.border}`,flexShrink:0,paddingLeft:4}}>
+                {[{id:'url_ambigui',label:'🔗 URL LN Ambigui',count:codeQueue.urlAmbigue?.length||0},{id:'siti_mancanti',label:'🌐 Siti Mancanti',count:codeQueue.siti?.length||0}].map(t=>(
+                  <button key={t.id} onClick={()=>setCodeSubTab(t.id)} style={{padding:"10px 16px",fontSize:12,fontWeight:codeSubTab===t.id?700:500,color:codeSubTab===t.id?C.textHi:C.muted,background:"none",border:"none",borderBottom:codeSubTab===t.id?`2px solid ${C.accent}`:"2px solid transparent",cursor:"pointer",display:"flex",alignItems:"center",gap:6,marginBottom:-1}}>
+                    {t.label}
+                    {t.count>0&&<span style={{fontSize:10,fontWeight:700,background:C.accentDim,color:C.accent,borderRadius:99,padding:"1px 6px"}}>{t.count}</span>}
                   </button>
-                  <button onClick={refreshQueue} disabled={codeQueue.loading} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 14px",fontSize:11,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid ${C.accent}44`,borderRadius:4,cursor:codeQueue.loading?"not-allowed":"pointer"}}>
-                    <span style={codeQueue.loading?{display:"inline-block",animation:"spin 1s linear infinite"}:{}}>↻</span>
-                    {codeQueue.loading?"Carico...":"Aggiorna"}
-                  </button>
-                </div>
+                ))}
               </div>
 
+              {/* ── URL LN AMBIGUI (iframe) ── */}
+              {codeSubTab==='url_ambigui'&&(
+                <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column"}}>
+                  {!sbReady&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>⚡ Configura Supabase in Impostazioni</div>}
+                  {sbReady&&reviewBlobUrl&&<iframe src={reviewBlobUrl} style={{flex:1,border:"none",width:"100%"}} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
+                    onLoad={e=>{
+                      const {url:sbUrl, key:sbKey} = getSbCreds();
+                      e.target.contentWindow?.postMessage({action:'sbCreds', url:sbUrl, key:sbKey},'*');
+                    }}/>}
+                </div>
+              )}
+
+              {/* ── SITI MANCANTI ── */}
+              {codeSubTab==='siti_mancanti'&&<div style={{padding:"16px 20px",overflowY:"auto",flex:1}}>
               {!sbReady&&(
                 <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:24,textAlign:"center",color:C.muted,fontSize:12}}>
                   ⚡ Configura Supabase in Impostazioni per usare le code di revisione
                 </div>
               )}
-
-              {sbReady&&codeQueue.loaded&&totalPending===0&&(
+              {sbReady&&codeQueue.loaded&&codeQueue.siti.length===0&&(
                 <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:32,textAlign:"center"}}>
                   <div style={{fontSize:24,marginBottom:8}}>✓</div>
-                  <div style={{fontSize:14,fontWeight:600,color:C.green,marginBottom:4}}>Nessun elemento in coda</div>
-                  <div style={{fontSize:12,color:C.muted}}>Tutto a posto — niente richiede intervento manuale</div>
+                  <div style={{fontSize:14,fontWeight:600,color:C.green,marginBottom:4}}>Nessun sito mancante</div>
+                  <div style={{fontSize:12,color:C.muted}}>Tutte le aziende hanno un sito web</div>
                 </div>
               )}
-
               {/* ── SITI MANCANTI ── */}
               {sbReady&&codeQueue.siti.length>0&&(
                 <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
@@ -2610,88 +2614,7 @@ function App() {
                 </div>
               )}
 
-              {/* ── URL AMBIGUE ── */}
-              {sbReady&&codeQueue.urlAmbigue.length>0&&(
-                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
-                  <QueueHeader icon="🔗" title="URL LinkedIn ambigue" count={codeQueue.urlAmbigue.length} color={C.orange}/>
-                  <div style={{fontSize:11,color:C.muted,padding:"8px 20px 0",lineHeight:1.5}}>
-                    Company page LinkedIn da verificare — incolla o correggi l'URL e conferma
-                  </div>
-                  {codeQueue.urlAmbigue.map(az=>(
-                    <div key={az.id} className="hovrow" style={{display:"flex",alignItems:"center",gap:12,padding:"12px 20px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
-                      <div style={{flex:"0 0 220px"}}>
-                        <div style={{fontSize:12,fontWeight:600,color:C.textHi,marginBottom:2}}>{az.nome}</div>
-                        <div style={{fontSize:10,color:C.muted}}>{az.citta||"—"}</div>
-                        {az.sito_web&&<a href={/^https?:\/\//i.test(az.sito_web)?az.sito_web:"https://"+az.sito_web} target="_blank" style={{fontSize:10,color:C.accent}}>{az.sito_web}</a>}
-                      </div>
-                      <input
-                        type="text"
-                        placeholder="https://www.linkedin.com/company/..."
-                        value={codeUrlEdit[az.id]!==undefined ? codeUrlEdit[az.id] : (az.linkedin_url||"")}
-                        onChange={e=>setCodeUrlEdit(s=>({...s,[az.id]:e.target.value}))}
-                        style={{flex:1,minWidth:220,background:C.bg,border:`1px solid ${codeUrlEdit[az.id]!==undefined&&codeUrlEdit[az.id]!==(az.linkedin_url||"")?C.accent:C.border}`,borderRadius:3,padding:"5px 10px",fontSize:11,color:C.text,fontFamily:"'JetBrains Mono',monospace"}}
-                      />
-                      {(codeUrlEdit[az.id]!==undefined?codeUrlEdit[az.id]:az.linkedin_url)&&(
-                        <a href={codeUrlEdit[az.id]||az.linkedin_url} target="_blank" style={{fontSize:10,color:C.muted,whiteSpace:"nowrap"}}>↗ Apri</a>
-                      )}
-                      <Btn color={C.green} bg={C.greenDim} border="rgba(34,197,94,.4)" small
-                        disabled={!(codeUrlEdit[az.id]!==undefined?codeUrlEdit[az.id]:az.linkedin_url)}
-                        onClick={()=>{
-                          const url = codeUrlEdit[az.id]!==undefined ? codeUrlEdit[az.id] : (az.linkedin_url||"");
-                          approvaUrl(az.id, url);
-                        }}>✓ Conferma</Btn>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* ── CONTATTI DA APPROVARE ── */}
-              {sbReady&&codeQueue.contatti.length>0&&(
-                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
-                  <QueueHeader icon="👤" title="Contatti da approvare" count={codeQueue.contatti.length} color={C.purple}/>
-                  <div style={{fontSize:11,color:C.muted,padding:"8px 20px 0",lineHeight:1.5}}>
-                    Trovati dall'estensione — approva per inviarli in pipeline, scarta per ignorarli
-                  </div>
-                  {/* Header colonne */}
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 160px 80px",gap:12,padding:"8px 20px",borderTop:`1px solid ${C.border}`,fontSize:9,fontWeight:700,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase"}}>
-                    <span>Contatto</span><span>Azienda</span><span>LinkedIn</span><span style={{textAlign:"right"}}>Azione</span>
-                  </div>
-                  {codeQueue.contatti.map(ct=>{
-                    const nomeCompleto = ct.nome_completo || [ct.nome,ct.cognome].filter(Boolean).join(" ") || "—";
-                    const azienda = ct.azienda_nome || ct.companies?.nome || (ct.company_id ? `ID ${ct.company_id}` : "—");
-                    return (
-                      <div key={ct.id} className="hovrow" style={{display:"grid",gridTemplateColumns:"1fr 1fr 160px 80px",gap:12,padding:"10px 20px",borderTop:`1px solid ${C.border}`,alignItems:"center"}}>
-                        <div>
-                          <div style={{fontSize:12,fontWeight:600,color:C.textHi}}>{nomeCompleto}</div>
-                          {ct.ruolo&&<div style={{fontSize:10,color:C.muted,marginTop:1}}>{ct.ruolo}</div>}
-                        </div>
-                        <div style={{fontSize:11,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{azienda}</div>
-                        <div style={{overflow:"hidden"}}>
-                          {ct.linkedin_url
-                            ?<a href={ct.linkedin_url} target="_blank" style={{fontSize:10,color:C.accent,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={ct.linkedin_url}>↗ Profilo LinkedIn</a>
-                            :<span style={{fontSize:10,color:C.muted}}>—</span>}
-                        </div>
-                        <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
-                          <button onClick={()=>gestisciContatto(ct.id,true)} title="Approva" style={{width:28,height:28,borderRadius:4,background:C.greenDim,border:`1px solid ${C.green}44`,color:C.green,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✓</button>
-                          <button onClick={()=>gestisciContatto(ct.id,false)} title="Scarta" style={{width:28,height:28,borderRadius:4,background:C.redDim,border:`1px solid ${C.red}44`,color:C.red,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {/* Approva / Scarta tutti */}
-                  <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`,display:"flex",gap:8,justifyContent:"flex-end"}}>
-                    <Btn color={C.green} bg={C.greenDim} border="rgba(34,197,94,.4)" small
-                      onClick={async()=>{
-                        for(const ct of [...codeQueue.contatti]) await gestisciContatto(ct.id,true);
-                      }}>✓ Approva tutti</Btn>
-                    <Btn color={C.red} bg={C.redDim} border="rgba(239,68,68,.4)" small
-                      onClick={async()=>{
-                        if(!await customConfirm(`Scartare tutti i ${codeQueue.contatti.length} contatti in coda?`)) return;
-                        for(const ct of [...codeQueue.contatti]) await gestisciContatto(ct.id,false);
-                      }}>✕ Scarta tutti</Btn>
-                  </div>
-                </div>
-              )}
+              </div>}
             </div>
           );
         })()}
@@ -2705,24 +2628,6 @@ function App() {
       )}
     </div>
 
-      {showReviewTool&&(
-        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:1000,background:"rgba(0,0,0,0.85)",display:"flex",flexDirection:"column"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 16px",background:"#0d1117",borderBottom:"1px solid rgba(255,255,255,0.1)",flexShrink:0}}>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <span style={{fontSize:14}}>🔍</span>
-              <span style={{fontSize:13,fontWeight:700,color:"#f1f5f9"}}>Rivedi URL ambigui</span>
-              <span style={{fontSize:11,color:"#4a6080",background:"rgba(255,255,255,0.05)",padding:"2px 8px",borderRadius:10,border:"1px solid rgba(255,255,255,0.08)"}}>Prospecting output</span>
-            </div>
-            <button onClick={()=>setShowReviewTool(false)} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",color:"#f87171",borderRadius:6,padding:"5px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ Chiudi</button>
-          </div>
-          {reviewBlobUrl&&<iframe src={reviewBlobUrl} style={{flex:1,border:"none",width:"100%"}} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
-            onLoad={e=>{
-              const {url:sbUrl, key:sbKey} = getSbCreds();
-              e.target.contentWindow?.postMessage({action:'sbCreds', url:sbUrl, key:sbKey},'*');
-              if(reviewDebugMode) e.target.contentWindow?.postMessage({action:'debugMode'},'*');
-            }}/>}
-        </div>
-      )}
 
       {/* ── CONFIRM MODAL ── */}
       {confirmModal&&(
