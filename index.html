@@ -459,6 +459,7 @@ function App() {
   const fasiRef = React.useRef([]);
   const prevCountersRef = React.useRef({az_input:null, az_output:null, exec:null, scartati:null});
   const [importDati, setImportDati] = useState({open:false, rows:[], loading:false, edits:{}, sortCol:null, sortDir:"asc"});
+  const [runView, setRunView] = useState('leads'); // 'leads' | 'aziende'
   const [icebreakerOpen, setIcebreakerOpen] = useState(null); // row.id con testo espanso
   const [contattiRun, setContattiRun] = useState({rows:[], loading:false});
   const [contattiSort, setContattiSort] = useState({key:"azienda", dir:"asc"});
@@ -707,28 +708,28 @@ function App() {
     } catch(e) { pushLog("warn","⚠ Lancio Phantom fallito"); }
   }, [runId, campagna]);
 
-  // ── Rilancia Classificatore manualmente ──────────────────────────────────────
+  // ── Rilancia pipeline da Classificatore (classifica → Phantom → HubSpot → Lemlist) ─
   const rilanciClassificatore = useCallback(async () => {
     const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
     if (!base) { showToast("⚠ URL Agente Azure non configurato"); return; }
-    const {url:sbUrl, key:sbKey} = getSbCreds();
     const openaiKey = sbSettings["openai_api_key"]||"";
     if (!openaiKey) { showToast("⚠ OpenAI API Key mancante"); return; }
-    const openaiModel = sbSettings["openai_model"]||"gpt-4o-mini";
-    try {
-      const r = await fetch(`${base}/classifica/avvia`, {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({supabase_url:sbUrl, supabase_key:sbKey, openai_api_key:openaiKey, openai_model:openaiModel, run_start:runStart})
-      });
-      const j = await r.json();
-      if (j.status==="avviato"||j.status==="già_in_corso") {
-        pushLog("ok","▶ Classificazione rilanciata");
-        setFaseS("classifica","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Azure classificatore in esecuzione..."});
-        sbWritePipelineState("classifica","in_corso","Azure classificatore in esecuzione...");
-        showToast("✓ Classificatore rilanciato");
-      } else { showToast(`⚠ Classificazione: ${j.status}`); }
-    } catch(e) { showToast("✕ Errore avvio classificazione"); }
-  }, [sbSettings, getSbCreds, runStart]);
+    // Reset guard anti-doppio-lancio per HubSpot
+    hubspotAutoFiredRef.current = false;
+    classificaAutoRef.current = false;
+    if (runId) localStorage.removeItem(`grizzly_hubspot_fired_${runId}`);
+    // Reset fasi downstream a bloccato
+    setFaseS("classifica","attesa_utente",{dettaglio:"Rilancio classificatore..."});
+    setFaseS("hubspot","bloccato",{dettaglio:""});
+    setFaseS("lemlist","bloccato",{dettaglio:""});
+    sbWritePipelineState("classifica","attesa_utente","Rilancio classificatore...");
+    sbWritePipelineState("hubspot","bloccato","");
+    sbWritePipelineState("lemlist","bloccato","");
+    pushLog("ok","▶ Pipeline rilancita da Classificatore");
+    showToast("✓ Pipeline rilancita da Classificatore");
+    // classificaAutoRef useEffect rilancia automaticamente /classifica/avvia
+    // poi: classifica→completato → hubspotAutoFired check → HubSpot → lemlist→attesa_utente
+  }, [sbSettings, runId]);
 
   // ── Classificazione: conta aziende stato=nuovo con sito ─────────────────────
   const fetchClassificaCount = useCallback(async () => {
@@ -1623,7 +1624,7 @@ function App() {
         </div>
       </div>
     )}
-    <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:C.bg,color:C.text,width:"100%",minHeight:"100vh",display:"flex",flexDirection:"column",visibility:splash?"hidden":"visible"}}>
+    <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:C.bg,color:C.text,width:"100%",height:"100vh",display:"flex",flexDirection:"column",visibility:splash?"hidden":"visible"}}>
 
       {/* TOP BAR */}
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"0 8px",display:"flex",alignItems:"stretch",justifyContent:"space-between",flexShrink:0,minHeight:46,flexWrap:"wrap"}}>
@@ -2207,8 +2208,32 @@ function App() {
                     </div>
                   )}
 
-                  {/* ── IFRAME ── */}
+                  {/* ── TOGGLE LEADS / AZIENDE ── */}
                   {fasi.find(f=>f.id==="lemlist")?.stato==="attesa_utente"&&(
+                    <div style={{display:"flex",gap:6,marginBottom:0}}>
+                      {[
+                        {key:"leads",   label:"📊 Leads"},
+                        {key:"aziende", label:"🏢 Aziende"},
+                      ].map(({key,label})=>{
+                        const active = runView===key;
+                        return (
+                          <button key={key} onClick={()=>{
+                            setRunView(key);
+                            if(key==='aziende'&&!importDati.open) openImportDati(runStart);
+                          }}
+                            style={{padding:"6px 18px",fontSize:12,fontWeight:700,border:"none",borderRadius:6,cursor:"pointer",
+                              color: active?"#fff":"#93c5fd",
+                              background: active?"linear-gradient(135deg,#2563eb,#3b82f6)":"rgba(37,99,235,0.12)",
+                              transition:"all 0.15s"}}>
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* ── LEADS (Dashboard contatti) ── */}
+                  {fasi.find(f=>f.id==="lemlist")?.stato==="attesa_utente"&&runView==='leads'&&(
                     <div style={{background:"rgba(37,99,235,0.10)",border:`1px solid rgba(59,130,246,0.4)`,borderRadius:6,padding:"12px 16px",display:"flex",flexDirection:"column",gap:12}}>
                       {/* Header */}
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
@@ -2343,11 +2368,11 @@ function App() {
                       })()}
                     </div>
                   )}
-                  {/* ── IMPORT DATI MODAL ── */}
-                  {importDati.open&&(
-                    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:12}}>
-                      <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",padding:"7px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                        <span>Aziende importate — run corrente</span>
+                  {/* ── AZIENDE IMPORTATE ── */}
+                  {importDati.open&&runView==='aziende'&&(
+                    <div style={{background:"rgba(37,99,235,0.10)",border:`1px solid rgba(59,130,246,0.4)`,borderRadius:6,overflow:"hidden",marginBottom:12}}>
+                      <div style={{fontSize:12,fontWeight:700,color:"#60a5fa",padding:"10px 16px",borderBottom:`1px solid rgba(59,130,246,0.2)`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                        <span>🏢 Aziende importate — run corrente</span>
                         <div style={{display:"flex",gap:6}}>
                           <button onClick={()=>openImportDati(runStart)} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>⟳ Aggiorna</button>
                           <button onClick={()=>setImportDati(p=>({...p,open:false}))} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>✕ Chiudi</button>
@@ -2597,23 +2622,28 @@ function App() {
                     <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12}}>
                       <div style={{fontSize:28}}>✓</div>
                       <div style={{fontSize:14,fontWeight:600,color:C.green}}>Nessun URL ambiguo</div>
-                      <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Tutti gli URL LinkedIn sono stati verificati</div>
-                      <button disabled={fasi.company?.stato==='in_corso'}
-                        onClick={fetchAzSenzaSito}
-                        style={{padding:"8px 20px",fontSize:12,fontWeight:600,color:fasi.company?.stato==='in_corso'?"#6b7280":"#fff",background:fasi.company?.stato==='in_corso'?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#7c3aed,#6d28d9)",border:"none",borderRadius:6,cursor:fasi.company?.stato==='in_corso'?"not-allowed":"pointer"}}>
-                        {fasi.company?.stato==='in_corso'?"⏳ Phantom in corso...":"▶ Rilancia Phantom"}
-                      </button>
+                      <div style={{fontSize:12,color:C.muted}}>Tutti gli URL LinkedIn sono stati verificati</div>
                     </div>
                   )}
                   {sbReady&&codeQueue.urlAmbigue.length>0&&(
                     <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column"}}>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",padding:"8px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0,gap:8}}>
-                        <span style={{fontSize:11,color:C.muted,flex:1}}>Verifica e conferma gli URL, poi rilancia Phantom</span>
-                        <button disabled={fasi.company?.stato==='in_corso'}
-                          onClick={fetchAzSenzaSito}
-                          style={{padding:"6px 14px",fontSize:11,fontWeight:600,color:fasi.company?.stato==='in_corso'?"#6b7280":"#fff",background:fasi.company?.stato==='in_corso'?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#7c3aed,#6d28d9)",border:"none",borderRadius:5,cursor:fasi.company?.stato==='in_corso'?"not-allowed":"pointer",whiteSpace:"nowrap"}}>
-                          {fasi.company?.stato==='in_corso'?"⏳ Phantom in corso...":"▶ Rilancia Phantom"}
-                        </button>
+                        <span style={{fontSize:11,color:C.muted,flex:1}}>Verifica e conferma gli URL, poi aggiorna HubSpot</span>
+                        {(()=>{const hsStato=fasi.find(f=>f.id==='hubspot')?.stato; const busy=hsStato==='in_corso'; return(
+                          <button disabled={busy}
+                            onClick={()=>{
+                              if(runId) localStorage.removeItem(`grizzly_hubspot_fired_${runId}`);
+                              hubspotAutoFiredRef.current = false;
+                              setFaseS("hubspot","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Aggiornamento aziende su HubSpot..."});
+                              setFaseS("lemlist","bloccato",{dettaglio:""});
+                              sbWritePipelineState("hubspot","in_corso","Aggiornamento aziende su HubSpot...");
+                              sbWritePipelineState("lemlist","bloccato","");
+                              callMake(MAKE.hubspot,{secret:"grizzly2026",runId:runId||"",runStart:runStart||""},"Aggiornamento Hubspot");
+                            }}
+                            style={{padding:"6px 14px",fontSize:11,fontWeight:600,color:busy?"#6b7280":"#fff",background:busy?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#0891b2,#0e7490)",border:"none",borderRadius:5,cursor:busy?"not-allowed":"pointer",whiteSpace:"nowrap"}}>
+                            {busy?"⏳ HubSpot in corso...":"▶ Aggiorna HubSpot"}
+                          </button>
+                        );})()}
                       </div>
                       {reviewBlobUrl&&<iframe src={reviewBlobUrl} style={{flex:1,border:"none",width:"100%"}} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
                         onLoad={e=>{
@@ -2628,7 +2658,7 @@ function App() {
               {/* ── SITI MANCANTI ── */}
               {codeSubTab==='siti_mancanti'&&<div style={{display:"flex",flexDirection:"column",flex:1,minHeight:0}}>
               {/* Header con pulsante Rilancia Classificatore */}
-              {sbReady&&<div style={{display:"flex",alignItems:"center",padding:"8px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0,gap:8}}>
+              {sbReady&&codeQueue.siti.length>0&&<div style={{display:"flex",alignItems:"center",padding:"8px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0,gap:8}}>
                 <span style={{fontSize:11,color:C.muted,flex:1}}>
                   {codeQueue.siti.length>0?"Inserisci il sito per reinserire l'azienda in pipeline":"Aggiungi siti mancanti e rilancia il classificatore"}
                 </span>
