@@ -1462,9 +1462,9 @@ function App() {
           companyName: c.companies?.nome||"",
           companySite: c.companies?.sito_web||"",
         };
-      }).filter(c => c.email); // solo contatti con email
+      }); // invia tutti, anche senza email (quelli senza email vanno in campagna LinkedIn)
     } catch(e) { showToast("✕ Errore lettura contatti: " + e.message); return; }
-    if (!contactsPayload.length) { showToast("⚠ Nessun contatto con email trovata"); return; }
+    if (!contactsPayload.length) { showToast("⚠ Nessun contatto da processare"); return; }
     const label = `${contactsPayload.length} selezionati`;
     pushLog("info", `▶ Avvio Sc.4 — Carica Contatti (${label})`);
     try {
@@ -2419,7 +2419,7 @@ function App() {
                                   color:tuttiInCoda?"#c084fc":"#6ee7b7"}}>
                                   {tuttiInCoda
                                     ? `${contattiSelected.size} in coda email — clicca "Cerca email" per rimuoverli dalla coda`
-                                    : `${contattiSelected.size} selezionati — Avvia processerà solo questi`}
+                                    : `${contattiSelected.size} selezionati — Carica contatti HubSpot + Lemlist processerà solo questi`}
                                 </div>
                               );
                             })()}
