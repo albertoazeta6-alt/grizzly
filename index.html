@@ -461,7 +461,7 @@ function App() {
   const fasiRef = React.useRef([]);
   const prevCountersRef = React.useRef({az_input:null, az_output:null, exec:null, scartati:null});
   const [importDati, setImportDati] = useState({open:false, rows:[], loading:false, edits:{}, sortCol:null, sortDir:"asc"});
-  const [runView, setRunView] = useState('leads'); // 'leads' | 'aziende'
+  const [runView, setRunView] = useState('aziende'); // 'aziende' | 'leads'
   const [icebreakerOpen, setIcebreakerOpen] = useState(null); // row.id con testo espanso
   const [contattiRun, setContattiRun] = useState({rows:[], loading:false});
   const [contattiSort, setContattiSort] = useState({key:"azienda", dir:"asc"});
@@ -481,6 +481,7 @@ function App() {
   const classificaFiredRef  = React.useRef(false);
   const companyCeckFiredRef = React.useRef(false);
   const hubspotAutoFiredRef = React.useRef(false);
+  const rilancioCompanyIdsRef = React.useRef([]); // IDs aziende oggetto dell'ultimo rilancio pipeline
   const lemlistHadContactsRef = React.useRef(false); // evita auto-complete prima che l'extension carichi i contatti
   const [prospectingTab, setProspectingTab]   = useState("tabella"); // "tabella" | "sheets"
   const [prospectingSelected, setProspectingSelected] = useState(()=>{
@@ -716,6 +717,17 @@ function App() {
     if (!base) { showToast("⚠ URL Agente Azure non configurato"); return; }
     const openaiKey = sbSettings["openai_api_key"]||"";
     if (!openaiKey) { showToast("⚠ OpenAI API Key mancante"); return; }
+    // Salva gli ID delle aziende oggetto di questo rilancio (nuovo o linkedin_ok)
+    try {
+      const {url:sbU, key:sbK} = getSbCreds();
+      if (sbU && sbK) {
+        const rr = await fetch(`${sbU}/rest/v1/companies?or=(stato.eq.nuovo,stato.eq.linkedin_ok)&select=id&limit=500`, {
+          headers:{apikey:sbK, Authorization:`Bearer ${sbK}`}
+        });
+        const arr = rr.ok ? await rr.json() : [];
+        rilancioCompanyIdsRef.current = arr.map(x=>x.id);
+      }
+    } catch(e) { rilancioCompanyIdsRef.current = []; }
     // Reset guard anti-doppio-lancio
     hubspotAutoFiredRef.current = false;
     classificaAutoRef.current = false;
@@ -898,7 +910,7 @@ function App() {
     if (runId && localStorage.getItem(`grizzly_hubspot_fired_${runId}`)) return;
     if (runId) localStorage.setItem(`grizzly_hubspot_fired_${runId}`, '1');
     pushLog("ok", "✓ Classificazione completata — avvio HubSpot");
-    callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId || "", runStart: runStart || "" }, "Aggiornamento Hubspot")
+    callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId || "", runStart: runStart || "", companyIds: rilancioCompanyIdsRef.current.length ? rilancioCompanyIdsRef.current : null }, "Aggiornamento Hubspot")
       .then(() => {
         setFaseS("hubspot", "in_corso", {iniziato: new Date().toISOString(), dettaglio: "Aggiornamento aziende su HubSpot..."});
         pushLog("ok", "▶ Aggiornamento Hubspot avviato");
@@ -1415,38 +1427,50 @@ function App() {
 
   const avviaLemlist = async () => {
     if (!MAKE.cercaEmail) { showToast("⚠ Webhook 'Carica Contatti' non configurato nelle impostazioni"); return; }
+    // Fetcha i dettagli completi dei contatti selezionati da Supabase
+    const {url:sbUrlF, key:sbKeyF} = getSbCreds();
+    if (!sbUrlF || !sbKeyF) { showToast("⚠ Credenziali Supabase mancanti"); return; }
     let contactIds;
     if (contattiSelected.size > 0) {
       contactIds = [...contattiSelected];
     } else {
-      // Nessuna selezione → prendo tutti gli ID eligibili da Supabase
       try {
-        const {url:sbUrl, key:sbKey} = getSbCreds();
-        const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id&stato=in.(email_trovata,email_non_trovata)&limit=500`, {
-          headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`}
+        const r = await fetch(`${sbUrlF}/rest/v1/contacts?select=id&stato=in.(email_trovata,email_non_trovata)&limit=500`, {
+          headers: {apikey:sbKeyF, Authorization:`Bearer ${sbKeyF}`}
         });
         const rows = r.ok ? await r.json() : [];
         contactIds = rows.map(x=>x.id);
       } catch(e) { contactIds = []; }
     }
     if (!contactIds.length) { showToast("⚠ Nessun contatto da processare"); return; }
-    const label = contattiSelected.size > 0 ? `${contactIds.length} selezionati` : `tutti (${contactIds.length})`;
+    // Leggi dettagli completi per costruire il payload Make
+    let contactsPayload = [];
+    try {
+      const r = await fetch(`${sbUrlF}/rest/v1/contacts?id=in.(${contactIds.join(",")})&select=id,nome_completo,ruolo,linkedin_url,email,companies(nome,sito_web)&limit=500`, {
+        headers: {apikey:sbKeyF, Authorization:`Bearer ${sbKeyF}`}
+      });
+      const rows = r.ok ? await r.json() : [];
+      contactsPayload = rows.map(c => {
+        const nameParts = (c.nome_completo||"").trim().split(/\s+/);
+        return {
+          id: c.id,
+          email: c.email||"",
+          firstName: nameParts[0]||"",
+          lastName: nameParts.slice(1).join(" ")||"",
+          role: c.ruolo||"",
+          linkedinUrl: c.linkedin_url||"",
+          companyName: c.companies?.nome||"",
+          companySite: c.companies?.sito_web||"",
+        };
+      }).filter(c => c.email); // solo contatti con email
+    } catch(e) { showToast("✕ Errore lettura contatti: " + e.message); return; }
+    if (!contactsPayload.length) { showToast("⚠ Nessun contatto con email trovata"); return; }
+    const label = `${contactsPayload.length} selezionati`;
     pushLog("info", `▶ Avvio Sc.4 — Carica Contatti (${label})`);
     try {
-      await fetch(MAKE.cercaEmail, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({runId, secret:"grizzly2026", contactIds})});
-      pushLog("ok", `✓ Webhook Sc.4 inviato — ${contactIds.length} ID`);
-      // Aggiorna subito stato → inviato su Supabase
-      const {url:sbUrlW, key:sbKeyW} = getSbCreds();
-      if (sbUrlW && sbKeyW) {
-        const hdrW = {apikey:sbKeyW, Authorization:`Bearer ${sbKeyW}`, "Content-Type":"application/json", Prefer:"return=minimal"};
-        await fetch(`${sbUrlW}/rest/v1/contacts?id=in.(${contactIds.join(",")})`, {
-          method:"PATCH", headers:hdrW,
-          body: JSON.stringify({stato:"inviato"})
-        });
-        setContattiRun(p=>({...p, rows:p.rows.map(r=>contactIds.includes(r.id)?{...r,stato:"inviato"}:r)}));
-        pushLog("ok", `✓ ${contactIds.length} contatti → stato "inviato"`);
-        setContattiSelected(new Set());
-      }
+      // Una sola chiamata Make con array completo — Make usa Array Iterator internamente
+      await fetch(MAKE.cercaEmail, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({runId, secret:"grizzly2026", contacts: contactsPayload})});
+      pushLog("ok", `✓ Webhook Sc.4 inviato — ${contactsPayload.length} contatti`);
     } catch(e) {
       pushLog("error", "✕ Errore webhook Sc.4: " + e.message);
       return;
@@ -1565,7 +1589,7 @@ function App() {
     if (runId) localStorage.setItem(`grizzly_hubspot_fired_${runId}`, '1');
     try { localStorage.removeItem('grizzly_selected'); setProspectingSelected(new Set()); } catch(e) {}
     if (!MAKE.hubspot) { pushLog("warn","⚠ Webhook HubSpot non configurato nelle Impostazioni"); setLoad("continua",false); return; }
-    await callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId || "", runStart: runStart || "" }, "Aggiornamento Hubspot");
+    await callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId || "", runStart: runStart || "", companyIds: rilancioCompanyIdsRef.current.length ? rilancioCompanyIdsRef.current : null }, "Aggiornamento Hubspot");
     setFaseS("hubspot", "in_corso", {iniziato: new Date().toISOString(), dettaglio: "Aggiornamento aziende su HubSpot..."});
     pushLog("ok", "▶ Aggiornamento Hubspot avviato");
     showToast("✓ Aggiornamento Hubspot avviato");
@@ -2280,8 +2304,8 @@ function App() {
                   {/* ── TOGGLE LEADS / AZIENDE + RILANCIA PIPELINE ── */}
                   <div style={{display:"flex",gap:6,marginBottom:0,alignItems:"center",width:"100%"}}>
                       {[
-                        {key:"leads",   label:"📊 Leads"},
                         {key:"aziende", label:"🏢 Aziende"},
+                        {key:"leads",   label:"📊 Leads"},
                       ].map(({key,label})=>{
                         const active = runView===key;
                         return (
