@@ -700,15 +700,19 @@ function App() {
   }, []);
 
   const fetchAzSenzaSito = useCallback(async () => {
+    if(!MAKE.company) {
+      pushLog("warn","⚠ Webhook 'Lancia Phantom URL' non configurato nelle Impostazioni — Cerca Company Page non avviato");
+      showToast("⚠ Configura il webhook Phantom URL nelle Impostazioni");
+      return;
+    }
     try {
-      if(MAKE.company) {
-        await fetch(MAKE.company, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({runId, campagna, secret:"grizzly2026"})});
-        pushLog("ok", "✓ Cerca Company Page avviato (Phantom)");
-        setFaseS("company","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Phantom in esecuzione..."});
-        sbWritePipelineState("company","in_corso","Phantom in esecuzione...");
-        showToast("✓ Company Page avviato");
-      }
-    } catch(e) { pushLog("warn","⚠ Lancio Phantom fallito"); }
+      pushLog("info","▶ Invio webhook Cerca Company Page (Phantom)...");
+      await fetch(MAKE.company, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({runId, campagna, secret:"grizzly2026"})});
+      pushLog("ok", "✓ Cerca Company Page avviato (Phantom)");
+      setFaseS("company","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Phantom in esecuzione..."});
+      sbWritePipelineState("company","in_corso","Phantom in esecuzione...");
+      showToast("✓ Company Page avviato");
+    } catch(e) { pushLog("error","✕ Lancio Phantom fallito: " + e.message); }
   }, [runId, campagna]);
 
   // ── Rilancia pipeline da Classificatore (classifica → Phantom → HubSpot → Lemlist) ─
@@ -968,7 +972,13 @@ function App() {
           localStorage.setItem(lsKey, '1');
           companyCeckFiredRef.current = true;
           fetchAzSenzaSito();
+        } else {
+          pushLog("warn","⚠ Phantom già avviato per questo runId (localStorage)");
         }
+      } else if (companyCeckFiredRef.current) {
+        // già sparato in questa sessione, ok
+      } else if (companyGiaAvviata) {
+        pushLog("info",`ℹ Phantom già in stato: ${companyFase?.stato} — non riavviato`);
       }
     }
     if (importFase?.stato !== "completato") {
