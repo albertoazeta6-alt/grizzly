@@ -717,21 +717,21 @@ function App() {
     if (!base) { showToast("⚠ URL Agente Azure non configurato"); return; }
     const openaiKey = sbSettings["openai_api_key"]||"";
     if (!openaiKey) { showToast("⚠ OpenAI API Key mancante"); return; }
-    // Salva gli ID delle aziende oggetto di questo rilancio (nuovo o linkedin_ok)
-    try {
-      const {url:sbU, key:sbK} = getSbCreds();
-      if (sbU && sbK) {
-        const rr = await fetch(`${sbU}/rest/v1/companies?or=(stato.eq.nuovo,stato.eq.linkedin_ok)&select=id&limit=500`, {
-          headers:{apikey:sbK, Authorization:`Bearer ${sbK}`}
-        });
-        const arr = rr.ok ? await rr.json() : [];
-        rilancioCompanyIdsRef.current = arr.map(x=>x.id);
-      }
-    } catch(e) { rilancioCompanyIdsRef.current = []; }
-    // Reset guard anti-doppio-lancio
+    // Reset guard anti-doppio-lancio (PRIMA del fetch, per non bloccare Phantom)
     hubspotAutoFiredRef.current = false;
     classificaAutoRef.current = false;
     companyCeckFiredRef.current = false;
+    // Salva gli ID delle aziende oggetto di questo rilancio (non-blocking)
+    {
+      const {url:sbU, key:sbK} = getSbCreds();
+      if (sbU && sbK) {
+        fetch(`${sbU}/rest/v1/companies?stato=not.in.(sito_mancante,hubspot_sync,linkedin_ko)&hubspot_id=is.null&select=id&limit=500`, {
+          headers:{apikey:sbK, Authorization:`Bearer ${sbK}`}
+        }).then(rr=>rr.ok?rr.json():[]).then(arr=>{
+          rilancioCompanyIdsRef.current = arr.map(x=>x.id);
+        }).catch(()=>{ rilancioCompanyIdsRef.current = []; });
+      }
+    }
     if (runId) {
       localStorage.removeItem(`grizzly_hubspot_fired_${runId}`);
       localStorage.removeItem(`grizzly_company_fired_${runId}`);
