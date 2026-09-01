@@ -842,8 +842,11 @@ function App() {
           stato: e.data.linkedin_url && e.data.linkedin_url !== 'NESSUNA' ? 'linkedin_ok' : 'linkedin_ko',
           aggiornato_il: new Date().toISOString()
         });
-        if (ok) pushLog("ok", `✓ URL confermata: ${e.data.ragione}`);
-        else pushLog("error", `✕ Errore salvataggio URL: ${e.data.ragione}`);
+        if (ok) {
+          pushLog("ok", `✓ URL confermata: ${e.data.ragione}`);
+          setHasSavedUrl(true);
+          setCodeQueue(q=>({...q, urlAmbigue:q.urlAmbigue.filter(c=>c.id!==e.data.id)}));
+        } else pushLog("error", `✕ Errore salvataggio URL: ${e.data.ragione}`);
       }
     };
     window.addEventListener('message', handler);
