@@ -228,7 +228,7 @@ async function loadCodeQueue() {
     const [siti, urlAmbigue, contatti, pronti] = await Promise.all([
       fetch(`${url}/rest/v1/companies?stato=eq.sito_mancante&select=id,nome,citta,partita_iva&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
       fetch(`${url}/rest/v1/companies?stato=eq.url_ambigua&select=id,nome,sito_web,linkedin_url,citta&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
-      fetch(`${url}/rest/v1/contacts?stato=eq.in_coda&select=id,nome_completo,ruolo,linkedin_url,company_id,companies(nome,sito_web)&order=creato_il.asc&limit=500`,{headers:h}).then(r=>r.ok?r.json():[]),
+      Promise.resolve([]),
       fetch(`${url}/rest/v1/companies?or=(stato.eq.nuovo,stato.eq.linkedin_ok)&select=id&limit=1`,{headers:h}).then(r=>r.ok?r.json():[]),
     ]);
     return {siti: siti||[], urlAmbigue: urlAmbigue||[], contatti: contatti||[], rilanciaReady: (pronti||[]).length > 0};
@@ -767,7 +767,7 @@ function App() {
     const [siti, urlAmbigue, contatti, bassaConf, mediaConf] = await Promise.all([
       cnt("companies?stato=eq.sito_mancante&select=id&limit=1"),
       cnt("companies?stato=eq.url_ambigua&select=id&limit=1"),
-      cnt("contacts?stato=eq.in_coda&select=id&limit=1"),
+      Promise.resolve(0),
       cnt("companies?settore_confidenza=eq.bassa&select=id&limit=1"),
       cnt("companies?settore_confidenza=eq.media&select=id&limit=1"),
     ]);
@@ -1350,7 +1350,7 @@ function App() {
       const {url:sbUrl, key:sbKey} = getSbCreds();
       if (!sbUrl || !sbKey) return;
       const ts = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
-      const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,company_id,companies(nome,settore,sito_web)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata)${ts}&order=creato_il.desc&limit=300`, {
+      const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,company_id,companies(nome,settore,sito_web)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato)${ts}&order=creato_il.desc&limit=300`, {
         headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`}
       });
       if (!r.ok) return;
@@ -1374,7 +1374,7 @@ function App() {
       const {url:sbUrl, key:sbKey} = getSbCreds();
       if (!sbUrl || !sbKey) { setContattiRun(p=>({...p, loading:false})); return; }
       const ts = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
-      const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,company_id,companies(nome,settore,sito_web)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata)${ts}&order=creato_il.desc&limit=300`, {
+      const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,company_id,companies(nome,settore,sito_web)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato)${ts}&order=creato_il.desc&limit=300`, {
         headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`}
       });
       const rows = r.ok ? await r.json() : [];
@@ -1435,34 +1435,94 @@ function App() {
     try {
       await fetch(MAKE.cercaEmail, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({runId, secret:"grizzly2026", contactIds})});
       pushLog("ok", `✓ Webhook Sc.4 inviato — ${contactIds.length} ID`);
+      // Aggiorna subito stato → inviato su Supabase
+      const {url:sbUrlW, key:sbKeyW} = getSbCreds();
+      if (sbUrlW && sbKeyW) {
+        const hdrW = {apikey:sbKeyW, Authorization:`Bearer ${sbKeyW}`, "Content-Type":"application/json", Prefer:"return=minimal"};
+        await fetch(`${sbUrlW}/rest/v1/contacts?id=in.(${contactIds.join(",")})`, {
+          method:"PATCH", headers:hdrW,
+          body: JSON.stringify({stato:"inviato"})
+        });
+        setContattiRun(p=>({...p, rows:p.rows.map(r=>contactIds.includes(r.id)?{...r,stato:"inviato"}:r)}));
+        pushLog("ok", `✓ ${contactIds.length} contatti → stato "inviato"`);
+        setContattiSelected(new Set());
+      }
     } catch(e) {
       pushLog("error", "✕ Errore webhook Sc.4: " + e.message);
+      return;
     }
+    // Polling: monitora stato contatti finché tutti in_coda→inviato (o timeout 10 min)
+    const {url:sbUrl, key:sbKey} = getSbCreds();
+    if (!sbUrl || !sbKey) return;
+    const sbHdr = {apikey:sbKey, Authorization:`Bearer ${sbKey}`};
+    const TERMINAL = new Set(["inviato","email_trovata","email_non_trovata","trovato"]);
+    const statiPrecedenti = {};
+    const STATI_LABEL = {inviato:"✓ Inviato a HubSpot + Lemlist", email_trovata:"Email trovata", email_non_trovata:"Email non trovata", trovato:"Trovato"};
+    let attempts = 0;
+    const maxAttempts = 60; // 60 × 10s = 10 min
+    pushLog("info", `⏳ Monitoraggio avanzamento ${contactIds.length} contatti...`);
+    const pollTimer = setInterval(async () => {
+      attempts++;
+      if (attempts > maxAttempts) {
+        clearInterval(pollTimer);
+        pushLog("warn", "⏱ Timeout monitoraggio (10 min) — controlla HubSpot/Lemlist manualmente");
+        return;
+      }
+      try {
+        const r = await fetch(`${sbUrl}/rest/v1/contacts?id=in.(${contactIds.join(",")})&select=id,nome_completo,stato`, {headers:sbHdr});
+        if (!r.ok) return;
+        const rows = await r.json();
+        let allDone = true;
+        rows.forEach(row => {
+          const prev = statiPrecedenti[row.id];
+          if (prev !== row.stato) {
+            statiPrecedenti[row.id] = row.stato;
+            if (prev !== undefined) {
+              const tipo = row.stato === "inviato" ? "ok" : "info";
+              pushLog(tipo, `${row.nome_completo || row.id}: ${STATI_LABEL[row.stato] || row.stato}`);
+              // aggiorna anche la lista locale
+              setContattiRun(p=>({...p, rows:p.rows.map(c=>c.id===row.id?{...c,stato:row.stato}:c)}));
+            } else {
+              statiPrecedenti[row.id] = row.stato; // init
+            }
+          }
+          if (!TERMINAL.has(row.stato)) allDone = false;
+        });
+        if (allDone && attempts > 1) {
+          clearInterval(pollTimer);
+          const inviati = rows.filter(r=>r.stato==="inviato").length;
+          pushLog("ok", `✓ Completato — ${inviati}/${contactIds.length} inviati a HubSpot + Lemlist`);
+          setContattiSelected(new Set());
+        }
+      } catch(e) { /* ignora errori di rete transitori */ }
+    }, 10000);
   };
 
   const richiestaEnrichment = async () => {
     const {url:sbUrl, key:sbKey} = getSbCreds();
     if (!sbUrl || !sbKey) return;
-    // Se ci sono selezioni usa quelle, altrimenti solo "trovato" delle aziende della run corrente
     const runCompanyIds = new Set(importDati.rows.map(r => r.id));
     const ids = contattiSelected.size > 0
       ? [...contattiSelected]
       : contattiRun.rows.filter(r => r.stato === "trovato" && (runCompanyIds.size === 0 || runCompanyIds.has(r.company_id))).map(r => r.id);
     if (!ids.length) { showToast("Nessun contatto"); return; }
+    // Toggle: se TUTTI i selezionati sono già in enrichment_richiesto → rimuovi dalla coda
+    const tuttiInCoda = ids.every(id => contattiRun.rows.find(r=>r.id===id)?.stato === "enrichment_richiesto");
+    const nuovoStato = tuttiInCoda ? "trovato" : "enrichment_richiesto";
     const hdr = {apikey:sbKey, Authorization:`Bearer ${sbKey}`, "Content-Type":"application/json", Prefer:"return=minimal"};
-    // PATCH in batch: stato = enrichment_richiesto
     const patchRes = await fetch(`${sbUrl}/rest/v1/contacts?id=in.(${ids.join(",")})`, {
       method:"PATCH", headers:hdr,
-      body: JSON.stringify({stato:"enrichment_richiesto"})
+      body: JSON.stringify({stato:nuovoStato})
     });
     if (!patchRes.ok) {
-      const err = await patchRes.text();
-      showToast(`✕ Errore: ${err.slice(0,120)}`);
+      showToast(`✕ Errore: ${(await patchRes.text()).slice(0,120)}`);
       return;
     }
-    // Aggiorna UI locale
-    setContattiRun(p=>({...p, rows:p.rows.map(r=>ids.includes(r.id)?{...r,stato:"enrichment_richiesto"}:r)}));
-    showToast(`✉ ${ids.length} contatti in coda — premi "Cerca email contatti selezionati da Grizzly" nell'estensione`);
+    setContattiRun(p=>({...p, rows:p.rows.map(r=>ids.includes(r.id)?{...r,stato:nuovoStato}:r)}));
+    if (tuttiInCoda) setContattiSelected(new Set());
+    showToast(tuttiInCoda
+      ? `↩ ${ids.length} contatti rimossi dalla coda email`
+      : `✉ ${ids.length} contatti in coda — premi "Cerca email contatti selezionati da Grizzly" nell'estensione`);
   };
 
   const saveContattoSettore = async (companyId, settore) => {
@@ -2238,6 +2298,18 @@ function App() {
                         );
                       })}
                       <div style={{flex:1}}/>
+                      {(()=>{
+                        const hasSel = contattiSelected.size > 0;
+                        return (
+                          <button disabled={!hasSel} onClick={avviaLemlist}
+                            style={{padding:"6px 16px",fontSize:12,fontWeight:700,border:"none",borderRadius:6,whiteSpace:"nowrap",transition:"all 0.15s",
+                              cursor:hasSel?"pointer":"not-allowed",
+                              color:hasSel?"#fff":"#4b5563",
+                              background:hasSel?"linear-gradient(135deg,#059669,#10b981)":"rgba(255,255,255,0.05)"}}>
+                            {hasSel?`▶ Carica contatti HubSpot + Lemlist (${contattiSelected.size})`:"▶ Carica contatti HubSpot + Lemlist"}
+                          </button>
+                        );
+                      })()}
                       {codeQueue.rilanciaReady&&(()=>{
                         const busy = fasi.find(f=>f.id==='classifica')?.stato==='in_corso';
                         return (
@@ -2264,7 +2336,6 @@ function App() {
                           <button onClick={fetchContattiRun} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>↻ Aggiorna</button>
                           <button onClick={deleteSelected} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>🗑 {contattiSelected.size>0?`Elimina (${contattiSelected.size})`:"Elimina"}</button>
                           <button onClick={richiestaEnrichment} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#7c3aed,#8b5cf6)",border:"none",borderRadius:5,cursor:"pointer"}}>✉ Cerca email{contattiSelected.size>0?` (${contattiSelected.size})`:""}</button>
-                          <button onClick={avviaLemlist} style={{padding:"7px 16px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:5,cursor:"pointer"}}>▶ Aggiorna HubSpot e Lemlist</button>
                         </div>
                       </div>
                       {/* Filtro stato */}
@@ -2274,7 +2345,6 @@ function App() {
                           {k:"enrichment_richiesto",label:"In coda email",   desc:"in attesa ricerca email",          col:"#c084fc"},
                           {k:"email_trovata",     label:"Email trovata",     desc:"email trovata con successo",       col:"#10b981"},
                           {k:"email_non_trovata", label:"Email non trovata", desc:"ricerca email fallita",            col:"#f59e0b"},
-                          {k:"in_coda",           label:"In coda",           desc:"in coda per HubSpot/Lemlist",      col:"#f97316"},
                           {k:"inviato",           label:"Inviato",           desc:"aggiunto a Lemlist e HubSpot",     col:"#a78bfa"},
                         ];
                         return (
@@ -2295,7 +2365,7 @@ function App() {
                       })()}
                       {/* Tabella contatti */}
                       {(()=>{
-                        const STATO_COL = {trovato:"#60a5fa",email_trovata:"#10b981",email_non_trovata:"#f59e0b",in_coda:"#f97316",inviato:"#a78bfa"};
+                        const STATO_COL = {trovato:"#60a5fa",email_trovata:"#10b981",email_non_trovata:"#f59e0b",inviato:"#a78bfa"};
                         const sorted = [...contattiRun.rows].filter(r=>contattiStatoFilter.size===0||contattiStatoFilter.has(r.stato)).sort((a,b)=>{
                           let cmp = 0;
                           if(contattiSort.key==="azienda") cmp=(a.companies?.nome||"").localeCompare(b.companies?.nome||"");
@@ -2317,11 +2387,18 @@ function App() {
                         };
                         return (
                           <div style={{overflowY:"auto",maxHeight:300,borderRadius:5,border:`1px solid rgba(59,130,246,0.2)`}}>
-                            {contattiSelected.size>0&&(
-                              <div style={{padding:"4px 10px",background:"rgba(16,185,129,0.1)",borderBottom:`1px solid rgba(16,185,129,0.2)`,fontSize:10,color:"#6ee7b7"}}>
-                                {contattiSelected.size} selezionati — Avvia processerà solo questi
-                              </div>
-                            )}
+                            {contattiSelected.size>0&&(()=>{
+                              const tuttiInCoda = [...contattiSelected].every(id=>contattiRun.rows.find(r=>r.id===id)?.stato==="enrichment_richiesto");
+                              return (
+                                <div style={{padding:"4px 10px",borderBottom:`1px solid ${tuttiInCoda?"rgba(192,132,252,0.3)":"rgba(16,185,129,0.2)"}`,fontSize:10,
+                                  background:tuttiInCoda?"rgba(192,132,252,0.1)":"rgba(16,185,129,0.1)",
+                                  color:tuttiInCoda?"#c084fc":"#6ee7b7"}}>
+                                  {tuttiInCoda
+                                    ? `${contattiSelected.size} in coda email — clicca "Cerca email" per rimuoverli dalla coda`
+                                    : `${contattiSelected.size} selezionati — Avvia processerà solo questi`}
+                                </div>
+                              );
+                            })()}
                             <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,fontFamily:"'JetBrains Mono',monospace"}}>
                               <thead>
                                 <tr style={{background:"rgba(59,130,246,0.15)"}}>
