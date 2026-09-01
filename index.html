@@ -225,12 +225,13 @@ async function loadCodeQueue() {
   const {url,key} = getSbCreds(); if(!url||!key) return null;
   const h = {apikey:key, Authorization:`Bearer ${key}`};
   try {
-    const [siti, urlAmbigue, contatti] = await Promise.all([
+    const [siti, urlAmbigue, contatti, pronti] = await Promise.all([
       fetch(`${url}/rest/v1/companies?stato=eq.sito_mancante&select=id,nome,citta,partita_iva&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
       fetch(`${url}/rest/v1/companies?stato=eq.url_ambigua&select=id,nome,sito_web,linkedin_url,citta&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
       fetch(`${url}/rest/v1/contacts?stato=eq.in_coda&select=id,nome_completo,ruolo,linkedin_url,company_id,companies(nome,sito_web)&order=creato_il.asc&limit=500`,{headers:h}).then(r=>r.ok?r.json():[]),
+      fetch(`${url}/rest/v1/companies?or=(stato.eq.nuovo,stato.eq.linkedin_ok)&select=id&limit=1`,{headers:h}).then(r=>r.ok?r.json():[]),
     ]);
-    return {siti: siti||[], urlAmbigue: urlAmbigue||[], contatti: contatti||[]};
+    return {siti: siti||[], urlAmbigue: urlAmbigue||[], contatti: contatti||[], rilanciaReady: (pronti||[]).length > 0};
   } catch { return null; }
 }
 
@@ -446,12 +447,10 @@ function App() {
   // Edit temporaneo in Impostazioni
   const [settingEdit, setSettingEdit] = useState({}); // {chiave: valore_editato}
   // Code di Revisione
-  const [codeQueue, setCodeQueue] = useState({siti:[], urlAmbigue:[], contatti:[], loading:false, loaded:false});
+  const [codeQueue, setCodeQueue] = useState({siti:[], urlAmbigue:[], contatti:[], rilanciaReady:false, loading:false, loaded:false});
   const [queueCounts, setQueueCounts] = useState({siti:null, urlAmbigue:null, contatti:null, bassaConf:null, mediaConf:null, loaded:false});
   const [codeSitoEdit, setCodeSitoEdit] = useState({}); // {company_id: url_string}
   const [sitoPreview, setSitoPreview] = useState(null); // company id con preview aperta
-  const [hasSavedSiti, setHasSavedSiti] = useState(false);
-  const [hasSavedUrl, setHasSavedUrl] = useState(false);
   const [codeUrlEdit, setCodeUrlEdit] = useState({});   // {company_id: linkedin_url}
   const [showReviewTool, setShowReviewTool] = useState(false);
   const [reviewDebugMode, setReviewDebugMode] = useState(false);
@@ -717,23 +716,28 @@ function App() {
     if (!base) { showToast("⚠ URL Agente Azure non configurato"); return; }
     const openaiKey = sbSettings["openai_api_key"]||"";
     if (!openaiKey) { showToast("⚠ OpenAI API Key mancante"); return; }
-    // Reset guard anti-doppio-lancio per HubSpot
+    // Reset guard anti-doppio-lancio
     hubspotAutoFiredRef.current = false;
     classificaAutoRef.current = false;
-    if (runId) localStorage.removeItem(`grizzly_hubspot_fired_${runId}`);
-    // Reset fasi downstream a bloccato
+    companyCeckFiredRef.current = false;
+    if (runId) {
+      localStorage.removeItem(`grizzly_hubspot_fired_${runId}`);
+      localStorage.removeItem(`grizzly_company_fired_${runId}`);
+    }
+    // Reset fasi downstream a bloccato (incluso company/Phantom)
     setFaseS("classifica","attesa_utente",{dettaglio:"Rilancio classificatore..."});
+    setFaseS("company","bloccato",{dettaglio:""});
     setFaseS("hubspot","bloccato",{dettaglio:""});
     setFaseS("lemlist","bloccato",{dettaglio:""});
     sbWritePipelineState("classifica","attesa_utente","Rilancio classificatore...");
+    sbWritePipelineState("company","bloccato","");
     sbWritePipelineState("hubspot","bloccato","");
     sbWritePipelineState("lemlist","bloccato","");
-    setHasSavedSiti(false);
-    setHasSavedUrl(false);
+    setCodeQueue(q=>({...q, rilanciaReady:false}));
     pushLog("ok","▶ Pipeline rilancita da Classificatore");
     showToast("✓ Pipeline rilancita da Classificatore");
-    // classificaAutoRef useEffect rilancia automaticamente /classifica/avvia
-    // poi: classifica→completato → hubspotAutoFired check → HubSpot → lemlist→attesa_utente
+    // classificaAutoRef useEffect rilancia /classifica/avvia
+    // poi: classifica→completato → company (Phantom) se ci sono stato=nuovo → hubspot → lemlist
   }, [sbSettings, runId]);
 
   // ── Classificazione: conta aziende stato=nuovo con sito ─────────────────────
@@ -844,8 +848,7 @@ function App() {
         });
         if (ok) {
           pushLog("ok", `✓ URL confermata: ${e.data.ragione}`);
-          setHasSavedUrl(true);
-          setCodeQueue(q=>({...q, urlAmbigue:q.urlAmbigue.filter(c=>c.id!==e.data.id)}));
+          setCodeQueue(q=>({...q, urlAmbigue:q.urlAmbigue.filter(c=>c.id!==e.data.id), rilanciaReady:true}));
         } else pushLog("error", `✕ Errore salvataggio URL: ${e.data.ragione}`);
       }
     };
@@ -1939,9 +1942,9 @@ function App() {
               </div>
             ):(
               <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
-                <div style={{flex:1,minWidth:0}}>
+                <div style={{flex:1,minWidth:0,height:"calc(100vh - 110px)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
                 {/* ── TOP AREA: Run corrente | Da gestire ── */}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1px 1fr",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",marginBottom:16}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1px 1fr",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",marginBottom:16,flexShrink:0}}>
                   {/* Pannello sinistro — Run corrente */}
                   <div style={{padding:"14px 16px"}}>
                     <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:10}}>Run corrente</div>
@@ -2002,7 +2005,7 @@ function App() {
                     </div>
                   </div>
                 </div>
-                <div style={{display:"flex",flexDirection:"column",gap:16}}>
+                <div style={{display:"flex",flexDirection:"column",gap:16,flex:1,minHeight:0,overflowY:"auto"}}>
 
                   {/* ── PIPELINE ORIZZONTALE ── */}
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,paddingBottom:6}}>
@@ -2214,9 +2217,8 @@ function App() {
                     </div>
                   )}
 
-                  {/* ── TOGGLE LEADS / AZIENDE ── */}
-                  {fasi.find(f=>f.id==="lemlist")?.stato==="attesa_utente"&&(
-                    <div style={{display:"flex",gap:6,marginBottom:0}}>
+                  {/* ── TOGGLE LEADS / AZIENDE + RILANCIA PIPELINE ── */}
+                  <div style={{display:"flex",gap:6,marginBottom:0,alignItems:"center",width:"100%"}}>
                       {[
                         {key:"leads",   label:"📊 Leads"},
                         {key:"aziende", label:"🏢 Aziende"},
@@ -2235,12 +2237,23 @@ function App() {
                           </button>
                         );
                       })}
-                    </div>
-                  )}
+                      <div style={{flex:1}}/>
+                      {codeQueue.rilanciaReady&&(()=>{
+                        const busy = fasi.find(f=>f.id==='classifica')?.stato==='in_corso';
+                        return (
+                          <button disabled={busy} onClick={rilanciClassificatore}
+                            style={{padding:"6px 16px",fontSize:12,fontWeight:700,border:"none",borderRadius:6,cursor:busy?"not-allowed":"pointer",whiteSpace:"nowrap",transition:"all 0.15s",
+                              color:busy?"#4b5563":"#fff",
+                              background:busy?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)"}}>
+                            {busy?"⏳ Pipeline in corso...":"▶ Rilancia Pipeline"}
+                          </button>
+                        );
+                      })()}
+                  </div>
 
                   {/* ── LEADS (Dashboard contatti) ── */}
-                  {fasi.find(f=>f.id==="lemlist")?.stato==="attesa_utente"&&runView==='leads'&&(
-                    <div style={{background:"rgba(37,99,235,0.10)",border:`1px solid rgba(59,130,246,0.4)`,borderRadius:6,padding:"12px 16px",display:"flex",flexDirection:"column",gap:12}}>
+                  {runView==='leads'&&(
+                    <div style={{background:"rgba(37,99,235,0.10)",border:`1px solid rgba(59,130,246,0.4)`,borderRadius:6,padding:"12px 16px",display:"flex",flexDirection:"column",gap:12,flex:1,minHeight:0}}>
                       {/* Header */}
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
                         <div>
@@ -2376,7 +2389,7 @@ function App() {
                   )}
                   {/* ── AZIENDE IMPORTATE ── */}
                   {importDati.open&&runView==='aziende'&&(
-                    <div style={{background:"rgba(37,99,235,0.10)",border:`1px solid rgba(59,130,246,0.4)`,borderRadius:6,overflow:"hidden",marginBottom:12}}>
+                    <div style={{background:"rgba(37,99,235,0.10)",border:`1px solid rgba(59,130,246,0.4)`,borderRadius:6,overflow:"hidden",flex:1,minHeight:0}}>
                       <div style={{fontSize:12,fontWeight:700,color:"#60a5fa",padding:"10px 16px",borderBottom:`1px solid rgba(59,130,246,0.2)`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                         <span>🏢 Aziende importate — run corrente</span>
                         <div style={{display:"flex",gap:6}}>
@@ -2425,7 +2438,15 @@ function App() {
                                     const ed = importDati.edits[row.id]||{};
                                     const dirty = Object.keys(ed).length>0;
                                     const sito = ed.sito_web!==undefined ? ed.sito_web : (row.sito_web||"");
-                                    const statiColor = {linkedin_ok:C.green, hubspot_sync:"#a78bfa", url_ambigua:C.yellow, nuovo:C.muted}[row.stato]||C.muted;
+                                    const statiColor = {
+                                      contatti_trovati: C.green,
+                                      hubspot_sync: C.green,
+                                      linkedin_ok: C.yellow,
+                                      nuovo: C.yellow,
+                                      url_ambigua: C.yellow,
+                                      sito_mancante: C.yellow,
+                                      linkedin_ko: C.muted,
+                                    }[row.stato] || C.muted;
                                     return (
                                       <tr key={row.id} style={{borderBottom:`1px solid rgba(59,130,246,0.07)`,background:i%2===0?"transparent":"rgba(59,130,246,0.03)"}}>
                                         <td style={{padding:"5px 10px",color:C.text,fontWeight:600,minWidth:140,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.nome}</td>
@@ -2588,7 +2609,7 @@ function App() {
             if(ok){
               setCodeQueue(q=>({...q, siti:q.siti.filter(c=>c.id!==companyId)}));
               setCodeSitoEdit(e=>{const n={...e};delete n[companyId];return n;});
-              setHasSavedSiti(true);
+              setCodeQueue(q=>({...q, rilanciaReady:true}));
             }
           };
 
@@ -2600,7 +2621,7 @@ function App() {
             if(ok){
               setCodeQueue(q=>({...q, urlAmbigue:q.urlAmbigue.filter(c=>c.id!==companyId)}));
               setCodeUrlEdit(e=>{const n={...e};delete n[companyId];return n;});
-              setHasSavedUrl(true);
+              setCodeQueue(q=>({...q, rilanciaReady:true}));
             }
           };
 
@@ -2619,7 +2640,7 @@ function App() {
             </div>
           );
 
-          const canRilancia = hasSavedSiti || hasSavedUrl;
+          const canRilancia = codeQueue.rilanciaReady;
           const classificaBusy = fasi.find(f=>f.id==='classifica')?.stato==='in_corso';
 
           return (
@@ -2643,17 +2664,6 @@ function App() {
                     </button>
                   );
                 })}
-                <div style={{flex:1}}/>
-                <button
-                  disabled={!canRilancia||classificaBusy}
-                  onClick={rilanciClassificatore}
-                  title={!canRilancia?"Smarcare almeno un elemento per abilitare il rilancio":""}
-                  style={{padding:"6px 16px",fontSize:11,fontWeight:700,border:"none",borderRadius:6,cursor:(!canRilancia||classificaBusy)?"not-allowed":"pointer",whiteSpace:"nowrap",transition:"all 0.15s",
-                    color:(!canRilancia||classificaBusy)?"#4b5563":"#fff",
-                    background:classificaBusy?"rgba(255,255,255,0.05)":canRilancia?"linear-gradient(135deg,#059669,#10b981)":"rgba(255,255,255,0.04)",
-                    opacity:(!canRilancia&&!classificaBusy)?0.5:1}}>
-                  {classificaBusy?"⏳ Pipeline in corso...":"▶ Rilancia Pipeline"}
-                </button>
               </div>
 
               {/* ── URL AMBIGUI ── */}
@@ -2681,16 +2691,16 @@ function App() {
 
               {/* ── SITI MANCANTI ── */}
               {codeSubTab==='siti_mancanti'&&<div style={{display:"flex",flexDirection:"column",flex:1,minHeight:0}}>
-              <div style={{padding:"16px 20px",overflowY:"auto",flex:1}}>
+              <div style={{padding:"16px 20px",overflowY:"auto",flex:1,display:"flex",flexDirection:"column"}}>
               {!sbReady&&(
                 <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:24,textAlign:"center",color:C.muted,fontSize:12}}>
                   ⚡ Configura Supabase in Impostazioni per usare le code di revisione
                 </div>
               )}
               {sbReady&&codeQueue.loaded&&codeQueue.siti.length===0&&(
-                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:32,textAlign:"center"}}>
-                  <div style={{fontSize:24,marginBottom:8}}>✓</div>
-                  <div style={{fontSize:14,fontWeight:600,color:C.green,marginBottom:4}}>Nessun sito mancante</div>
+                <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12}}>
+                  <div style={{fontSize:28}}>✓</div>
+                  <div style={{fontSize:14,fontWeight:600,color:C.green}}>Nessun sito mancante</div>
                   <div style={{fontSize:12,color:C.muted}}>Tutte le aziende hanno un sito web</div>
                 </div>
               )}
