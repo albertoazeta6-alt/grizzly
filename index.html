@@ -225,13 +225,14 @@ async function loadCodeQueue() {
   const {url,key} = getSbCreds(); if(!url||!key) return null;
   const h = {apikey:key, Authorization:`Bearer ${key}`};
   try {
-    const [siti, urlAmbigue, contatti, pronti] = await Promise.all([
+    const [siti, urlAmbigue, contatti] = await Promise.all([
       fetch(`${url}/rest/v1/companies?stato=eq.sito_mancante&select=id,nome,citta,partita_iva&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
       fetch(`${url}/rest/v1/companies?stato=eq.url_ambigua&select=id,nome,sito_web,linkedin_url,citta&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
       Promise.resolve([]),
-      fetch(`${url}/rest/v1/companies?or=(stato.eq.nuovo,stato.eq.linkedin_ok)&select=id&limit=1`,{headers:h}).then(r=>r.ok?r.json():[]),
     ]);
-    return {siti: siti||[], urlAmbigue: urlAmbigue||[], contatti: contatti||[], rilanciaReady: (pronti||[]).length > 0};
+    // rilanciaReady NON viene impostato da loadCodeQueue — solo le azioni manuali dell'utente
+    // (approva URL, salva sito) lo attivano, per evitare che compaia sulla prima run
+    return {siti: siti||[], urlAmbigue: urlAmbigue||[], contatti: contatti||[]};
   } catch { return null; }
 }
 
