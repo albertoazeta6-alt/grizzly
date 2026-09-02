@@ -773,6 +773,31 @@ function App() {
     // poi: classifica→completato → company (Phantom) se ci sono stato=nuovo → hubspot → lemlist
   }, [sbSettings, runId]);
 
+  // ── Stop forzato Phantom + avvia HubSpot ────────────────────────────────────
+  const stopPhantomForzato = useCallback(async () => {
+    pushLog("warn","⏹ Stop Phantom forzato — avvio HubSpot...");
+    // Tenta abort Phantom API (potrebbe fallire per CORS da browser, non bloccante)
+    const phantomKey = sbSettings["phantom_api_key"]||"";
+    const agentId = "7679104398153989";
+    if (phantomKey) {
+      try {
+        await fetch("https://api.phantombuster.com/api/v2/agents/abort", {
+          method:"POST",
+          headers:{"Content-Type":"application/json","X-Phantombuster-Key-1":phantomKey},
+          body: JSON.stringify({id: agentId})
+        });
+        pushLog("ok","✓ Phantom abortito via API");
+      } catch(e) {
+        pushLog("warn","⚠ Abort Phantom fallito (CORS) — procedo comunque con HubSpot");
+      }
+    }
+    // Marca company come completato → triggera useEffect HubSpot
+    const now = new Date().toISOString();
+    setFaseS("company","completato",{completato:now,dettaglio:"Stop manuale — HubSpot avviato"});
+    sbWritePipelineState("company","completato","Stop manuale — HubSpot avviato");
+    showToast("⏹ Phantom fermato — HubSpot in avvio");
+  }, [sbSettings, pushLog, setFaseS, sbWritePipelineState]);
+
   // ── Classificazione: conta aziende stato=nuovo con sito ─────────────────────
   const fetchClassificaCount = useCallback(async () => {
     try {
@@ -2225,6 +2250,10 @@ function App() {
                               </a>
                             )}
                           </div>
+                          {/* Stop Phantom — in basso a destra, solo quando company in_corso */}
+                          {fase.id==="company"&&fase.stato==="in_corso"&&(
+                            <button onClick={stopPhantomForzato} style={{position:"absolute",bottom:8,right:8,fontSize:8,fontWeight:600,color:"#fca5a5",background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer"}}>⏹ Stop</button>
+                          )}
                           {/* Dot attivo */}
                           {isActive&&<div style={{position:"absolute",top:8,right:8,width:6,height:6,borderRadius:"50%",background:cfg.color,boxShadow:`0 0 7px ${cfg.color}`}}/>}
                           {/* Shimmer bar in_corso */}
