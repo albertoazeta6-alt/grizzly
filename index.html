@@ -1745,9 +1745,13 @@ function App() {
       // Attiva filtri rilevanti per la ricerca email
       setContattiStatoFilter(new Set(["enrichment_richiesto","email_trovata","email_non_trovata"]));
     }
-    showToast(tuttiInCoda
-      ? `↩ ${ids.length} contatti rimossi dalla coda email`
-      : `✉ ${ids.length} contatti in coda — premi "2. Cerca email buyer persona selezionate da Grizzly" nell'estensione`);
+    if (tuttiInCoda) {
+      pushLog("info", `↩ ${ids.length} contatti rimossi dalla coda email`);
+      showToast(`↩ ${ids.length} contatti rimossi dalla coda email`);
+    } else {
+      pushLog("ok", `✉ ${ids.length} contatti messi in coda per ricerca email — avvia step 2 nell'estensione`);
+      showToast(`✉ ${ids.length} contatti in coda — premi "2. Cerca email buyer persona selezionate da Grizzly" nell'estensione`);
+    }
   };
 
   const saveContattoSettore = async (companyId, settore) => {
