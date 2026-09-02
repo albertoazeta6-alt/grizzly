@@ -476,6 +476,8 @@ function App() {
     return dbSort.dir === 1 ? ' ↑' : ' ↓';
   };
   const [runView, setRunView] = useState(_initHash === 'run-leads' ? 'leads' : 'run_attuale'); // 'run_attuale' | 'leads'
+  const runViewRef = React.useRef(runView);
+  React.useEffect(() => { runViewRef.current = runView; }, [runView]);
   const [icebreakerOpen, setIcebreakerOpen] = useState(null); // row.id con testo espanso
   const [contattiRun, setContattiRun] = useState({rows:[], loading:false});
   const [contattiSort, setContattiSort] = useState({key:"azienda", dir:"asc"});
@@ -734,6 +736,7 @@ function App() {
 
   // ── Rilancia pipeline da Classificatore (classifica → Phantom → HubSpot → Lemlist) ─
   const rilanciClassificatore = useCallback(async () => {
+    const savedView = runViewRef.current; // preserva la view corrente
     const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
     if (!base) { showToast("⚠ URL Agente Azure non configurato"); return; }
     const openaiKey = sbSettings["openai_api_key"]||"";
@@ -747,7 +750,7 @@ function App() {
     {
       const {url:sbU, key:sbK} = getSbCreds();
       if (sbU && sbK) {
-        fetch(`${sbU}/rest/v1/companies?stato=not.in.(sito_mancante,hubspot_sync,linkedin_ko)&hubspot_id=is.null&select=id&limit=500`, {
+        fetch(`${sbU}/rest/v1/companies?stato=not.in.(sito_mancante,hubspot_sync,linkedin_ko,linkedin_ok)&hubspot_id=is.null&select=id&limit=500`, {
           headers:{apikey:sbK, Authorization:`Bearer ${sbK}`}
         }).then(rr=>rr.ok?rr.json():[]).then(async arr=>{
           const ids = arr.map(x=>x.id);
@@ -779,11 +782,57 @@ function App() {
     sbWritePipelineState("hubspot","bloccato","");
     sbWritePipelineState("lemlist","bloccato","");
     setCodeQueue(q=>({...q, rilanciaReady:false}));
+    setRunView(savedView); // ripristina la view (Leads o Ricerca Aziende)
     pushLog("ok","▶ Pipeline rilancita da Classificatore");
     showToast("✓ Pipeline rilancita da Classificatore");
     // classificaAutoRef useEffect rilancia /classifica/avvia
     // poi: classifica→completato → company (Phantom) se ci sono stato=nuovo → hubspot → lemlist
   }, [sbSettings, runId]);
+
+  // ── Rilancia smart: controlla cosa c'è da fare e sceglie il percorso ────────────────────────
+  // Se ci sono solo aziende linkedin_ok (URL verificati) → salta Phantom, vai diretto a HubSpot
+  // Se ci sono aziende da riclassificare → pipeline completa da classificatore
+  const rilanciaSmartPipeline = useCallback(async () => {
+    const {url:sbU, key:sbK} = getSbCreds();
+    if (!sbU || !sbK) { showToast("⚠ Credenziali Supabase mancanti"); return; }
+    // Conta aziende che richiedono Phantom (non linkedin_ok, non siti_mancante, ecc.)
+    let needPhantom = 0;
+    let linkedinOkIds = [];
+    try {
+      const [rPhantom, rOk] = await Promise.all([
+        fetch(`${sbU}/rest/v1/companies?stato=not.in.(sito_mancante,hubspot_sync,linkedin_ko,linkedin_ok)&hubspot_id=is.null&select=id&limit=1`, {
+          headers:{apikey:sbK, Authorization:`Bearer ${sbK}`, Prefer:"count=exact", Range:"0-0"}
+        }),
+        fetch(`${sbU}/rest/v1/companies?stato=eq.linkedin_ok&hubspot_id=is.null&select=id&limit=500`, {
+          headers:{apikey:sbK, Authorization:`Bearer ${sbK}`}
+        }),
+      ]);
+      const cr = rPhantom.headers.get("content-range")||"0/0";
+      needPhantom = parseInt(cr.split("/")[1]||"0");
+      const okArr = rOk.ok ? await rOk.json() : [];
+      linkedinOkIds = okArr.map(x=>x.id);
+    } catch(e) {}
+
+    if (needPhantom === 0 && linkedinOkIds.length > 0) {
+      // Solo linkedin_ok → salta Phantom, vai diretto a HubSpot
+      if (!MAKE.hubspot) { pushLog("warn","⚠ Webhook HubSpot non configurato"); return; }
+      rilancioCompanyIdsRef.current = linkedinOkIds;
+      hubspotAutoFiredRef.current = false;
+      setFaseS("hubspot","attesa",{dettaglio:"Aggiornamento HubSpot per URL verificati..."});
+      setFaseS("lemlist","bloccato",{dettaglio:""});
+      sbWritePipelineState("hubspot","attesa","Aggiornamento HubSpot per URL verificati...");
+      sbWritePipelineState("lemlist","bloccato","");
+      setCodeQueue(q=>({...q, rilanciaReady:false}));
+      pushLog("ok", `▶ ${linkedinOkIds.length} aziende con URL verificato → avvio HubSpot diretto`);
+      await callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId||"", runStart: runStart||"", companyIds: linkedinOkIds }, "Aggiornamento Hubspot");
+      setFaseS("hubspot","in_corso",{iniziato:new Date().toISOString(), dettaglio:"Aggiornamento aziende su HubSpot..."});
+      pushLog("ok","▶ Aggiornamento HubSpot avviato");
+      showToast("✓ HubSpot avviato per URL verificati");
+    } else {
+      // Ci sono aziende da riclassificare → pipeline completa
+      rilanciClassificatore();
+    }
+  }, [runId, runStart, sbWritePipelineState, setFaseS, pushLog, rilanciClassificatore]);
 
   // ── Stop forzato Phantom + avvia HubSpot ────────────────────────────────────
   const stopPhantomForzato = useCallback(async () => {
@@ -1614,12 +1663,12 @@ function App() {
     } catch(e) { showToast("✕ Errore lettura contatti: " + e.message); return; }
     if (!contactsPayload.length) { showToast("⚠ Nessun contatto da processare"); return; }
     const label = `${contactsPayload.length} contatti`;
-    pushLog("info", `▶ Avvio Sc.4 — Carica Contatti (${label})`);
+    pushLog("info", `▶ Avvio caricamento contatti (${label})`);
     try {
       await fetch(MAKE.cercaEmail, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({runId, secret:"grizzly2026", contacts: contactsPayload})});
-      pushLog("ok", `✓ Webhook Sc.4 inviato — ${contactsPayload.length} contatti`);
+      pushLog("ok", `✓ Webhook Carica Contatti lanciato per ${contactsPayload.length} contatti`);
     } catch(e) {
-      pushLog("error", "✕ Errore webhook Sc.4: " + e.message);
+      pushLog("error", "✕ Errore invio contatti a HubSpot + Lemlist: " + e.message);
       return;
     }
     // Polling: monitora stato contatti finché tutti in_coda→inviato (o timeout 10 min)
@@ -1690,10 +1739,15 @@ function App() {
       return;
     }
     setContattiRun(p=>({...p, rows:p.rows.map(r=>ids.includes(r.id)?{...r,stato:nuovoStato}:r)}));
-    if (tuttiInCoda) setContattiSelected(new Set());
+    if (tuttiInCoda) {
+      setContattiSelected(new Set());
+    } else {
+      // Attiva filtri rilevanti per la ricerca email
+      setContattiStatoFilter(new Set(["enrichment_richiesto","email_trovata","email_non_trovata"]));
+    }
     showToast(tuttiInCoda
       ? `↩ ${ids.length} contatti rimossi dalla coda email`
-      : `✉ ${ids.length} contatti in coda — premi "Cerca email contatti selezionati da Grizzly" nell'estensione`);
+      : `✉ ${ids.length} contatti in coda — premi "2. Cerca email buyer persona selezionate da Grizzly" nell'estensione`);
   };
 
   const saveContattoSettore = async (companyId, settore) => {
@@ -2478,7 +2532,7 @@ function App() {
                         const fasiBusy = ['import','classifica','company','hubspot','aggiorna'];
                         const busy = fasi.some(f=>fasiBusy.includes(f.id) && f.stato==='in_corso');
                         return (
-                          <button disabled={busy} onClick={rilanciClassificatore}
+                          <button disabled={busy} onClick={rilanciaSmartPipeline}
                             style={{padding:"6px 16px",fontSize:12,fontWeight:700,border:"none",borderRadius:6,cursor:busy?"not-allowed":"pointer",whiteSpace:"nowrap",transition:"all 0.15s",
                               color:busy?"#4b5563":"#fff",
                               background:busy?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)"}}>
