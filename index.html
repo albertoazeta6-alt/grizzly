@@ -461,7 +461,7 @@ function App() {
   const fasiRef = React.useRef([]);
   const prevCountersRef = React.useRef({az_input:null, az_output:null, exec:null, scartati:null});
   const [importDati, setImportDati] = useState({open:false, rows:[], loading:false, edits:{}, sortCol:null, sortDir:"asc"});
-  const [runView, setRunView] = useState('run_attuale'); // 'run_attuale' | 'aziende' | 'leads'
+  const [runView, setRunView] = useState('run_attuale'); // 'run_attuale' | 'leads'
   const [icebreakerOpen, setIcebreakerOpen] = useState(null); // row.id con testo espanso
   const [contattiRun, setContattiRun] = useState({rows:[], loading:false});
   const [contattiSort, setContattiSort] = useState({key:"azienda", dir:"asc"});
@@ -1098,8 +1098,8 @@ function App() {
   // Auto-refresh tabella aziende importate quando classificazione completa
   useEffect(() => {
     if (classificaStato !== "completato") return;
-    // refresh rispettando la view attiva: run_attuale filtra per runStart, aziende mostra tutto
-    openImportDati(runView === 'run_attuale' ? runStart : undefined);
+    // refresh rispettando la view attiva: run_attuale filtra per runStart
+    if (runView === 'run_attuale') openImportDati(runStart);
   }, [classificaStato]);
 
   // Auto-refresh tabella aziende importate quando i contatori cambiano (Phantom sta lavorando)
@@ -1134,6 +1134,20 @@ function App() {
     const t = setInterval(fetchCounters, 10000);
     return () => clearInterval(t);
   }, [fetchCounters]);
+
+  // Polling badge + contatori Code ogni 15s (indipendente dal tab aperto)
+  useEffect(() => {
+    if (!sbReady) return;
+    const refresh = () => {
+      loadCodeQueue().then(data => {
+        if (data) setCodeQueue(q => ({...q, ...data}));
+      });
+      fetchQueueCounts();
+    };
+    refresh();
+    const t = setInterval(refresh, 15000);
+    return () => clearInterval(t);
+  }, [sbReady, fetchQueueCounts]);
 
 
   // Polling silenzioso contatti ogni 10s — solo quando lemlist è attesa_utente (non azzera selezioni)
@@ -1784,6 +1798,7 @@ function App() {
             </button>
             {[
               {key:"revisione",label:"Code",icon:"📋",badge:(codeQueue.urlAmbigue?.length||0)+(codeQueue.siti?.length||0)},
+              {key:"database",label:"Database",icon:"🗄",badge:0},
               {key:"impostazioni",label:"Impostazioni",icon:"⚙",badge:0}
             ].map((t,i)=>{
               const active = tab===t.key;
@@ -1807,6 +1822,7 @@ function App() {
                   {[
                     {key:"run",label:"Pipeline",icon:"◈"},
                     {key:"revisione",label:"Code",icon:"📋"},
+                    {key:"database",label:"Database",icon:"🗄"},
                     {key:"impostazioni",label:"Impostazioni",icon:"⚙"}
                   ].map((t,i)=>{
                     const active = tab===t.key;
@@ -2321,15 +2337,13 @@ function App() {
                   {/* ── TOGGLE LEADS / AZIENDE + RILANCIA PIPELINE ── */}
                   <div style={{display:"flex",gap:6,marginBottom:0,alignItems:"center",width:"100%"}}>
                       {[
-                        {key:"run_attuale", label:"🎯 Run Attuale"},
-                        {key:"aziende",     label:"🏢 Aziende"},
+                        {key:"run_attuale", label:"🔍 Ricerca Aziende"},
                         {key:"leads",       label:"📊 Leads"},
                       ].map(({key,label})=>{
                         const active = runView===key;
                         return (
                           <button key={key} onClick={()=>{
                             setRunView(key);
-                            if(key==='aziende') openImportDati();
                             if(key==='run_attuale') openImportDati(runStart);
                           }}
                             style={{padding:"6px 18px",fontSize:12,fontWeight:700,border:"none",borderRadius:6,cursor:"pointer",
@@ -2508,12 +2522,12 @@ function App() {
                     </div>
                   )}
                   {/* ── AZIENDE IMPORTATE ── */}
-                  {importDati.open&&(runView==='aziende'||runView==='run_attuale')&&(
+                  {importDati.open&&runView==='run_attuale'&&(
                     <div style={{background:"rgba(37,99,235,0.10)",border:`1px solid rgba(59,130,246,0.4)`,borderRadius:6,overflow:"hidden",flex:1,minHeight:0}}>
                       <div style={{fontSize:12,fontWeight:700,color:"#60a5fa",padding:"10px 16px",borderBottom:`1px solid rgba(59,130,246,0.2)`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                        <span>{runView==='run_attuale'?"🎯 Run Attuale":"🏢 Aziende in pipeline"}</span>
+                        <span>🔍 Ricerca Aziende</span>
                         <div style={{display:"flex",gap:6}}>
-                          <button onClick={()=>runView==='run_attuale'?openImportDati(runStart):openImportDati()} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>⟳ Aggiorna</button>
+                          <button onClick={()=>openImportDati(runStart)} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>⟳ Aggiorna</button>
                           <button onClick={()=>setImportDati(p=>({...p,open:false}))} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>✕ Chiudi</button>
                         </div>
                       </div>
@@ -2708,6 +2722,49 @@ function App() {
             })}
           </div>
         )}
+
+        {/* ══ DATABASE ══ */}
+        {tab==="database"&&(()=>{
+          if (!importDati.open || importDati.rows.length === 0) openImportDati();
+          return (
+            <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:12,height:"100%",boxSizing:"border-box"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <span style={{fontSize:14,fontWeight:700,color:C.textHi}}>🗄 Database Aziende</span>
+                <button onClick={()=>openImportDati()} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:4,padding:"3px 10px",cursor:"pointer"}}>⟳ Aggiorna</button>
+              </div>
+              {importDati.loading
+                ? <div style={{padding:20,textAlign:"center",color:C.muted,fontSize:11}}>Caricamento...</div>
+                : importDati.rows.length===0
+                  ? <div style={{padding:20,textAlign:"center",color:C.muted,fontSize:11}}>Nessuna azienda trovata</div>
+                  : <div style={{overflowX:"auto",overflowY:"auto",flex:1,minHeight:0}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+                        <thead>
+                          <tr style={{background:"rgba(37,99,235,0.15)"}}>
+                            {["Azienda","Sito","Città","Stato","Settore"].map(h=>(
+                              <th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.accent,fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,whiteSpace:"nowrap"}}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {importDati.rows.map((row,i)=>{
+                            const stCfg = STATO_CFG[row.stato]||{color:C.muted,label:row.stato};
+                            return (
+                              <tr key={row.id} style={{borderBottom:`1px solid ${C.border}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
+                                <td style={{padding:"5px 10px",color:C.text,fontWeight:600,whiteSpace:"nowrap"}}>{row.nome}</td>
+                                <td style={{padding:"5px 10px"}}>{row.sito_web?<a href={row.sito_web} target="_blank" rel="noopener noreferrer" style={{color:C.accent,textDecoration:"none"}}>{row.sito_web.replace(/^https?:\/\/(www\.)?/,"").split("/")[0]}</a>:"—"}</td>
+                                <td style={{padding:"5px 10px",color:C.muted,whiteSpace:"nowrap"}}>{row.citta||"—"}</td>
+                                <td style={{padding:"5px 10px",whiteSpace:"nowrap"}}><span style={{color:stCfg.color,fontWeight:600,fontSize:9}}>{stCfg.label||row.stato}</span></td>
+                                <td style={{padding:"5px 10px",color:C.muted}}>{row.settore||"—"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+              }
+            </div>
+          );
+        })()}
 
         {/* ══ CODE DI REVISIONE ══ */}
         {tab==="revisione"&&(()=>{
