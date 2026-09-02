@@ -411,7 +411,9 @@ const REVIEW_TOOL_B64 = "PCFET0NUWVBFIGh0bWw+CjxodG1sIGxhbmc9Iml0Ij4KPGhlYWQ+Cjx
 const REVIEW_TOOL_HTML = new TextDecoder().decode(Uint8Array.from(atob(REVIEW_TOOL_B64), c => c.charCodeAt(0)));
 
 function App() {
-  const [tab, setTab]               = useState("run");
+  const _initHash = window.location.hash.replace('#','');
+  const _initTab  = (()=>{ const t = _initHash.split('-')[0]; return ['run','revisione','database','impostazioni'].includes(t) ? t : 'run'; })();
+  const [tab, setTab]               = useState(_initTab);
   const _savedRun = (() => { try { return JSON.parse(localStorage.getItem("grizzly_run")||"null"); } catch{return null;} })();
   const [runAttivo, setRunAttivo]   = useState(_savedRun?.runAttivo||false);
   const [dropzoneMode, setDropzoneMode] = useState(_savedRun ? false : false);
@@ -461,7 +463,7 @@ function App() {
   const fasiRef = React.useRef([]);
   const prevCountersRef = React.useRef({az_input:null, az_output:null, exec:null, scartati:null});
   const [importDati, setImportDati] = useState({open:false, rows:[], loading:false, edits:{}, sortCol:null, sortDir:"asc"});
-  const [runView, setRunView] = useState('run_attuale'); // 'run_attuale' | 'leads'
+  const [runView, setRunView] = useState(_initHash === 'run-leads' ? 'leads' : 'run_attuale'); // 'run_attuale' | 'leads'
   const [icebreakerOpen, setIcebreakerOpen] = useState(null); // row.id con testo espanso
   const [contattiRun, setContattiRun] = useState({rows:[], loading:false});
   const [contattiSort, setContattiSort] = useState({key:"azienda", dir:"asc"});
@@ -728,14 +730,26 @@ function App() {
     hubspotAutoFiredRef.current = false;
     classificaAutoRef.current = false;
     companyCeckFiredRef.current = false;
-    // Salva gli ID delle aziende oggetto di questo rilancio (non-blocking)
+    // Salva gli ID delle aziende oggetto di questo rilancio e le resetta a 'nuovo'
+    // così l'Edge Function phantom-input le restituisce correttamente a Phantom (non-blocking)
     {
       const {url:sbU, key:sbK} = getSbCreds();
       if (sbU && sbK) {
         fetch(`${sbU}/rest/v1/companies?stato=not.in.(sito_mancante,hubspot_sync,linkedin_ko)&hubspot_id=is.null&select=id&limit=500`, {
           headers:{apikey:sbK, Authorization:`Bearer ${sbK}`}
-        }).then(rr=>rr.ok?rr.json():[]).then(arr=>{
-          rilancioCompanyIdsRef.current = arr.map(x=>x.id);
+        }).then(rr=>rr.ok?rr.json():[]).then(async arr=>{
+          const ids = arr.map(x=>x.id);
+          rilancioCompanyIdsRef.current = ids;
+          // Reset stato a 'nuovo' così Phantom le trova via Edge Function (GET senza params)
+          if (ids.length > 0) {
+            const idList = ids.join(',');
+            await fetch(`${sbU}/rest/v1/companies?id=in.(${idList})`, {
+              method:'PATCH',
+              headers:{apikey:sbK, Authorization:`Bearer ${sbK}`, 'Content-Type':'application/json', Prefer:'return=minimal'},
+              body: JSON.stringify({stato:'nuovo', aggiornato_il: new Date().toISOString()})
+            }).catch(()=>{});
+            pushLog("info", `↺ ${ids.length} aziende resettate a 'nuovo' per rilancio Phantom`);
+          }
         }).catch(()=>{ rilancioCompanyIdsRef.current = []; });
       }
     }
@@ -960,6 +974,15 @@ function App() {
     if (tab === "database") openImportDati();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+
+  // Legge l'hash all'avvio per aprire la vista corretta (es. #run-leads dall'estensione)
+  useEffect(() => {
+    const h = window.location.hash.replace('#','');
+    if (h === 'run-leads') {
+      setTab('run');
+      setRunView('leads');
+    }
+  }, []);
 
   // Quando import è completato → avvia Classificazione e Company Page IN PARALLELO
   useEffect(() => {
@@ -2363,32 +2386,17 @@ function App() {
                             if(key==='run_attuale') openImportDati(runStart);
                           }}
                             style={{padding:"6px 18px",fontSize:12,fontWeight:700,border:"none",borderRadius:6,cursor:"pointer",
-                              color: active?"#fff":"#93c5fd",
-                              background: active?"linear-gradient(135deg,#2563eb,#3b82f6)":"rgba(37,99,235,0.12)",
+                              color: active?"#fff":"#e2e8f0",
+                              background: active?"linear-gradient(135deg,#2563eb,#3b82f6)":"rgba(37,99,235,0.18)",
                               transition:"all 0.15s"}}>
                             {label}
                           </button>
                         );
                       })}
                       <div style={{flex:1}}/>
-                      {(()=>{
-                        // Bottone manuale: solo se avviaLemlist non è già partito automaticamente e ci sono contatti pronti
-                        if (lemlistAutoFiredRef.current) return null;
-                        const hasEmail = contattiRun.rows.some(r => r.stato === 'email_trovata' || r.stato === 'email_non_trovata');
-                        if (!hasEmail) return null;
-                        const hasSel = contattiSelected.size > 0;
-                        const emailCount = hasSel ? contattiSelected.size : contattiRun.rows.filter(r => r.stato === 'email_trovata' || r.stato === 'email_non_trovata').length;
-                        return (
-                          <button onClick={()=>{lemlistAutoFiredRef.current=true; avviaLemlist();}}
-                            style={{padding:"6px 16px",fontSize:12,fontWeight:700,border:"none",borderRadius:6,whiteSpace:"nowrap",transition:"all 0.15s",
-                              cursor:"pointer",color:"#fff",
-                              background:"linear-gradient(135deg,#059669,#10b981)"}}>
-                            {hasSel?`▶ Carica contatti HubSpot + Lemlist (${emailCount} selezionati)`:`▶ Carica contatti HubSpot + Lemlist (${emailCount})`}
-                          </button>
-                        );
-                      })()}
                       {codeQueue.rilanciaReady&&(()=>{
-                        const busy = fasi.find(f=>f.id==='classifica')?.stato==='in_corso';
+                        const fasiBusy = ['import','classifica','company','hubspot','aggiorna'];
+                        const busy = fasi.some(f=>fasiBusy.includes(f.id) && f.stato==='in_corso');
                         return (
                           <button disabled={busy} onClick={rilanciClassificatore}
                             style={{padding:"6px 16px",fontSize:12,fontWeight:700,border:"none",borderRadius:6,cursor:busy?"not-allowed":"pointer",whiteSpace:"nowrap",transition:"all 0.15s",
@@ -2472,7 +2480,7 @@ function App() {
                                   color:tuttiInCoda?"#c084fc":"#6ee7b7"}}>
                                   {tuttiInCoda
                                     ? `${contattiSelected.size} in coda email — clicca "Cerca email" per rimuoverli dalla coda`
-                                    : `${contattiSelected.size} selezionati — Carica contatti HubSpot + Lemlist processerà solo questi`}
+                                    : `${contattiSelected.size} selezionati`}
                                 </div>
                               );
                             })()}
