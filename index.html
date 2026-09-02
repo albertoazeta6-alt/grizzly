@@ -461,7 +461,7 @@ function App() {
   const fasiRef = React.useRef([]);
   const prevCountersRef = React.useRef({az_input:null, az_output:null, exec:null, scartati:null});
   const [importDati, setImportDati] = useState({open:false, rows:[], loading:false, edits:{}, sortCol:null, sortDir:"asc"});
-  const [runView, setRunView] = useState('aziende'); // 'aziende' | 'leads'
+  const [runView, setRunView] = useState('run_attuale'); // 'run_attuale' | 'aziende' | 'leads'
   const [icebreakerOpen, setIcebreakerOpen] = useState(null); // row.id con testo espanso
   const [contattiRun, setContattiRun] = useState({rows:[], loading:false});
   const [contattiSort, setContattiSort] = useState({key:"azienda", dir:"asc"});
@@ -1098,7 +1098,8 @@ function App() {
   // Auto-refresh tabella aziende importate quando classificazione completa
   useEffect(() => {
     if (classificaStato !== "completato") return;
-    if (runStart) openImportDati(runStart);
+    // refresh rispettando la view attiva: run_attuale filtra per runStart, aziende mostra tutto
+    openImportDati(runView === 'run_attuale' ? runStart : undefined);
   }, [classificaStato]);
 
   // Auto-refresh tabella aziende importate quando i contatori cambiano (Phantom sta lavorando)
@@ -1217,6 +1218,12 @@ function App() {
     const runStartLocal = new Date().toISOString();
     setDropzoneMode(false); setRunId(id); setRunStart(runStartLocal); setRunAttivo(true);
     setLog([]); setFasi(FASI_INIT); setExecs([]); lemlistHadContactsRef.current = false;
+    // Reset ref anti-doppio-lancio per nuova run
+    companyCeckFiredRef.current = false;
+    classificaFiredRef.current = false;
+    hubspotAutoFiredRef.current = false;
+    classificaAutoRef.current = false;
+    rilancioCompanyIdsRef.current = [];
     setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
     setErrori(DEFAULT_ERRORI.map(e=>({...e,stato:"aperto"})));
     pushLog("info",`Run ${id} avviato — campagna: ${campagna}`);
@@ -1302,7 +1309,7 @@ function App() {
               pushLog("ok",`✓ ${nuove.length} aziende importate in Supabase`);
               setFaseS("import","completato",{dettaglio:`${nuove.length} nuove · ${rowCount-nuove.length} duplicate`});
               sbWritePipelineState("import","completato",`${nuove.length} nuove · ${rowCount-nuove.length} duplicate`);
-              openImportDati(runStartLocal); // apre automaticamente con timestamp corretto
+              setRunView('run_attuale'); openImportDati(runStartLocal); // apre su Run Attuale
               // Il Phantom parte dopo la classificazione (via useEffect su classificaFase=completato)
             } else {
               pushLog("error","✕ Errore scrittura Supabase — verifica credenziali");
@@ -1356,9 +1363,9 @@ function App() {
     try {
       const {url:sbUrl, key:sbKey} = getSbCreds();
       if (!sbUrl || !sbKey) { setImportDati(p=>({...p, loading:false})); return; }
-      const ts = sinceTs || runStart;
-      const filter = ts ? `&creato_il=gte.${encodeURIComponent(ts)}` : "";
-      const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,icebreaker${filter}&order=nome.asc&limit=500`, {
+      // sinceTs passato → solo run corrente; altrimenti tutte le aziende
+      const filter = sinceTs ? `&creato_il=gte.${encodeURIComponent(sinceTs)}` : "";
+      const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,icebreaker${filter}&order=creato_il.desc&limit=500`, {
         headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`}
       });
       const rows = r.ok ? await r.json() : [];
@@ -2314,14 +2321,16 @@ function App() {
                   {/* ── TOGGLE LEADS / AZIENDE + RILANCIA PIPELINE ── */}
                   <div style={{display:"flex",gap:6,marginBottom:0,alignItems:"center",width:"100%"}}>
                       {[
-                        {key:"aziende", label:"🏢 Aziende"},
-                        {key:"leads",   label:"📊 Leads"},
+                        {key:"run_attuale", label:"🎯 Run Attuale"},
+                        {key:"aziende",     label:"🏢 Aziende"},
+                        {key:"leads",       label:"📊 Leads"},
                       ].map(({key,label})=>{
                         const active = runView===key;
                         return (
                           <button key={key} onClick={()=>{
                             setRunView(key);
-                            if(key==='aziende'&&!importDati.open) openImportDati(runStart);
+                            if(key==='aziende') openImportDati();
+                            if(key==='run_attuale') openImportDati(runStart);
                           }}
                             style={{padding:"6px 18px",fontSize:12,fontWeight:700,border:"none",borderRadius:6,cursor:"pointer",
                               color: active?"#fff":"#93c5fd",
@@ -2499,12 +2508,12 @@ function App() {
                     </div>
                   )}
                   {/* ── AZIENDE IMPORTATE ── */}
-                  {importDati.open&&runView==='aziende'&&(
+                  {importDati.open&&(runView==='aziende'||runView==='run_attuale')&&(
                     <div style={{background:"rgba(37,99,235,0.10)",border:`1px solid rgba(59,130,246,0.4)`,borderRadius:6,overflow:"hidden",flex:1,minHeight:0}}>
                       <div style={{fontSize:12,fontWeight:700,color:"#60a5fa",padding:"10px 16px",borderBottom:`1px solid rgba(59,130,246,0.2)`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                        <span>🏢 Aziende importate — run corrente</span>
+                        <span>{runView==='run_attuale'?"🎯 Run Attuale":"🏢 Aziende in pipeline"}</span>
                         <div style={{display:"flex",gap:6}}>
-                          <button onClick={()=>openImportDati(runStart)} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>⟳ Aggiorna</button>
+                          <button onClick={()=>runView==='run_attuale'?openImportDati(runStart):openImportDati()} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>⟳ Aggiorna</button>
                           <button onClick={()=>setImportDati(p=>({...p,open:false}))} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>✕ Chiudi</button>
                         </div>
                       </div>
