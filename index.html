@@ -955,6 +955,12 @@ function App() {
     }
   }, [fasi, fetchProspecting]);
 
+  // Carica dati Database quando si apre il tab
+  useEffect(() => {
+    if (tab === "database") openImportDati();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
   // Quando import è completato → avvia Classificazione e Company Page IN PARALLELO
   useEffect(() => {
     const importFase     = fasi.find(f => f.id === "import");
@@ -2739,7 +2745,6 @@ function App() {
 
         {/* ══ DATABASE ══ */}
         {tab==="database"&&(()=>{
-          if (!importDati.open || importDati.rows.length === 0) openImportDati();
           return (
             <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:12,height:"100%",boxSizing:"border-box"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
