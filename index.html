@@ -482,7 +482,8 @@ function App() {
   const companyCeckFiredRef = React.useRef(false);
   const hubspotAutoFiredRef = React.useRef(false);
   const rilancioCompanyIdsRef = React.useRef([]); // IDs aziende oggetto dell'ultimo rilancio pipeline
-  const lemlistHadContactsRef = React.useRef(false); // evita auto-complete prima che l'extension carichi i contatti
+  const lemlistHadContactsRef   = React.useRef(false); // evita auto-complete prima che l'extension carichi i contatti
+  const lemlistAutoFiredRef     = React.useRef(false); // guard anti-doppio-lancio avviaLemlist automatico
   const [prospectingTab, setProspectingTab]   = useState("tabella"); // "tabella" | "sheets"
   const [prospectingSelected, setProspectingSelected] = useState(()=>{
     try { const s=localStorage.getItem('grizzly_selected'); return s?new Set(JSON.parse(s)):new Set(); } catch(e){ return new Set(); }
@@ -707,7 +708,9 @@ function App() {
     }
     try {
       pushLog("info","▶ Invio webhook Cerca Company Page (Phantom)...");
-      await fetch(MAKE.company, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({runId, campagna, secret:"grizzly2026"})});
+      const companyPayload = {runId, campagna, secret:"grizzly2026"};
+      if (rilancioCompanyIdsRef.current?.length) companyPayload.companyIds = rilancioCompanyIdsRef.current;
+      await fetch(MAKE.company, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(companyPayload)});
       pushLog("ok", "✓ Cerca Company Page avviato (Phantom)");
       setFaseS("company","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Phantom in esecuzione..."});
       sbWritePipelineState("company","in_corso","Phantom in esecuzione...");
@@ -975,10 +978,6 @@ function App() {
         } else {
           pushLog("warn","⚠ Phantom già avviato per questo runId (localStorage)");
         }
-      } else if (companyCeckFiredRef.current) {
-        // già sparato in questa sessione, ok
-      } else if (companyGiaAvviata) {
-        pushLog("info",`ℹ Phantom già in stato: ${companyFase?.stato} — non riavviato`);
       }
     }
     if (importFase?.stato !== "completato") {
@@ -1159,11 +1158,23 @@ function App() {
   }, [fasi.find(f=>f.id==="lemlist")?.stato]);
 
   const autoCompletaLemlist = (rows) => {
-    if (rows.length > 0) { lemlistHadContactsRef.current = true; return; }
-    if (!lemlistHadContactsRef.current) return; // non ha ancora visto contatti — aspetta l'extension
-    const lemFase = fasiRef.current.find(f => f.id === "lemlist");
-    if (lemFase?.stato !== "attesa_utente") return;
-    setFaseS("lemlist", "completato", {completato: new Date().toISOString(), dettaglio: "Tutti i contatti caricati"});
+    // Legacy: segna lemlist completato quando l'extension ha finito (Google Sheets flow)
+    if (rows.length > 0) { lemlistHadContactsRef.current = true; }
+    if (lemlistHadContactsRef.current && rows.length === 0) {
+      const lemFase = fasiRef.current.find(f => f.id === "lemlist");
+      if (lemFase?.stato === "attesa_utente") {
+        setFaseS("lemlist", "completato", {completato: new Date().toISOString(), dettaglio: "Tutti i contatti caricati"});
+      }
+    }
+    // Auto-invio HubSpot+Lemlist: quando ricerca email terminata e ci sono contatti da inviare
+    if (lemlistAutoFiredRef.current) return;
+    const inCoda     = rows.filter(r => r.stato === "enrichment_richiesto").length;
+    const pronti     = rows.filter(r => r.stato === "email_trovata" || r.stato === "email_non_trovata").length;
+    if (pronti > 0 && inCoda === 0) {
+      lemlistAutoFiredRef.current = true;
+      pushLog("ok", `✓ Ricerca email terminata — auto-invio ${pronti} contatti a HubSpot + Lemlist`);
+      avviaLemlist();
+    }
   };
 
   // Polling foglio dipendenti ogni 20s — solo quando stato=in_corso E dettaglio=Elaborazione
@@ -1231,7 +1242,7 @@ function App() {
     const id = `RUN-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${String(Math.floor(Math.random()*900)+100)}`;
     const runStartLocal = new Date().toISOString();
     setDropzoneMode(false); setRunId(id); setRunStart(runStartLocal); setRunAttivo(true);
-    setLog([]); setFasi(FASI_INIT); setExecs([]); lemlistHadContactsRef.current = false;
+    setLog([]); setFasi(FASI_INIT); setExecs([]); lemlistHadContactsRef.current = false; lemlistAutoFiredRef.current = false;
     // Reset ref anti-doppio-lancio per nuova run
     companyCeckFiredRef.current = false;
     classificaFiredRef.current = false;
@@ -2356,14 +2367,18 @@ function App() {
                       })}
                       <div style={{flex:1}}/>
                       {(()=>{
+                        // Bottone manuale: solo se avviaLemlist non è già partito automaticamente e ci sono contatti pronti
+                        if (lemlistAutoFiredRef.current) return null;
+                        const hasEmail = contattiRun.rows.some(r => r.stato === 'email_trovata' || r.stato === 'email_non_trovata');
+                        if (!hasEmail) return null;
                         const hasSel = contattiSelected.size > 0;
+                        const emailCount = hasSel ? contattiSelected.size : contattiRun.rows.filter(r => r.stato === 'email_trovata' || r.stato === 'email_non_trovata').length;
                         return (
-                          <button disabled={!hasSel} onClick={avviaLemlist}
+                          <button onClick={()=>{lemlistAutoFiredRef.current=true; avviaLemlist();}}
                             style={{padding:"6px 16px",fontSize:12,fontWeight:700,border:"none",borderRadius:6,whiteSpace:"nowrap",transition:"all 0.15s",
-                              cursor:hasSel?"pointer":"not-allowed",
-                              color:hasSel?"#fff":"#4b5563",
-                              background:hasSel?"linear-gradient(135deg,#059669,#10b981)":"rgba(255,255,255,0.05)"}}>
-                            {hasSel?`▶ Carica contatti HubSpot + Lemlist (${contattiSelected.size})`:"▶ Carica contatti HubSpot + Lemlist"}
+                              cursor:"pointer",color:"#fff",
+                              background:"linear-gradient(135deg,#059669,#10b981)"}}>
+                            {hasSel?`▶ Carica contatti HubSpot + Lemlist (${emailCount} selezionati)`:`▶ Carica contatti HubSpot + Lemlist (${emailCount})`}
                           </button>
                         );
                       })()}
