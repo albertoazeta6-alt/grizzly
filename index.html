@@ -464,6 +464,17 @@ function App() {
   const fasiRef = React.useRef([]);
   const prevCountersRef = React.useRef({az_input:null, az_output:null, exec:null, scartati:null});
   const [importDati, setImportDati] = useState({open:false, rows:[], loading:false, edits:{}, sortCol:null, sortDir:"asc"});
+  const [dbSearch,   setDbSearch]   = useState('');
+  const [dbSort,     setDbSort]     = useState({col:null, dir:1});
+  const [dbSubTab,   setDbSubTab]   = useState('aziende');
+  const [dbPage,     setDbPage]     = useState(1);
+  const [dbAziende,  setDbAziende]  = useState({rows:[], loading:false, loaded:false});
+  const [dbContatti, setDbContatti] = useState({rows:[], loading:false, loaded:false});
+  const dbToggleSort = useCallback(col => setDbSort(s => s.col===col ? {col, dir:-s.dir} : {col, dir:1}), []);
+  const dbSortIcon   = col => {
+    if (dbSort.col !== col) return ' ↕';
+    return dbSort.dir === 1 ? ' ↑' : ' ↓';
+  };
   const [runView, setRunView] = useState(_initHash === 'run-leads' ? 'leads' : 'run_attuale'); // 'run_attuale' | 'leads'
   const [icebreakerOpen, setIcebreakerOpen] = useState(null); // row.id con testo espanso
   const [contattiRun, setContattiRun] = useState({rows:[], loading:false});
@@ -995,9 +1006,9 @@ function App() {
     }
   }, [fasi, fetchProspecting]);
 
-  // Carica dati Database quando si apre il tab
+  // Carica dati CRM quando si apre il tab
   useEffect(() => {
-    if (tab === "database") openImportDati();
+    if (tab === "database") { openDbAziende(); openImportContatti(); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
@@ -1443,14 +1454,54 @@ function App() {
     try {
       const {url:sbUrl, key:sbKey} = getSbCreds();
       if (!sbUrl || !sbKey) { setImportDati(p=>({...p, loading:false})); return; }
-      // sinceTs passato → solo run corrente; altrimenti tutte le aziende
       const filter = sinceTs ? `&creato_il=gte.${encodeURIComponent(sinceTs)}` : "";
-      const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,icebreaker${filter}&order=creato_il.desc&limit=500`, {
+      const BATCH = 1000;
+      let allRows = [], offset = 0, done = false;
+      while (!done) {
+        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,icebreaker${filter}&order=creato_il.desc&limit=${BATCH}&offset=${offset}`, {
+          headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`, Prefer:"count=none"}
+        });
+        const batch = r.ok ? await r.json() : [];
+        allRows = allRows.concat(batch);
+        if (batch.length < BATCH) done = true;
+        else offset += BATCH;
+      }
+      setImportDati(p=>({...p, loading:false, rows:allRows}));
+    } catch(e) { setImportDati(p=>({...p, loading:false})); }
+  };
+
+  const openDbAziende = async () => {
+    setDbAziende(p=>({...p, loading:true}));
+    try {
+      const {url:sbUrl, key:sbKey} = getSbCreds();
+      if (!sbUrl || !sbKey) { setDbAziende(p=>({...p, loading:false})); return; }
+      const BATCH = 1000;
+      let allRows = [], offset = 0, done = false;
+      while (!done) {
+        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,citta,stato,settore&order=creato_il.desc&limit=${BATCH}&offset=${offset}`, {
+          headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`, Prefer:"count=none"}
+        });
+        const batch = r.ok ? await r.json() : [];
+        allRows = allRows.concat(batch);
+        if (batch.length < BATCH) done = true;
+        else offset += BATCH;
+      }
+      setDbAziende({rows:allRows, loading:false, loaded:true});
+    } catch(e) { setDbAziende(p=>({...p, loading:false})); }
+  };
+
+  const openImportContatti = async () => {
+    setDbContatti(p=>({...p, loading:true}));
+    try {
+      const {url:sbUrl, key:sbKey} = getSbCreds();
+      if (!sbUrl || !sbKey) { setDbContatti(p=>({...p, loading:false})); return; }
+      const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,company_id,companies(nome)&order=creato_il.desc&limit=1000`, {
         headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`}
       });
-      const rows = r.ok ? await r.json() : [];
-      setImportDati(p=>({...p, loading:false, rows}));
-    } catch(e) { setImportDati(p=>({...p, loading:false})); }
+      const payload = await r.json();
+      const rows = Array.isArray(payload) ? payload : [];
+      setDbContatti({rows, loading:false, loaded:true});
+    } catch(e) { setDbContatti(p=>({...p, loading:false})); }
   };
 
   const fetchContattiRunSilent = async () => {
@@ -1863,7 +1914,7 @@ function App() {
             </button>
             {[
               {key:"revisione",label:"Code",icon:"📋",badge:(codeQueue.urlAmbigue?.length||0)+(codeQueue.siti?.length||0)},
-              {key:"database",label:"Database",icon:"🗄",badge:0},
+              {key:"database",label:"CRM",icon:"🗄",badge:0},
               {key:"impostazioni",label:"Impostazioni",icon:"⚙",badge:0}
             ].map((t,i)=>{
               const active = tab===t.key;
@@ -1887,7 +1938,7 @@ function App() {
                   {[
                     {key:"run",label:"Pipeline",icon:"◈"},
                     {key:"revisione",label:"Code",icon:"📋"},
-                    {key:"database",label:"Database",icon:"🗄"},
+                    {key:"database",label:"CRM",icon:"🗄"},
                     {key:"impostazioni",label:"Impostazioni",icon:"⚙"}
                   ].map((t,i)=>{
                     const active = tab===t.key;
@@ -1935,7 +1986,6 @@ function App() {
               pushLog("ok","✓ Pulizia fogli avviata");
             }} style={{fontSize:11,fontWeight:600,padding:"4px 12px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>Nuova Run</button>
           )}
-          <button onClick={()=>{setTab('code');setCodeSubTab('url_ambigui');}} title="Vai a URL Ambigui" style={{fontSize:11,fontWeight:600,padding:"4px 10px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>🔍</button>
         </div>
       </div>
 
@@ -2781,44 +2831,180 @@ function App() {
           </div>
         )}
 
-        {/* ══ DATABASE ══ */}
+        {/* ══ CRM ══ */}
         {tab==="database"&&(()=>{
-          return (
-            <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:12,height:"100%",boxSizing:"border-box"}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                <span style={{fontSize:14,fontWeight:700,color:C.textHi}}>🗄 Database Aziende</span>
-                <button onClick={()=>openImportDati()} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:4,padding:"3px 10px",cursor:"pointer"}}>⟳ Aggiorna</button>
-              </div>
-              {importDati.loading
-                ? <div style={{padding:20,textAlign:"center",color:C.muted,fontSize:11}}>Caricamento...</div>
-                : importDati.rows.length===0
-                  ? <div style={{padding:20,textAlign:"center",color:C.muted,fontSize:11}}>Nessuna azienda trovata</div>
-                  : <div style={{overflowX:"auto",overflowY:"auto",flex:1,minHeight:0}}>
-                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
-                        <thead>
-                          <tr style={{background:"rgba(37,99,235,0.15)"}}>
-                            {["Azienda","Sito","Città","Stato","Settore"].map(h=>(
-                              <th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.accent,fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,whiteSpace:"nowrap"}}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {importDati.rows.map((row,i)=>{
-                            const stCfg = STATO_CFG[row.stato]||{color:C.muted,label:row.stato};
-                            return (
-                              <tr key={row.id} style={{borderBottom:`1px solid ${C.border}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-                                <td style={{padding:"5px 10px",color:C.text,fontWeight:600,whiteSpace:"nowrap"}}>{row.nome}</td>
-                                <td style={{padding:"5px 10px"}}>{row.sito_web?<a href={row.sito_web} target="_blank" rel="noopener noreferrer" style={{color:C.accent,textDecoration:"none"}}>{row.sito_web.replace(/^https?:\/\/(www\.)?/,"").split("/")[0]}</a>:"—"}</td>
-                                <td style={{padding:"5px 10px",color:C.muted,whiteSpace:"nowrap"}}>{row.citta||"—"}</td>
-                                <td style={{padding:"5px 10px",whiteSpace:"nowrap"}}><span style={{color:stCfg.color,fontWeight:600,fontSize:9}}>{stCfg.label||row.stato}</span></td>
-                                <td style={{padding:"5px 10px",color:C.muted}}>{row.settore||"—"}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+          /* ── Aziende ── */
+          const DB_PAGE_SIZE = 100;
+          const azFiltered = dbAziende.rows
+            .filter(r => {
+              const q = dbSearch.toLowerCase();
+              return !q || (r.nome||'').toLowerCase().includes(q) || (r.citta||'').toLowerCase().includes(q) || (r.stato||'').toLowerCase().includes(q) || (r.settore||'').toLowerCase().includes(q);
+            })
+            .sort((a,b) => {
+              if (!dbSort.col) return 0;
+              const k = dbSort.col;
+              return ((a[k]||'').localeCompare(b[k]||'')) * dbSort.dir;
+            });
+          const azTotalPages = Math.max(1, Math.ceil(azFiltered.length / DB_PAGE_SIZE));
+          const azPage = Math.min(dbPage, azTotalPages);
+          const azPageRows = azFiltered.slice((azPage-1)*DB_PAGE_SIZE, azPage*DB_PAGE_SIZE);
+          const azCols = [
+            {label:"Azienda", k:"nome"},
+            {label:"Sito",    k:null},
+            {label:"Città",   k:"citta"},
+            {label:"Stato",   k:"stato"},
+            {label:"Settore", k:"settore"},
+          ];
+
+          /* ── Contatti ── */
+          const ctSearch = dbSearch.toLowerCase();
+          const ctFiltered = dbContatti.rows
+            .filter(r => !ctSearch ||
+              (r.nome_completo||'').toLowerCase().includes(ctSearch) ||
+              (r.ruolo||'').toLowerCase().includes(ctSearch) ||
+              (r.email||'').toLowerCase().includes(ctSearch) ||
+              ((r.companies?.nome)||'').toLowerCase().includes(ctSearch)
+            )
+            .sort((a,b) => {
+              if (!dbSort.col) return 0;
+              if (dbSort.col === 'azienda') {
+                return (((a.companies?.nome)||'').localeCompare((b.companies?.nome)||'')) * dbSort.dir;
               }
+              const k = dbSort.col;
+              return ((a[k]||'').localeCompare(b[k]||'')) * dbSort.dir;
+            });
+          const ctCols = [
+            {label:"Nome",    k:"nome_completo"},
+            {label:"Ruolo",   k:"ruolo"},
+            {label:"Email",   k:"email"},
+            {label:"Stato",   k:"stato"},
+            {label:"Azienda", k:"azienda"},
+          ];
+
+          /* stati colore per contatti */
+          const CT_STATO = {
+            trovato:   {color:"#4ade80", label:"Trovato"},
+            da_trovare:{color:"#fbbf24", label:"Da trovare"},
+            scartato:  {color:"#f87171", label:"Scartato"},
+            inviato:   {color:"#60a5fa", label:"Inviato"},
+            risposto:  {color:"#a78bfa", label:"Risposto"},
+          };
+
+          /* subtab style helper */
+          const stBtn = (key) => ({
+            padding:"4px 14px", fontSize:11, fontWeight:700, borderRadius:4, cursor:"pointer", border:"none",
+            color: dbSubTab===key ? "#fff" : "#e2e8f0",
+            background: dbSubTab===key ? "linear-gradient(135deg,#2563eb,#3b82f6)" : "rgba(37,99,235,0.18)",
+          });
+
+          return (
+            <div style={{padding:"14px 20px",display:"flex",flexDirection:"column",gap:10,height:"100%",boxSizing:"border-box"}}>
+              {/* header */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+                <div style={{display:"flex",gap:6}}>
+                  <button style={stBtn('aziende')} onClick={()=>{setDbSubTab('aziende');setDbSort({col:null,dir:1});setDbPage(1);}}>🏢 Aziende <span style={{fontSize:9,fontWeight:400,opacity:0.7}}>({dbAziende.rows.length})</span></button>
+                  <button style={stBtn('contatti')} onClick={()=>{setDbSubTab('contatti');setDbSort({col:null,dir:1});setDbPage(1);if(!dbContatti.loaded)openImportContatti();}}>👤 Contatti <span style={{fontSize:9,fontWeight:400,opacity:0.7}}>({dbContatti.rows.length})</span></button>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <input value={dbSearch} onChange={e=>{setDbSearch(e.target.value);setDbPage(1);}} placeholder="Cerca..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:4,padding:"3px 8px",fontSize:10,color:C.text,outline:"none",width:140}} />
+                  <button onClick={()=>{ openDbAziende(); openImportContatti(); }} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:4,padding:"3px 10px",cursor:"pointer",flexShrink:0}}>⟳ Aggiorna</button>
+                </div>
+              </div>
+
+              {/* ── AZIENDE ── */}
+              {dbSubTab==='aziende'&&(
+                dbAziende.loading
+                  ? <div style={{padding:20,textAlign:"center",color:C.muted,fontSize:11}}>Caricamento...</div>
+                  : dbAziende.rows.length===0
+                    ? <div style={{padding:20,textAlign:"center",color:C.muted,fontSize:11}}>Nessuna azienda trovata</div>
+                    : <React.Fragment>
+                        {azFiltered.length===0
+                          ? <div style={{padding:16,textAlign:"center",color:C.muted,fontSize:11}}>Nessun risultato per "{dbSearch}"</div>
+                          : <div style={{overflowX:"auto",overflowY:"auto",flex:1,minHeight:0}}>
+                              <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,tableLayout:"fixed"}}>
+                                <colgroup>
+                                  <col style={{width:"28%"}}/>
+                                  <col style={{width:"22%"}}/>
+                                  <col style={{width:"16%"}}/>
+                                  <col style={{width:"14%"}}/>
+                                  <col style={{width:"20%"}}/>
+                                </colgroup>
+                                <thead>
+                                  <tr style={{background:"rgba(37,99,235,0.15)"}}>
+                                    {azCols.map(({label,k})=>(
+                                      <th key={label} onClick={k?()=>{dbToggleSort(k);setDbPage(1);}:undefined}
+                                        style={{padding:"6px 10px",textAlign:"left",color:C.accent,fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:k?"pointer":"default",userSelect:"none"}}>
+                                        {label}{k&&dbSortIcon(k)}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {azPageRows.map((row,i)=>{
+                                    const stCfg = STATO_CFG[row.stato]||{color:C.muted,label:row.stato};
+                                    return (
+                                      <tr key={row.id} style={{borderBottom:`1px solid ${C.border}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
+                                        <td style={{padding:"5px 10px",color:C.text,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.nome}</td>
+                                        <td style={{padding:"5px 10px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.sito_web?<a href={row.sito_web} target="_blank" rel="noopener noreferrer" style={{color:C.accent,textDecoration:"none"}}>{row.sito_web.replace(/^https?:\/\/(www\.)?/,"").split("/")[0]}</a>:"—"}</td>
+                                        <td style={{padding:"5px 10px",color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.citta||"—"}</td>
+                                        <td style={{padding:"5px 10px",whiteSpace:"nowrap"}}><span style={{color:stCfg.color,fontWeight:600,fontSize:9}}>{stCfg.label||row.stato}</span></td>
+                                        <td style={{padding:"5px 10px",color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.settore||"—"}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                        }
+                        {/* Paginazione */}
+                        {azTotalPages>1&&(
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"8px 0",flexShrink:0}}>
+                            <button onClick={()=>setDbPage(1)} disabled={azPage===1} style={{fontSize:10,padding:"2px 7px",background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,color:azPage===1?C.muted:C.text,cursor:azPage===1?"default":"pointer"}}>«</button>
+                            <button onClick={()=>setDbPage(p=>Math.max(1,p-1))} disabled={azPage===1} style={{fontSize:10,padding:"2px 7px",background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,color:azPage===1?C.muted:C.text,cursor:azPage===1?"default":"pointer"}}>‹</button>
+                            <span style={{fontSize:10,color:C.muted}}>{azPage} / {azTotalPages} &nbsp;·&nbsp; {azFiltered.length} aziende</span>
+                            <button onClick={()=>setDbPage(p=>Math.min(azTotalPages,p+1))} disabled={azPage===azTotalPages} style={{fontSize:10,padding:"2px 7px",background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,color:azPage===azTotalPages?C.muted:C.text,cursor:azPage===azTotalPages?"default":"pointer"}}>›</button>
+                            <button onClick={()=>setDbPage(azTotalPages)} disabled={azPage===azTotalPages} style={{fontSize:10,padding:"2px 7px",background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,color:azPage===azTotalPages?C.muted:C.text,cursor:azPage===azTotalPages?"default":"pointer"}}>»</button>
+                          </div>
+                        )}
+                      </React.Fragment>
+              )}
+
+              {/* ── CONTATTI ── */}
+              {dbSubTab==='contatti'&&(
+                dbContatti.loading
+                  ? <div style={{padding:20,textAlign:"center",color:C.muted,fontSize:11}}>Caricamento...</div>
+                  : dbContatti.rows.length===0
+                    ? <div style={{padding:20,textAlign:"center",color:C.muted,fontSize:11}}>Nessun contatto trovato</div>
+                    : <div style={{overflowX:"auto",overflowY:"auto",flex:1,minHeight:0}}>
+                        {ctFiltered.length===0&&<div style={{padding:16,textAlign:"center",color:C.muted,fontSize:11}}>Nessun risultato per "{dbSearch}"</div>}
+                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+                          <thead>
+                            <tr style={{background:"rgba(37,99,235,0.15)"}}>
+                              {ctCols.map(({label,k})=>(
+                                <th key={label} onClick={k?()=>dbToggleSort(k):undefined}
+                                  style={{padding:"6px 10px",textAlign:"left",color:C.accent,fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,whiteSpace:"nowrap",cursor:k?"pointer":"default",userSelect:"none"}}>
+                                  {label}{k&&dbSortIcon(k)}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {ctFiltered.map((row,i)=>{
+                              const stCfg = CT_STATO[row.stato]||{color:C.muted,label:row.stato||"—"};
+                              return (
+                                <tr key={row.id} style={{borderBottom:`1px solid ${C.border}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
+                                  <td style={{padding:"5px 10px",color:C.text,fontWeight:600,whiteSpace:"nowrap"}}>{row.nome_completo||"—"}</td>
+                                  <td style={{padding:"5px 10px",color:C.muted,whiteSpace:"nowrap"}}>{row.ruolo||"—"}</td>
+                                  <td style={{padding:"5px 10px"}}>{row.email?<a href={`mailto:${row.email}`} style={{color:C.accent,textDecoration:"none"}}>{row.email}</a>:"—"}</td>
+                                  <td style={{padding:"5px 10px",whiteSpace:"nowrap"}}><span style={{color:stCfg.color,fontWeight:600,fontSize:9}}>{stCfg.label}</span></td>
+                                  <td style={{padding:"5px 10px",color:C.muted,whiteSpace:"nowrap"}}>{row.companies?.nome||"—"}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+              )}
             </div>
           );
         })()}
