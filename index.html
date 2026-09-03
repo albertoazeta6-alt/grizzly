@@ -2751,12 +2751,16 @@ function App() {
                                       <tr key={row.id} style={{borderBottom:`1px solid rgba(59,130,246,0.07)`,background:i%2===0?"transparent":"rgba(59,130,246,0.03)"}}>
                                         <td style={{padding:"5px 10px",color:C.text,fontWeight:600,minWidth:140,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.nome}</td>
                                         <td style={{padding:"4px 8px",minWidth:160}}>
-                                          <input
-                                            value={sito}
-                                            onChange={e=>setImportDati(p=>({...p,edits:{...p.edits,[row.id]:{...(p.edits[row.id]||{}),sito_web:e.target.value}}}))}
-                                            style={{width:"100%",background:dirty&&ed.sito_web!==undefined?"rgba(59,130,246,0.12)":C.bg,border:`1px solid ${dirty&&ed.sito_web!==undefined?C.accent:C.border}`,borderRadius:3,padding:"3px 6px",fontSize:10,color:C.text,fontFamily:"'JetBrains Mono',monospace"}}
-                                            placeholder="https://..."
-                                          />
+                                          {row.stato==="sito_mancante" ? (
+                                            <span style={{color:C.muted,fontSize:10}}>—</span>
+                                          ) : (
+                                            <input
+                                              value={sito}
+                                              onChange={e=>setImportDati(p=>({...p,edits:{...p.edits,[row.id]:{...(p.edits[row.id]||{}),sito_web:e.target.value}}}))}
+                                              style={{width:"100%",background:dirty&&ed.sito_web!==undefined?"rgba(59,130,246,0.12)":C.bg,border:`1px solid ${dirty&&ed.sito_web!==undefined?C.accent:C.border}`,borderRadius:3,padding:"3px 6px",fontSize:10,color:C.text,fontFamily:"'JetBrains Mono',monospace"}}
+                                              placeholder="https://..."
+                                            />
+                                          )}
                                         </td>
                                         <td style={{padding:"5px 10px",minWidth:180,maxWidth:240}}>
                                           {row.linkedin_url ? (
