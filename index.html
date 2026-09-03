@@ -305,6 +305,8 @@ const STATO_CFG = {
   bloccato:      {color:C.muted,  bg:"transparent", dot:C.muted,  label:"In attesa"},
   in_attesa:     {color:C.muted,  bg:"transparent", dot:C.muted,  label:"In attesa"},
   errore:        {color:C.red,    bg:C.redDim,     dot:C.red,    label:"Errore"},
+  sito_updated:  {color:"#f59e0b",bg:"rgba(245,158,11,0.12)", dot:"#f59e0b", label:"Sito aggiornato"},
+  url_updated:   {color:"#06b6d4",bg:"rgba(6,182,212,0.12)",  dot:"#06b6d4", label:"URL confermata"},
 };
 
 // ── EASYBUSINESS MAPPER ───────────────────────────────────────────────────────
@@ -752,12 +754,12 @@ function App() {
     {
       const {url:sbU, key:sbK} = getSbCreds();
       if (sbU && sbK) {
-        fetch(`${sbU}/rest/v1/companies?stato=not.in.(sito_mancante,hubspot_sync,linkedin_ko,linkedin_ok,url_ambigua)&hubspot_id=is.null&select=id&limit=500`, {
+        fetch(`${sbU}/rest/v1/companies?stato=in.(nuovo,sito_updated)&hubspot_id=is.null&select=id&limit=500`, {
           headers:{apikey:sbK, Authorization:`Bearer ${sbK}`}
         }).then(rr=>rr.ok?rr.json():[]).then(async arr=>{
           const ids = arr.map(x=>x.id);
           rilancioCompanyIdsRef.current = ids;
-          // Reset stato a 'nuovo' così Phantom le trova via Edge Function (GET senza params)
+          // Reset stato a 'nuovo' così Phantom le trova via Edge Function
           if (ids.length > 0) {
             const idList = ids.join(',');
             await fetch(`${sbU}/rest/v1/companies?id=in.(${idList})`, {
@@ -795,46 +797,56 @@ function App() {
   // Se ci sono solo aziende linkedin_ok (URL verificati) → salta Phantom, vai diretto a HubSpot
   // Se ci sono aziende da riclassificare → pipeline completa da classificatore
   const rilanciaIsBusy = fasi.some(f=>['import','classifica','company','hubspot','aggiorna'].includes(f.id)&&f.stato==='in_corso');
+  const rilanciaHasSomethingToDo = importDati.rows.some(r=>['sito_updated','url_updated','nuovo','linkedin_ok'].includes(r.stato));
+  const rilanciaDisabled = rilanciaIsBusy || !rilanciaHasSomethingToDo;
 
   const rilanciaSmartPipeline = useCallback(async () => {
     const {url:sbU, key:sbK} = getSbCreds();
     if (!sbU || !sbK) { showToast("⚠ Credenziali Supabase mancanti"); return; }
-    // Conta aziende che richiedono Phantom (non linkedin_ok, non siti_mancante, ecc.)
-    let needPhantom = 0;
+    // Conta aziende per stato
+    let sitoUpdatedCount = 0;
+    let urlUpdatedIds = [];
     let linkedinOkIds = [];
     try {
-      const [rPhantom, rOk] = await Promise.all([
-        fetch(`${sbU}/rest/v1/companies?stato=not.in.(sito_mancante,hubspot_sync,linkedin_ko,linkedin_ok)&hubspot_id=is.null&select=id&limit=1`, {
+      const [rSito, rUrl, rOk] = await Promise.all([
+        fetch(`${sbU}/rest/v1/companies?stato=in.(nuovo,sito_updated)&hubspot_id=is.null&select=id&limit=1`, {
           headers:{apikey:sbK, Authorization:`Bearer ${sbK}`, Prefer:"count=exact", Range:"0-0"}
+        }),
+        fetch(`${sbU}/rest/v1/companies?stato=eq.url_updated&hubspot_id=is.null&select=id&limit=500`, {
+          headers:{apikey:sbK, Authorization:`Bearer ${sbK}`}
         }),
         fetch(`${sbU}/rest/v1/companies?stato=eq.linkedin_ok&hubspot_id=is.null&select=id&limit=500`, {
           headers:{apikey:sbK, Authorization:`Bearer ${sbK}`}
         }),
       ]);
-      const cr = rPhantom.headers.get("content-range")||"0/0";
-      needPhantom = parseInt(cr.split("/")[1]||"0");
+      const cr = rSito.headers.get("content-range")||"0/0";
+      sitoUpdatedCount = parseInt(cr.split("/")[1]||"0");
+      const urlArr = rUrl.ok ? await rUrl.json() : [];
+      urlUpdatedIds = urlArr.map(x=>x.id);
       const okArr = rOk.ok ? await rOk.json() : [];
       linkedinOkIds = okArr.map(x=>x.id);
     } catch(e) {}
 
-    if (needPhantom === 0 && linkedinOkIds.length > 0) {
-      // Solo linkedin_ok → salta Phantom, vai diretto a HubSpot
+    if (sitoUpdatedCount > 0) {
+      // Ci sono aziende nuovo/sito_updated → pipeline completa da classificatore
+      rilanciClassificatore();
+    } else {
+      // Solo url_updated e/o linkedin_ok → salta Phantom, vai diretto a HubSpot
+      const hubspotIds = [...new Set([...urlUpdatedIds, ...linkedinOkIds])];
+      if (hubspotIds.length === 0) { showToast("⚠ Nessuna azienda da processare"); return; }
       if (!MAKE.hubspot) { pushLog("warn","⚠ Webhook HubSpot non configurato"); return; }
-      rilancioCompanyIdsRef.current = linkedinOkIds;
+      rilancioCompanyIdsRef.current = hubspotIds;
       hubspotAutoFiredRef.current = false;
       setFaseS("hubspot","in_attesa",{dettaglio:"Aggiornamento HubSpot per URL verificati..."});
       setFaseS("lemlist","bloccato",{dettaglio:""});
       sbWritePipelineState("hubspot","in_attesa","Aggiornamento HubSpot per URL verificati...");
       sbWritePipelineState("lemlist","bloccato","");
       setCodeQueue(q=>({...q, rilanciaReady:false}));
-      pushLog("ok", `▶ ${linkedinOkIds.length} aziende con URL verificato → avvio HubSpot diretto`);
-      await callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId||"", runStart: runStart||"", companyIds: linkedinOkIds }, "Aggiornamento Hubspot");
+      pushLog("ok", `▶ ${hubspotIds.length} aziende con URL verificato → avvio HubSpot diretto`);
+      await callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId||"", runStart: runStart||"", companyIds: hubspotIds }, "Aggiornamento Hubspot");
       setFaseS("hubspot","in_corso",{iniziato:new Date().toISOString(), dettaglio:"Aggiornamento aziende su HubSpot..."});
       pushLog("ok","▶ Aggiornamento HubSpot avviato");
       showToast("✓ HubSpot avviato per URL verificati");
-    } else {
-      // Ci sono aziende da riclassificare → pipeline completa
-      rilanciClassificatore();
     }
   }, [runId, runStart, sbWritePipelineState, setFaseS, pushLog, rilanciClassificatore]);
 
@@ -973,14 +985,17 @@ function App() {
         return;
       }
       if (e.data?.type === 'approveUrl' && e.data.id) {
+        const nuovoStato = e.data.linkedin_url && e.data.linkedin_url !== 'NESSUNA' ? 'url_updated' : 'linkedin_ko';
         const ok = await sbUpdate("companies", {id: e.data.id}, {
           linkedin_url: e.data.linkedin_url,
-          stato: e.data.linkedin_url && e.data.linkedin_url !== 'NESSUNA' ? 'linkedin_ok' : 'linkedin_ko',
+          stato: nuovoStato,
           aggiornato_il: new Date().toISOString()
         });
         if (ok) {
-          pushLog("ok", `✓ URL confermata: ${e.data.ragione}`);
-          setCodeQueue(q=>({...q, urlAmbigue:q.urlAmbigue.filter(c=>c.id!==e.data.id), rilanciaReady:true}));
+          pushLog("ok", `✓ URL confermata (${nuovoStato}): ${e.data.ragione}`);
+          setCodeQueue(q=>({...q, urlAmbigue:q.urlAmbigue.filter(c=>c.id!==e.data.id)}));
+          // aggiorna riga in importDati.rows se presente
+          setImportDati(p=>({...p, rows: p.rows.map(r=>r.id===e.data.id ? {...r, linkedin_url:e.data.linkedin_url, stato:nuovoStato} : r)}));
         } else pushLog("error", `✕ Errore salvataggio URL: ${e.data.ragione}`);
       }
     };
@@ -1791,11 +1806,14 @@ function App() {
     const edits = importDati.edits[id];
     if (!edits) return;
     if (edits.sito_web !== undefined) edits.sito_web = normalizeSitoWeb(edits.sito_web);
-    const ok = await sbUpdate("companies", {id}, {...edits, aggiornato_il: new Date().toISOString()});
+    // Se la company era sito_mancante e l'utente ha aggiornato dati, marcala sito_updated
+    const curRow = importDati.rows.find(r=>r.id===id);
+    const statoOverride = curRow?.stato === 'sito_mancante' ? {stato:'sito_updated'} : {};
+    const ok = await sbUpdate("companies", {id}, {...edits, ...statoOverride, aggiornato_il: new Date().toISOString()});
     if (ok) {
       setImportDati(p=>({
         ...p,
-        rows: p.rows.map(r => r.id===id ? {...r, ...edits} : r),
+        rows: p.rows.map(r => r.id===id ? {...r, ...edits, ...statoOverride} : r),
         edits: Object.fromEntries(Object.entries(p.edits).filter(([k])=>k!==String(id)))
       }));
       showToast("Salvato");
@@ -2559,18 +2577,6 @@ function App() {
                         );
                       })}
                       <div style={{flex:1}}/>
-                      {codeQueue.rilanciaReady&&(()=>{
-                        const fasiBusy = ['import','classifica','company','hubspot','aggiorna'];
-                        const busy = fasi.some(f=>fasiBusy.includes(f.id) && f.stato==='in_corso');
-                        return (
-                          <button disabled={busy} onClick={rilanciaSmartPipeline}
-                            style={{padding:"6px 16px",fontSize:12,fontWeight:700,border:"none",borderRadius:6,cursor:busy?"not-allowed":"pointer",whiteSpace:"nowrap",transition:"all 0.15s",
-                              color:busy?"#4b5563":"#fff",
-                              background:busy?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)"}}>
-                            {busy?"⏳ Pipeline in corso...":"▶ Rilancia Pipeline"}
-                          </button>
-                        );
-                      })()}
                   </div>
 
                   {/* ── LEADS (Dashboard contatti) ── */}
@@ -2586,7 +2592,7 @@ function App() {
                           <button onClick={fetchContattiRun} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>↻ Aggiorna</button>
                           <button onClick={deleteSelected} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>🗑 {contattiSelected.size>0?`Elimina (${contattiSelected.size})`:"Elimina"}</button>
                           <button onClick={richiestaEnrichment} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#7c3aed,#8b5cf6)",border:"none",borderRadius:5,cursor:"pointer"}}>✉ Cerca email{contattiSelected.size>0?` (${contattiSelected.size})`:""}</button>
-                          <button disabled={rilanciaIsBusy} onClick={rilanciaSmartPipeline} style={{padding:"7px 12px",fontSize:11,fontWeight:700,color:rilanciaIsBusy?"#4b5563":"#fff",background:rilanciaIsBusy?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:5,cursor:rilanciaIsBusy?"not-allowed":"pointer",whiteSpace:"nowrap"}}>{rilanciaIsBusy?"⏳ In corso...":"▶ Rilancia Pipeline"}</button>
+                          <button disabled={rilanciaDisabled} onClick={rilanciaSmartPipeline} style={{padding:"7px 12px",fontSize:11,fontWeight:700,color:rilanciaDisabled?"#4b5563":"#fff",background:rilanciaDisabled?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:5,cursor:rilanciaDisabled?"not-allowed":"pointer",whiteSpace:"nowrap"}}>{rilanciaIsBusy?"⏳ In corso...":"▶ Rilancia Pipeline"}</button>
                           <button onClick={()=>setLeadsFullscreen(f=>!f)} style={{padding:"7px 10px",fontSize:13,fontWeight:700,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,cursor:"pointer"}} title={leadsFullscreen?"Esci da schermo intero":"Schermo intero"}>{leadsFullscreen?"⤡":"⤢"}</button>
                         </div>
                       </div>
@@ -2722,7 +2728,7 @@ function App() {
                       <div style={{fontSize:12,fontWeight:700,color:"#60a5fa",padding:"10px 16px",borderBottom:`1px solid rgba(59,130,246,0.2)`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                         <span>🔍 Ricerca Aziende</span>
                         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                          <button disabled={rilanciaIsBusy} onClick={rilanciaSmartPipeline} style={{fontSize:10,fontWeight:700,color:rilanciaIsBusy?"#4b5563":"#fff",background:rilanciaIsBusy?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:3,padding:"3px 10px",cursor:rilanciaIsBusy?"not-allowed":"pointer",whiteSpace:"nowrap"}}>{rilanciaIsBusy?"⏳ In corso...":"▶ Rilancia Pipeline"}</button>
+                          <button disabled={rilanciaDisabled} onClick={rilanciaSmartPipeline} style={{fontSize:10,fontWeight:700,color:rilanciaDisabled?"#4b5563":"#fff",background:rilanciaDisabled?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:3,padding:"3px 10px",cursor:rilanciaDisabled?"not-allowed":"pointer",whiteSpace:"nowrap"}}>{rilanciaIsBusy?"⏳ In corso...":"▶ Rilancia Pipeline"}</button>
                           <button onClick={()=>openImportDati(runStart)} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>⟳ Aggiorna</button>
                           <button onClick={()=>setImportFullscreen(f=>!f)} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}} title={importFullscreen?"Esci da schermo intero":"Schermo intero"}>{importFullscreen?"⤡":"⤢"}</button>
                         </div>
@@ -2771,7 +2777,9 @@ function App() {
                                     const statiColor = {
                                       contatti_trovati: C.green,
                                       hubspot_sync: C.green,
-                                      linkedin_ok: C.yellow,
+                                      linkedin_ok: C.green,
+                                      url_updated: "#06b6d4",
+                                      sito_updated: "#f59e0b",
                                       nuovo: C.yellow,
                                       url_ambigua: C.yellow,
                                       sito_mancante: C.yellow,
@@ -2835,12 +2843,14 @@ function App() {
                       }
                       <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:"3px 14px",padding:"8px 14px",borderTop:`1px solid ${C.border}`,fontSize:9,marginTop:"auto",flexShrink:0}}>
                         {[
-                          {stato:"NUOVO",           color:C.yellow, desc:"in attesa Phantom"},
-                          {stato:"LINKEDIN_OK",      color:C.green,  desc:"URL verificata"},
-                          {stato:"URL_AMBIGUA",      color:C.yellow, desc:"verifica manuale"},
-                          {stato:"SITO_MANCANTE",    color:C.yellow, desc:"verifica manuale"},
-                          {stato:"CONTATTI_TROVATI", color:C.green,  desc:"contatti trovati"},
-                          {stato:"HUBSPOT_SYNC",     color:C.green,  desc:"su HubSpot"},
+                          {stato:"NUOVO",           color:C.yellow,  desc:"in attesa Phantom"},
+                          {stato:"SITO_MANCANTE",   color:C.yellow,  desc:"verifica manuale"},
+                          {stato:"SITO_UPDATED",    color:"#f59e0b", desc:"pronto per classificatore"},
+                          {stato:"URL_AMBIGUA",     color:C.yellow,  desc:"verifica manuale"},
+                          {stato:"URL_UPDATED",     color:"#06b6d4", desc:"pronto per HubSpot"},
+                          {stato:"LINKEDIN_OK",     color:C.green,   desc:"URL verificata"},
+                          {stato:"CONTATTI_TROVATI",color:C.green,   desc:"contatti trovati"},
+                          {stato:"HUBSPOT_SYNC",    color:C.green,   desc:"su HubSpot"},
                         ].map(({stato,color,desc})=>(
                           <span key={stato} style={{display:"flex",alignItems:"center",gap:4,whiteSpace:"nowrap"}}>
                             <span style={{fontWeight:700,color,letterSpacing:"0.03em"}}>{stato}</span>
