@@ -469,6 +469,9 @@ function App() {
   const [authPassword, setAuthPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [loginShowCreds, setLoginShowCreds] = useState(()=>!(localStorage.getItem('sb_url')&&localStorage.getItem('sb_key')));
+  const [loginSbUrl, setLoginSbUrl] = useState(()=>localStorage.getItem('sb_url')||'');
+  const [loginSbKey, setLoginSbKey] = useState(()=>localStorage.getItem('sb_key')||'');
   const [importFullscreen, setImportFullscreen] = useState(false);
   const [leadsFullscreen, setLeadsFullscreen] = useState(false);
   const [dbSearch,   setDbSearch]   = useState('');
@@ -1950,39 +1953,69 @@ function App() {
 
   // ── LOGIN SCREEN ─────────────────────────────────────────────────────────
   if (!authSession) {
+    const hasCreds = !!loginSbUrl && !!loginSbKey;
+    const saveCreds = () => {
+      if(loginSbUrl.trim()) localStorage.setItem('sb_url', loginSbUrl.trim());
+      if(loginSbKey.trim()) localStorage.setItem('sb_key', loginSbKey.trim());
+    };
+    const handleSignIn = () => { saveCreds(); signIn(); };
+    const inputStyle = {background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:8,padding:"11px 14px",color:"#f5f0eb",fontSize:14,outline:"none",width:"100%",boxSizing:"border-box"};
     return (
       <div style={{minHeight:"100vh",background:"#060402",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Inter',sans-serif"}}>
-        <div style={{background:"#0d0c0b",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,padding:"48px 52px",width:380,boxShadow:"0 24px 64px rgba(0,0,0,0.6)"}}>
+        <div style={{background:"#0d0c0b",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,padding:"44px 48px",width:400,boxShadow:"0 24px 64px rgba(0,0,0,0.6)"}}>
           {/* Logo */}
-          <div style={{textAlign:"center",marginBottom:36}}>
-            <div style={{fontSize:36,marginBottom:8}}>🐻</div>
+          <div style={{textAlign:"center",marginBottom:32}}>
+            <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
+              <svg viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg" style={{width:56,height:56}}>
+                <defs>
+                  <linearGradient id="lbgGrad" x1="0" y1="0" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#100604"/><stop offset="100%" stopColor="#070302"/>
+                  </linearGradient>
+                  <linearGradient id="lc1" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+                    <stop offset="0%" stopColor="#ff5535"/><stop offset="100%" stopColor="#8a1508"/>
+                  </linearGradient>
+                  <linearGradient id="lc2" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+                    <stop offset="0%" stopColor="#ff6a45"/><stop offset="100%" stopColor="#a81a0a"/>
+                  </linearGradient>
+                </defs>
+                <rect width="30" height="30" rx="7" fill="url(#lbgGrad)"/>
+                <path d="M4 26 Q4.5 21 6 17 Q7 13 8.5 10 Q9.5 8 10 10 Q10 13 9 17 Q8 21 9 26Z" fill="url(#lc1)"/>
+                <path d="M6.5 10.5 Q7.5 13 7 17" stroke="rgba(255,180,150,0.3)" strokeWidth="0.7" fill="none" strokeLinecap="round"/>
+                <path d="M8 25.5 Q8.5 20 10 16 Q11.5 11 13 8 Q13.5 6 14.5 8 Q14.5 11 13.5 16 Q12.5 20 13.5 25Z" fill="url(#lc2)"/>
+                <path d="M11 9 Q11.5 12.5 11 16" stroke="rgba(255,180,150,0.3)" strokeWidth="0.7" fill="none" strokeLinecap="round"/>
+                <path d="M12 24.5 Q12.5 19 14 15 Q15.5 10 17 7 Q17.5 5 18.5 7 Q18.5 10 17.5 15 Q16.5 19 17.5 24Z" fill="url(#lc2)"/>
+                <path d="M15.5 7.5 Q15.5 11 15 15" stroke="rgba(255,180,150,0.35)" strokeWidth="0.7" fill="none" strokeLinecap="round"/>
+                <path d="M16 23.5 Q16.5 19 18 15 Q19.5 10 21 8 Q21.5 6 22.5 8 Q22.5 11 21.5 15 Q20.5 19 21.5 23Z" fill="url(#lc2)"/>
+                <path d="M19.5 8.5 Q19.5 12 19 16" stroke="rgba(255,180,150,0.3)" strokeWidth="0.7" fill="none" strokeLinecap="round"/>
+                <path d="M19.5 22.5 Q20.5 18.5 22 15 Q23.5 11 25 9 Q25.5 7.5 26.5 9 Q26.5 12 25.5 15.5 Q24.5 19 25.5 22.5Z" fill="url(#lc1)"/>
+                <path d="M23.5 9.5 Q23.5 13 23 16" stroke="rgba(255,180,150,0.25)" strokeWidth="0.7" fill="none" strokeLinecap="round"/>
+                <path d="M3.5 27.5 Q7 24.5 11 23.5 Q16 22.5 20 23 Q23.5 23.5 27 26" stroke="#c03020" strokeWidth="3.2" strokeLinecap="round" fill="none"/>
+                <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
+              </svg>
+            </div>
             <div style={{fontSize:22,fontWeight:800,letterSpacing:"-0.5px",color:"#f5f0eb"}}>Grizzly<span style={{color:"#e05a2b"}}>4</span></div>
             <div style={{fontSize:12,color:"rgba(255,255,255,0.35)",marginTop:4}}>Accedi al tuo account</div>
           </div>
-          {/* Form */}
+          {/* Supabase config (collapsible) */}
+          <div style={{marginBottom:18}}>
+            <button onClick={()=>setLoginShowCreds(v=>!v)} style={{background:"none",border:"none",cursor:"pointer",padding:0,color:"rgba(255,255,255,0.35)",fontSize:11,display:"flex",alignItems:"center",gap:5}}>
+              <span style={{transition:"transform 0.2s",display:"inline-block",transform:loginShowCreds?"rotate(90deg)":"rotate(0deg)"}}>▶</span>
+              Configurazione Supabase {hasCreds&&!loginShowCreds ? <span style={{color:"#4ade80"}}>✓ configurato</span> : ""}
+            </button>
+            {loginShowCreds && (
+              <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:12,padding:"16px",background:"rgba(255,255,255,0.03)",borderRadius:8,border:"1px solid rgba(255,255,255,0.07)"}}>
+                <div style={{fontSize:11,color:"rgba(255,255,255,0.35)",marginBottom:2}}>Inserisci le credenziali del tuo progetto Supabase (si salvano automaticamente)</div>
+                <input placeholder="Project URL  (es. https://xxx.supabase.co)" value={loginSbUrl} onChange={e=>setLoginSbUrl(e.target.value)} style={{...inputStyle,fontSize:12}} />
+                <input placeholder="anon/public key" value={loginSbKey} onChange={e=>setLoginSbKey(e.target.value)} style={{...inputStyle,fontSize:12,fontFamily:"monospace"}} />
+              </div>
+            )}
+          </div>
+          {/* Login form */}
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            <input
-              type="email"
-              placeholder="Email"
-              value={authEmail}
-              onChange={e=>setAuthEmail(e.target.value)}
-              onKeyDown={e=>e.key==='Enter'&&signIn()}
-              style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:8,padding:"11px 14px",color:"#f5f0eb",fontSize:14,outline:"none"}}
-            />
-            <input
-              type="password"
-              placeholder="Password"
-              value={authPassword}
-              onChange={e=>setAuthPassword(e.target.value)}
-              onKeyDown={e=>e.key==='Enter'&&signIn()}
-              style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:8,padding:"11px 14px",color:"#f5f0eb",fontSize:14,outline:"none"}}
-            />
+            <input type="email" placeholder="Email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSignIn()} style={inputStyle} />
+            <input type="password" placeholder="Password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSignIn()} style={inputStyle} />
             {authError && <div style={{fontSize:12,color:"#f87171",textAlign:"center"}}>{authError}</div>}
-            <button
-              onClick={signIn}
-              disabled={authLoading}
-              style={{background:authLoading?"rgba(224,90,43,0.4)":"#e05a2b",color:"#fff",border:"none",borderRadius:8,padding:"12px",fontSize:14,fontWeight:700,cursor:authLoading?"not-allowed":"pointer",marginTop:4,transition:"background 0.2s"}}
-            >
+            <button onClick={handleSignIn} disabled={authLoading} style={{background:authLoading?"rgba(224,90,43,0.4)":"#e05a2b",color:"#fff",border:"none",borderRadius:8,padding:"12px",fontSize:14,fontWeight:700,cursor:authLoading?"not-allowed":"pointer",marginTop:4,transition:"background 0.2s"}}>
               {authLoading ? "Accesso in corso…" : "Accedi"}
             </button>
           </div>
@@ -2154,6 +2187,28 @@ function App() {
         </div>
         <div style={{display:"flex",alignItems:"center",gap:12,fontSize:11}}>
 
+          {!dropzoneMode&&(
+            <button onClick={async()=>{
+              if(runAttivo&&runId&&!await customConfirm("Avviare una nuova run? Lo stato attuale verrà azzerato.")) return;
+              setTab("run");
+              ignoredRunIdRef.current = runId;
+              setDropzoneMode(true);
+              setLog([]); setExecs([]);
+              setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
+              setErrori(DEFAULT_ERRORI.map(e=>({...e,stato:"aperto"})));
+              setCsvFile(null); setRunId(null); setRunStart(null);
+              setFasi(FASI_INIT.map(f=>f.id==="import"?{...f,stato:"in_corso",dettaglio:"Pulizia Google Sheet..."}:{...f}));
+              setRunAttivo(true);
+              localStorage.removeItem("grizzly_run");
+              const {url: sbUrl, key: sbKey} = getSbCreds();
+              if (sbUrl && sbKey) {
+                try { await fetch(`${sbUrl}/rest/v1/pipeline_state?fase=neq.null`, {method:"DELETE", headers:{apikey:sbKey, Authorization:`Bearer ${sbKey}`}}); } catch(e){}
+              }
+              try { await fetch(MAKE.pulizia,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({secret:"grizzly2026"})}); } catch(e){}
+              pushLog("ok","✓ Pulizia fogli avviata");
+            }} style={{fontSize:11,fontWeight:600,padding:"4px 12px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>Nuova Run</button>
+          )}
+
           <div style={{display:"flex",alignItems:"center",gap:5}}>
             <span style={{width:5,height:5,borderRadius:"50%",background:syncErr?C.red:C.green,display:"inline-block",animation:"pulse 3s infinite"}}/>
             <span style={{color:C.muted,fontSize:10,fontFamily:"'JetBrains Mono',monospace",minWidth:90,display:"inline-block"}}>{syncErr?"sync errore":lastSync?`sync in ${nextSyncIn}s`:"sync..."}</span>
@@ -2168,28 +2223,6 @@ function App() {
             <span style={{fontSize:10,color:C.muted,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{authSession?.user?.email||""}</span>
             <button onClick={signOut} title="Esci" style={{background:"none",border:`1px solid ${C.border}`,borderRadius:4,padding:"2px 7px",fontSize:10,color:C.muted,cursor:"pointer",lineHeight:1.4,transition:"color 0.2s",whiteSpace:"nowrap"}} onMouseEnter={e=>e.target.style.color="#f87171"} onMouseLeave={e=>e.target.style.color=C.muted}>⏻ Esci</button>
           </div>
-          {!dropzoneMode&&(
-            <button onClick={async()=>{
-              if(runAttivo&&runId&&!await customConfirm("Avviare una nuova run? Lo stato attuale verrà azzerato.")) return;
-              setTab("run");
-              ignoredRunIdRef.current = runId;
-              setDropzoneMode(true);
-              setLog([]); setExecs([]);
-              setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
-              setErrori(DEFAULT_ERRORI.map(e=>({...e,stato:"aperto"})));
-              setCsvFile(null); setRunId(null); setRunStart(null);
-              setFasi(FASI_INIT.map(f=>f.id==="import"?{...f,stato:"in_corso",dettaglio:"Pulizia Google Sheet..."}:{...f}));
-              setRunAttivo(true);
-              localStorage.removeItem("grizzly_run");
-              // Reset pipeline_state su Supabase
-              const {url: sbUrl, key: sbKey} = getSbCreds();
-              if (sbUrl && sbKey) {
-                try { await fetch(`${sbUrl}/rest/v1/pipeline_state?fase=neq.null`, {method:"DELETE", headers:{apikey:sbKey, Authorization:`Bearer ${sbKey}`}}); } catch(e){}
-              }
-              try { await fetch(MAKE.pulizia,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({secret:"grizzly2026"})}); } catch(e){}
-              pushLog("ok","✓ Pulizia fogli avviata");
-            }} style={{fontSize:11,fontWeight:600,padding:"4px 12px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>Nuova Run</button>
-          )}
         </div>
       </div>
 
