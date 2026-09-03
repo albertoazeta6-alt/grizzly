@@ -2718,7 +2718,7 @@ function App() {
                   )}
                   {/* ── AZIENDE IMPORTATE ── */}
                   {importDati.open&&runView==='run_attuale'&&(
-                    <div style={importFullscreen?{position:"absolute",top:0,left:0,right:0,bottom:0,zIndex:10,background:"#0d1117",display:"flex",flexDirection:"column",overflow:"hidden"}:{background:"rgba(37,99,235,0.10)",border:`1px solid rgba(59,130,246,0.4)`,borderRadius:6,overflow:"hidden",flex:1,minHeight:0}}>
+                    <div style={importFullscreen?{position:"absolute",top:0,left:0,right:0,bottom:0,zIndex:10,background:"#0d1117",display:"flex",flexDirection:"column",overflow:"hidden"}:{background:"rgba(37,99,235,0.10)",border:`1px solid rgba(59,130,246,0.4)`,borderRadius:6,overflow:"hidden",flex:1,minHeight:0,display:"flex",flexDirection:"column"}}>
                       <div style={{fontSize:12,fontWeight:700,color:"#60a5fa",padding:"10px 16px",borderBottom:`1px solid rgba(59,130,246,0.2)`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                         <span>🔍 Ricerca Aziende</span>
                         <div style={{display:"flex",gap:6,alignItems:"center"}}>
@@ -2833,6 +2833,21 @@ function App() {
                               </table>
                             </div>
                       }
+                      <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:"3px 14px",padding:"8px 14px",borderTop:`1px solid ${C.border}`,fontSize:9,marginTop:"auto",flexShrink:0}}>
+                        {[
+                          {stato:"NUOVO",           color:C.yellow, desc:"in attesa Phantom"},
+                          {stato:"LINKEDIN_OK",      color:C.green,  desc:"URL verificata"},
+                          {stato:"URL_AMBIGUA",      color:C.yellow, desc:"verifica manuale"},
+                          {stato:"SITO_MANCANTE",    color:C.yellow, desc:"verifica manuale"},
+                          {stato:"CONTATTI_TROVATI", color:C.green,  desc:"contatti trovati"},
+                          {stato:"HUBSPOT_SYNC",     color:C.green,  desc:"su HubSpot"},
+                        ].map(({stato,color,desc})=>(
+                          <span key={stato} style={{display:"flex",alignItems:"center",gap:4,whiteSpace:"nowrap"}}>
+                            <span style={{fontWeight:700,color,letterSpacing:"0.03em"}}>{stato}</span>
+                            <span style={{color:C.muted}}>{desc}</span>
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   )}
 
