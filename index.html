@@ -834,6 +834,15 @@ function App() {
     }
   }, [runId, runStart, sbWritePipelineState, setFaseS, pushLog, rilanciClassificatore]);
 
+  // ── Stop forzato HubSpot (segna completato → triggera Lemlist) ──────────────
+  const stopHubspotForzato = useCallback(() => {
+    const now = new Date().toISOString();
+    setFaseS("hubspot","completato",{completato:now,dettaglio:"Stop manuale — Lemlist avviato"});
+    sbWritePipelineState("hubspot","completato","Stop manuale — Lemlist avviato");
+    showToast("⏹ HubSpot fermato — Lemlist in avvio");
+    pushLog("warn","⏹ Stop HubSpot forzato — avvio Lemlist...");
+  }, [setFaseS, sbWritePipelineState, pushLog]);
+
   // ── Stop forzato Phantom + avvia HubSpot ────────────────────────────────────
   const stopPhantomForzato = useCallback(async () => {
     pushLog("warn","⏹ Stop Phantom forzato — avvio HubSpot...");
@@ -1765,9 +1774,19 @@ function App() {
     }
   };
 
+  // Normalizza URL sito: rimuove protocollo, www, e path (/it/, /en/, ecc.)
+  const normalizeSitoWeb = (url) => {
+    if (!url) return url;
+    return url.trim()
+      .replace(/^https?:\/\//i, "")   // rimuovi protocollo
+      .replace(/^www\./i, "")          // rimuovi www.
+      .split("/")[0];                  // prendi solo il dominio (prima dello slash)
+  };
+
   const saveImportEdit = async (id) => {
     const edits = importDati.edits[id];
     if (!edits) return;
+    if (edits.sito_web !== undefined) edits.sito_web = normalizeSitoWeb(edits.sito_web);
     const ok = await sbUpdate("companies", {id}, {...edits, aggiornato_il: new Date().toISOString()});
     if (ok) {
       setImportDati(p=>({
@@ -2362,6 +2381,10 @@ function App() {
                           {/* Stop Phantom — in basso a destra, solo quando company in_corso */}
                           {fase.id==="company"&&fase.stato==="in_corso"&&(
                             <button onClick={stopPhantomForzato} style={{position:"absolute",bottom:8,right:8,fontSize:8,fontWeight:600,color:"#fca5a5",background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer"}}>⏹ Stop</button>
+                          )}
+                          {/* Stop HubSpot — in basso a destra, solo quando hubspot in_corso */}
+                          {fase.id==="hubspot"&&fase.stato==="in_corso"&&(
+                            <button onClick={stopHubspotForzato} style={{position:"absolute",bottom:8,right:8,fontSize:8,fontWeight:600,color:"#fca5a5",background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer"}}>⏹ Stop</button>
                           )}
                           {/* Dot attivo */}
                           {isActive&&<div style={{position:"absolute",top:8,right:8,width:6,height:6,borderRadius:"50%",background:cfg.color,boxShadow:`0 0 7px ${cfg.color}`}}/>}
@@ -3085,7 +3108,7 @@ function App() {
 
           // Salva sito mancante
           const salvaSito = async (companyId) => {
-            const sito = (codeSitoEdit[companyId]||"").trim();
+            const sito = normalizeSitoWeb((codeSitoEdit[companyId]||"").trim());
             if(!sito) return;
             const ok = await sbUpdate("companies",{id:companyId},{sito_web:sito, stato:"nuovo", aggiornato_il:new Date().toISOString()});
             if(ok){
