@@ -462,6 +462,13 @@ function App() {
   const prevCountersRef = React.useRef({az_input:null, az_output:null, exec:null, scartati:null});
   const [importDati, setImportDati] = useState({open:false, rows:[], loading:false, edits:{}, sortCol:null, sortDir:"asc"});
   const [importSelected, setImportSelected] = useState(new Set());
+  const [manualRows, setManualRows] = useState([{ragioneSociale:"", sitoWeb:"", linkedin:""}]);
+  // ── AUTH ──────────────────────────────────────────────────────────────────
+  const [authSession, setAuthSession] = useState(()=>{try{const s=localStorage.getItem('grizzly_auth');return s?JSON.parse(s):null;}catch(e){return null;}});
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
   const [importFullscreen, setImportFullscreen] = useState(false);
   const [leadsFullscreen, setLeadsFullscreen] = useState(false);
   const [dbSearch,   setDbSearch]   = useState('');
@@ -907,6 +914,63 @@ function App() {
   };
 
     // ── Polling Supabase ogni 30s (connettività) ──────────────────────────────
+  // ── AUTH functions ────────────────────────────────────────────────────────
+  const signIn = async () => {
+    setAuthLoading(true); setAuthError('');
+    const sbUrl = localStorage.getItem('sb_url')?.trim();
+    const sbKey = localStorage.getItem('sb_key')?.trim();
+    if (!sbUrl || !sbKey) { setAuthError('Configura prima le credenziali Supabase nelle Impostazioni'); setAuthLoading(false); return; }
+    try {
+      const r = await fetch(`${sbUrl}/auth/v1/token?grant_type=password`, {
+        method:'POST', headers:{'Content-Type':'application/json', apikey:sbKey},
+        body: JSON.stringify({email:authEmail.trim(), password:authPassword})
+      });
+      const data = await r.json();
+      if (!r.ok) { setAuthError(data.error_description||data.msg||'Credenziali non valide'); setAuthLoading(false); return; }
+      const session = {access_token:data.access_token, refresh_token:data.refresh_token, expires_at:data.expires_at, user:data.user};
+      localStorage.setItem('grizzly_auth', JSON.stringify(session));
+      setAuthSession(session);
+    } catch(e) { setAuthError('Errore di connessione a Supabase'); }
+    setAuthLoading(false);
+  };
+
+  const signOut = async () => {
+    const sbUrl = localStorage.getItem('sb_url')?.trim();
+    const sbKey = localStorage.getItem('sb_key')?.trim();
+    if (sbUrl && sbKey && authSession?.access_token) {
+      try { await fetch(`${sbUrl}/auth/v1/logout`, {method:'POST', headers:{apikey:sbKey, Authorization:`Bearer ${authSession.access_token}`}}); } catch(e) {}
+    }
+    localStorage.removeItem('grizzly_auth');
+    setAuthSession(null); setAuthEmail(''); setAuthPassword('');
+  };
+
+  // Auto-refresh token ogni minuto
+  useEffect(() => {
+    if (!authSession) return;
+    const refresh = async () => {
+      const expiresAt = (authSession.expires_at||0) * 1000;
+      if (Date.now() < expiresAt - 5*60*1000) return; // > 5 min left, skip
+      const sbUrl = localStorage.getItem('sb_url')?.trim();
+      const sbKey = localStorage.getItem('sb_key')?.trim();
+      if (!sbUrl || !sbKey) return;
+      try {
+        const r = await fetch(`${sbUrl}/auth/v1/token?grant_type=refresh_token`, {
+          method:'POST', headers:{'Content-Type':'application/json', apikey:sbKey},
+          body: JSON.stringify({refresh_token:authSession.refresh_token})
+        });
+        if (r.ok) {
+          const data = await r.json();
+          const s = {access_token:data.access_token, refresh_token:data.refresh_token, expires_at:data.expires_at, user:data.user||authSession.user};
+          localStorage.setItem('grizzly_auth', JSON.stringify(s));
+          setAuthSession(s);
+        } else { localStorage.removeItem('grizzly_auth'); setAuthSession(null); }
+      } catch(e) {}
+    };
+    refresh();
+    const t = setInterval(refresh, 60*1000);
+    return () => clearInterval(t);
+  }, [authSession]);
+
   const fetchSheetStatus = useCallback(async () => {
     const {url, key} = getSbCreds();
     if (!url || !key) { setSyncErr(true); return; }
@@ -1039,7 +1103,7 @@ function App() {
     // Aggiorna solo quando lo stato CAMBIA verso attesa_utente/in_corso
     if ((curStato === "attesa_utente" || curStato === "in_corso") && prevStato !== curStato) {
       fetchProspecting();
-      if (runStart) openImportDati(runStart);
+      if (runStart) openImportDati(runStart, true);
     }
   }, [fasi, fetchProspecting]);
 
@@ -1201,7 +1265,7 @@ function App() {
   useEffect(() => {
     if (classificaStato !== "completato") return;
     // refresh rispettando la view attiva: run_attuale filtra per runStart
-    if (runView === 'run_attuale') openImportDati(runStart);
+    if (runView === 'run_attuale') openImportDati(runStart, true);
   }, [classificaStato]);
 
   // Auto-refresh tabella aziende importate quando i contatori cambiano (Phantom sta lavorando)
@@ -1217,7 +1281,7 @@ function App() {
     fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,icebreaker${ts}&order=nome.asc&limit=500`, {
       headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`}
     }).then(r=>r.ok?r.json():[]).then(rows=>{
-      setImportDati(p=>({...p, rows}));
+      if (rows.length > 0) setImportDati(p=>({...p, rows}));
     }).catch(()=>{});
   }, [counters.az_output, counters.scartati, counters.az_input]);
 
@@ -1340,7 +1404,7 @@ function App() {
   };
 
   // ── AVVIA RUN ─────────────────────────────────────────────────────────────
-  const avviaRun = async () => {
+  const avviaRun = async (mode="file") => {
     setLoad("avvia",true);
     const id = `RUN-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${String(Math.floor(Math.random()*900)+100)}`;
     const runStartLocal = new Date().toISOString();
@@ -1354,8 +1418,39 @@ function App() {
     rilancioCompanyIdsRef.current = [];
     setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
     setErrori(DEFAULT_ERRORI.map(e=>({...e,stato:"aperto"})));
-    pushLog("info",`Run ${id} avviato — campagna: ${campagna}`);
-    if(csvFile) pushLog("info",`File: ${csvFile.name}`);
+    pushLog("info",`Run ${id} avviato`);
+    if(mode==="file" && csvFile) pushLog("info",`File: ${csvFile.name}`);
+
+    // ── MODALITÀ MANUALE ────────────────────────────────────────────────────
+    if(mode==="manual") {
+      const normSitoM = v => { if(!v)return null; let s=v.trim(); if(!/^https?:\/\//i.test(s))s="https://"+s; try{return new URL(s).hostname.replace(/^www\./,"");}catch(e){return s;} };
+      const liM = v => { const t=(v||"").trim(); return t.toLowerCase().includes("linkedin.com/company/")?t:null; };
+      const validRows = manualRows.filter(r=>r.ragioneSociale.trim());
+      const records = validRows.map(r=>({
+        nome: r.ragioneSociale.trim(),
+        sito_web: normSitoM(r.sitoWeb),
+        linkedin_url_eb: liM(r.linkedin),
+        stato: normSitoM(r.sitoWeb) ? "nuovo" : "sito_mancante",
+        fonte: "Inserimento manuale",
+      }));
+      setFaseS("import","in_corso",{dettaglio:`Inserimento ${records.length} aziende...`});
+      sbWritePipelineState("import","in_corso",`Inserimento ${records.length} aziende...`);
+      const CHUNK=100; let ok=true;
+      for(let i=0;i<records.length&&ok;i+=CHUNK) ok=await sbInsert("companies",records.slice(i,i+CHUNK));
+      if(ok) {
+        pushLog("ok",`✓ ${records.length} ${records.length===1?"azienda inserita":"aziende inserite"} in Supabase`);
+        setFaseS("import","completato",{dettaglio:`${records.length} nuove · 0 duplicate`});
+        sbWritePipelineState("import","completato",`${records.length} nuove · 0 duplicate`);
+        setRunView('run_attuale'); openImportDati(runStartLocal);
+        setManualRows([{ragioneSociale:"",sitoWeb:"",linkedin:""}]);
+      } else {
+        pushLog("error","✕ Errore scrittura Supabase");
+        setFaseS("import","errore",{dettaglio:"Errore Supabase"});
+      }
+      setLoad("avvia",false);
+      setTab("run");
+      return;
+    }
 
     // Pulizia già eseguita dal tasto "Nuova Run" — non richiamare qui per evitare doppia cancellazione dati
     if(csvFile) {
@@ -1470,11 +1565,12 @@ function App() {
 
   const openSheet = (url, label) => setEmbedSheet({url: url.replace("/edit", "/preview").replace(/[?#].*$/, ""), editUrl: url, label});
 
-  const openImportDati = async (sinceTs) => {
-    setImportDati(p=>({...p, open:true, loading:true, rows:[], edits:{}}));
+  const openImportDati = async (sinceTs, silent=false) => {
+    if (!silent) setImportDati(p=>({...p, open:true, loading:true, rows:[], edits:{}}));
+    else setImportDati(p=>({...p, open:true}));
     try {
       const {url:sbUrl, key:sbKey} = getSbCreds();
-      if (!sbUrl || !sbKey) { setImportDati(p=>({...p, loading:false})); return; }
+      if (!sbUrl || !sbKey) { if (!silent) setImportDati(p=>({...p, loading:false})); return; }
       const filter = sinceTs ? `&creato_il=gte.${encodeURIComponent(sinceTs)}` : "";
       const BATCH = 1000;
       let allRows = [], offset = 0, done = false;
@@ -1488,7 +1584,7 @@ function App() {
         else offset += BATCH;
       }
       setImportDati(p=>({...p, loading:false, rows:allRows}));
-    } catch(e) { setImportDati(p=>({...p, loading:false})); }
+    } catch(e) { if (!silent) setImportDati(p=>({...p, loading:false})); }
   };
 
   const openDbAziende = async () => {
@@ -1852,6 +1948,49 @@ function App() {
     {key:"impostazioni", label:"Impostazioni", icon:"⚙"},
   ];
 
+  // ── LOGIN SCREEN ─────────────────────────────────────────────────────────
+  if (!authSession) {
+    return (
+      <div style={{minHeight:"100vh",background:"#060402",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Inter',sans-serif"}}>
+        <div style={{background:"#0d0c0b",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,padding:"48px 52px",width:380,boxShadow:"0 24px 64px rgba(0,0,0,0.6)"}}>
+          {/* Logo */}
+          <div style={{textAlign:"center",marginBottom:36}}>
+            <div style={{fontSize:36,marginBottom:8}}>🐻</div>
+            <div style={{fontSize:22,fontWeight:800,letterSpacing:"-0.5px",color:"#f5f0eb"}}>Grizzly<span style={{color:"#e05a2b"}}>4</span></div>
+            <div style={{fontSize:12,color:"rgba(255,255,255,0.35)",marginTop:4}}>Accedi al tuo account</div>
+          </div>
+          {/* Form */}
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <input
+              type="email"
+              placeholder="Email"
+              value={authEmail}
+              onChange={e=>setAuthEmail(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&signIn()}
+              style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:8,padding:"11px 14px",color:"#f5f0eb",fontSize:14,outline:"none"}}
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={authPassword}
+              onChange={e=>setAuthPassword(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&signIn()}
+              style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:8,padding:"11px 14px",color:"#f5f0eb",fontSize:14,outline:"none"}}
+            />
+            {authError && <div style={{fontSize:12,color:"#f87171",textAlign:"center"}}>{authError}</div>}
+            <button
+              onClick={signIn}
+              disabled={authLoading}
+              style={{background:authLoading?"rgba(224,90,43,0.4)":"#e05a2b",color:"#fff",border:"none",borderRadius:8,padding:"12px",fontSize:14,fontWeight:700,cursor:authLoading?"not-allowed":"pointer",marginTop:4,transition:"background 0.2s"}}
+            >
+              {authLoading ? "Accesso in corso…" : "Accedi"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
     {splash && (
@@ -2024,6 +2163,11 @@ function App() {
             ?<div style={{display:"flex",alignItems:"center",gap:6,color:C.muted}}><span style={{width:6,height:6,borderRadius:"50%",background:C.green,display:"inline-block",animation:"pulse 2s infinite"}}/><span style={{color:C.text,fontFamily:"'JetBrains Mono',monospace",fontSize:10}}>{runId}</span><span style={{fontFamily:"'JetBrains Mono',monospace",minWidth:52,display:"inline-block"}}>· {elapsedStr}</span></div>
             :<span style={{color:C.muted}}>Nessun run attivo</span>}
           <span style={{color:C.muted,fontFamily:"'JetBrains Mono',monospace",fontSize:10,minWidth:60,display:"inline-block",textAlign:"right"}}>{clock.toLocaleTimeString("it-IT")}</span>
+          {/* User info + logout */}
+          <div style={{display:"flex",alignItems:"center",gap:6,borderLeft:`1px solid ${C.border}`,paddingLeft:10,marginLeft:2}}>
+            <span style={{fontSize:10,color:C.muted,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{authSession?.user?.email||""}</span>
+            <button onClick={signOut} title="Esci" style={{background:"none",border:`1px solid ${C.border}`,borderRadius:4,padding:"2px 7px",fontSize:10,color:C.muted,cursor:"pointer",lineHeight:1.4,transition:"color 0.2s",whiteSpace:"nowrap"}} onMouseEnter={e=>e.target.style.color="#f87171"} onMouseLeave={e=>e.target.style.color=C.muted}>⏻ Esci</button>
+          </div>
           {!dropzoneMode&&(
             <button onClick={async()=>{
               if(runAttivo&&runId&&!await customConfirm("Avviare una nuova run? Lo stato attuale verrà azzerato.")) return;
@@ -2199,30 +2343,116 @@ function App() {
         {tab==="run"&&(
           <div className="run-content" style={{padding:"16px 20px",animation:"fadeIn .2s ease"}}>
             {(!runAttivo || dropzoneMode)?(
-              <div style={{maxWidth:520,margin:"0 auto",padding:"40px 0"}}>
-                <div className="dropzone" style={{marginBottom:14}}
-                  onDragOver={e=>{e.preventDefault();e.currentTarget.classList.add('over');}}
-                  onDragLeave={e=>e.currentTarget.classList.remove('over')}
-                  onDrop={e=>{e.preventDefault();e.currentTarget.classList.remove('over');const f=e.dataTransfer.files[0];if(f)setCsvFile(f);}}
-                  onClick={()=>fileRef.current?.click()}>
-                  <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={e=>setCsvFile(e.target.files[0])}/>
-                  <div style={{fontSize:28,marginBottom:6}}>📂</div>
-                  <div style={{fontSize:13,fontWeight:600,color:csvFile?C.green:C.text,marginBottom:4}}>
-                    {csvFile?`✓ ${csvFile.name}`:"Trascina il file EasyBusiness"}
+              <div style={{maxWidth:900,margin:"0 auto",padding:"40px 20px"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1px 1fr",gap:0,alignItems:"stretch"}}>
+
+                  {/* ── COLONNA SINISTRA: inserimento manuale ── */}
+                  {(()=>{
+                    const validRows = manualRows.filter(r=>r.ragioneSociale.trim());
+                    const updateRow = (i, field, val) => {
+                      setManualRows(prev => {
+                        const next = prev.map((r,idx)=>idx===i?{...r,[field]:val}:r);
+                        // Se l'utente ha digitato nell'ultima riga, aggiunge una riga vuota
+                        const last = next[next.length-1];
+                        if(last.ragioneSociale||last.sitoWeb||last.linkedin) next.push({ragioneSociale:"",sitoWeb:"",linkedin:""});
+                        return next;
+                      });
+                    };
+                    const removeRow = i => setManualRows(prev => {
+                      const next = prev.filter((_,idx)=>idx!==i);
+                      return next.length===0?[{ragioneSociale:"",sitoWeb:"",linkedin:""}]:next;
+                    });
+                    return (
+                      <div style={{paddingRight:28,display:"flex",flexDirection:"column",height:"100%"}}>
+                        <div style={{fontSize:13,fontWeight:700,color:C.accent,marginBottom:12,letterSpacing:.3}}>✏ Inserimento manuale</div>
+                        <div style={{overflowX:"auto",flex:1}}>
+                          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                            <thead>
+                              <tr style={{background:"rgba(59,130,246,0.07)"}}>
+                                {["Ragione sociale","Sito web","LinkedIn"].map(h=>(
+                                  <th key={h} style={{padding:"6px 8px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:10,borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{h}</th>
+                                ))}
+                                <th style={{width:24,borderBottom:`1px solid ${C.border}`}}/>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {manualRows.map((row,i)=>{
+                                const isLast = i===manualRows.length-1;
+                                const isEmpty = !row.ragioneSociale&&!row.sitoWeb&&!row.linkedin;
+                                return (
+                                  <tr key={i} style={{background:i%2===0?"transparent":"rgba(59,130,246,0.03)"}}>
+                                    {[
+                                      {field:"ragioneSociale",placeholder:"Ragione sociale…"},
+                                      {field:"sitoWeb",placeholder:"mariorossi.it"},
+                                      {field:"linkedin",placeholder:"linkedin.com/company/…"},
+                                    ].map(({field,placeholder})=>(
+                                      <td key={field} style={{padding:"3px 4px"}}>
+                                        <input value={row[field]} onChange={e=>updateRow(i,field,e.target.value)}
+                                          placeholder={isLast&&isEmpty?placeholder:""}
+                                          style={{width:"100%",background:"transparent",border:`1px solid ${isEmpty&&!isLast?"transparent":C.border}`,borderRadius:3,padding:"5px 7px",fontSize:11,color:C.text,outline:"none",minWidth:0,boxSizing:"border-box"}}
+                                          onFocus={e=>e.target.style.borderColor=C.accent}
+                                          onBlur={e=>e.target.style.borderColor=isEmpty&&!isLast?"transparent":C.border}/>
+                                      </td>
+                                    ))}
+                                    <td style={{padding:"3px 4px",textAlign:"center"}}>
+                                      {!isEmpty&&<button onClick={()=>removeRow(i)} style={{background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:12,lineHeight:1,padding:"2px 4px"}}>✕</button>}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                        <button onClick={()=>avviaRun("manual")} disabled={validRows.length===0||loading.avvia}
+                          style={{width:"100%",marginTop:12,padding:"10px 0",fontSize:13,fontWeight:700,color:"#fff",
+                            background:validRows.length>0&&!loading.avvia?"linear-gradient(135deg,#3b82f6,#2563eb)":"#1e2a3a",
+                            border:"none",borderRadius:6,cursor:validRows.length>0&&!loading.avvia?"pointer":"not-allowed"}}>
+                          {loading.avvia?"⟳ Avvio in corso...":`▶ Avvia Run${validRows.length>0?` (${validRows.length} ${validRows.length===1?"azienda":"aziende"})`:""}` }
+                        </button>
+                      </div>
+                    );
+                  })()}
+
+                  {/* separatore */}
+                  <div style={{background:C.border,margin:"0 0"}}/>
+
+                  {/* ── COLONNA DESTRA: carica file ── */}
+                  <div style={{paddingLeft:28}}>
+                    <div style={{fontSize:13,fontWeight:700,color:C.accent,marginBottom:16,letterSpacing:.3}}>📂 Carica lista aziende</div>
+                    <div className="dropzone" style={{marginBottom:10}}
+                      onDragOver={e=>{e.preventDefault();e.currentTarget.classList.add('over');}}
+                      onDragLeave={e=>e.currentTarget.classList.remove('over')}
+                      onDrop={e=>{e.preventDefault();e.currentTarget.classList.remove('over');const f=e.dataTransfer.files[0];if(f)setCsvFile(f);}}
+                      onClick={()=>fileRef.current?.click()}>
+                      <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={e=>setCsvFile(e.target.files[0])}/>
+                      <div style={{fontSize:24,marginBottom:6}}>📄</div>
+                      <div style={{fontSize:13,fontWeight:600,color:csvFile?C.green:C.text,marginBottom:4}}>
+                        {csvFile?`✓ ${csvFile.name}`:"Trascina il file qui"}
+                      </div>
+                      <div style={{fontSize:11,color:C.muted}}>.xlsx · .xls · .csv — oppure clicca per selezionare</div>
+                    </div>
+                    <button onClick={()=>{
+                      const b64="UEsDBBQABgAIAAAAIQBi7p1oXgEAAJAEAAATAAgCW0NvbnRlbnRfVHlwZXNdLnhtbCCiBAIooAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACslMtOwzAQRfdI/IPkLUrcskAINe2CxxIqUT7AxJPGqmNbnmlp/56J+xBCoRVqN7ESz9x7MvHNaLJubbaCiMa7UgyLgcjAVV4bNy/Fx+wlvxcZknJaWe+gFBtAMRlfX41mmwCYcbfDUjRE4UFKrBpoFRY+gOOd2sdWEd/GuQyqWqg5yNvB4E5W3hE4yqnTEOPRE9RqaSl7XvPjLUkEiyJ73BZ2XqVQIVhTKWJSuXL6l0u+cyi4M9VgYwLeMIaQvQ7dzt8Gu743Hk00GrKpivSqWsaQayu/fFx8er8ojov0UPq6NhVoXy1bnkCBIYLS2ABQa4u0Fq0ybs99xD8Vo0zL8MIg3fsl4RMcxN8bZLqej5BkThgibSzgpceeRE85NyqCfqfIybg4wE/tYxx8bqbRB+QERfj/FPYR6brzwEIQycAhJH2H7eDI6Tt77NDlW4Pu8ZbpfzL+BgAA//8DAFBLAwQUAAYACAAAACEAtVUwI/QAAABMAgAACwAIAl9yZWxzLy5yZWxzIKIEAiigAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKySTU/DMAyG70j8h8j31d2QEEJLd0FIuyFUfoBJ3A+1jaMkG92/JxwQVBqDA0d/vX78ytvdPI3qyCH24jSsixIUOyO2d62Gl/pxdQcqJnKWRnGs4cQRdtX11faZR0p5KHa9jyqruKihS8nfI0bT8USxEM8uVxoJE6UchhY9mYFaxk1Z3mL4rgHVQlPtrYawtzeg6pPPm3/XlqbpDT+IOUzs0pkVyHNiZ9mufMhsIfX5GlVTaDlpsGKecjoieV9kbMDzRJu/E/18LU6cyFIiNBL4Ms9HxyWg9X9atDTxy515xDcJw6vI8MmCix+o3gEAAP//AwBQSwMEFAAGAAgAAAAhAISSX/eVAgAACwYAAA8AAAB4bC93b3JrYm9vay54bWykVF1vmzAUfZ+0/2D5nYIpIS0qqdrQapG2qdr68RJpcsAJVo3NbNNQVf3vu4aQNs1L1yKwMdccn3PvsU9O20qgB6YNVzLF5CDAiMlcFVyuUnxzfekdYWQslQUVSrIUPzKDTydfv5yslb5fKHWPAECaFJfW1onvm7xkFTUHqmYSIkulK2phqFe+qTWjhSkZs9XwwyCI/YpyiXuERL8HQy2XPGWZypuKSduDaCaoBfqm5LUZ0Kr8PXAV1fdN7eWqqgFiwQW3jx0oRlWezFZSaboQILslI9RquGN4SABNOKwEob2lKp5rZdTSHgC035Pe008Cn5CdFLT7OXgfUuRr9sBdDbesdPxBVvEWK34BI8Gn0QhYq/NKAsn7INpoyy3Ek5MlF+y2ty6idf2TVq5SAiNBjb0ouGVFiscwVGu280E39XnDBUQPg8Mwxv5ka+crjQq2pI2w12DkAT7FYRAeBoGbCcY4E5ZpSS2bKmnBhxtdn/Vchz0tFTgc/WJ/G64ZbCzwF2iFluYJXZgrakvUaJHiaTK/MSB/fiYWTFs1z9RaCgVbbP7Km3R/I/yHO2nuJPuguefVv7/VD/R0MjjwymoE77PsO1ThN32AmkDli82WnUHSj/48hdHFNIqzC+/8OMq8KBpn3tloPPXG8TEZReR8dETiZ1Ch4yRXtLHlps4OM8URFHUv9IO2Q4QEScOLl/Wfgs3luf5NM8SenVJ3ot1ytjYvjnBD1N5xWah1ij0SgprH3eG6C97xwpbglOMggin9t2+Mr0pgTEZj9x843zFL8Q6jrGd0CZfnmh1G/itK3dkJ1Loeyc7vrK2VtnBIu3PVZZdgpBO3hp4VpKve8FtORQ7+dp2b2LnZH87xyT8AAAD//wMAUEsDBBQABgAIAAAAIQCBPpSX8wAAALoCAAAaAAgBeGwvX3JlbHMvd29ya2Jvb2sueG1sLnJlbHMgogQBKKAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACsUk1LxDAQvQv+hzB3m3YVEdl0LyLsVesPCMm0KdsmITN+9N8bKrpdWNZLLwNvhnnvzcd29zUO4gMT9cErqIoSBHoTbO86BS/N880DCGLtrR6CRwUTEuzq66vtCw6acxO5PpLILJ4UOOb4KCUZh6OmIkT0udKGNGrOMHUyanPQHcpNWd7LtOSA+oRT7K2CtLe3IJopZuX/uUPb9gafgnkf0fMZCUk8DXkA0ejUISv4wUX2CPK8/GZNec5rwaP6DOUcq0seqjU9fIZ0IIfIRx9/KZJz5aKZu1Xv4XRC+8opv9vyLMv072bkycfV3wAAAP//AwBQSwMEFAAGAAgAAAAhAHdvoABsAwAApwsAABgAAAB4bC93b3Jrc2hlZXRzL3NoZWV0MS54bWycVttymzAQfe9M/4HRewwijpN4jDtt07TprentWQbZ1gQQlWQ7mU7/vUcC7GAYajfjsAKdPbvaXa00eXafpd6aKy1kHhE6CIjH81gmIl9E5Pu365ML4mnD8oSlMucReeCaPJs+fTLZSHWnl5wbDwy5jsjSmGLs+zpe8ozpgSx4jpm5VBkzeBULXxeKs8QpZakfBsHIz5iISckwVoZwyPlcxPxKxquM56YkUTxlBv7rpSh0zZbFh9BlTN2tipNYZgUoZiIV5sGREi+LxzeLXCo2S7HuezpksXev8Avxf1qbcd9bljIRK6nl3AzA7Jc+t5d/6V/6LN4ytdd/EA0d+oqvhU3gjir8P5fo2ZYr3JGd/ifZaEtmw6XGK5FE5HdQ/Z1AUvsIdo967g+ZThKBDNtVeYrPI/Kcjm/PiT+duPr5IfhGPxp7hs2+8pTHhsMGJZ6RxXs+Ny95mkbkBT7Yep1JeWc1b4AJYEI7DWuCxUaseY3G2vUvZ/UFDa1Nf2v08bh24NrV+GflJXzOVqm5lZs3XCyWBp6cYeW2dMbJwxXXMWoWpgfhmWWNZQoKPL1M2M2HmmP3Tm5EYpYRwd5biiThbrJUKKFw0EEhK+j5xYAOgxGIvXiljcx+lhS0MlTqIQ9OD7LSOx32KmDWKUBWChRO9ViAfacAeZiFUaUAWVtAD+qxcF4pQFYKIcLQowCHnUuQlcJlLx6zDg9Ze9SvQOFwmTkMjsoH3ebcVmiZsX9kBAVZGdslP0TwegJA67TbQb0khK9PpU48fZR5+NinUqfe1vxxUahrgO6K4B8Rr4vAVmNvYfrlJnP794oZNp0oufHQarEYXTB7cNGxZenepdieFvzcosu+EhGNzrGeBhN/jWYQVwjbYvYQtIl42UaETcRVG3HaRLxqI4ZNxHUbcdZEvG4jRk3EmzbivIm4aSMumoi3bcRlE/GuI2J7QX3fAdmL6ocOyF5YP3ZA9uL6qQOyF9jPHZC9yH7pgOyF9rYDsoutj9rcFqg9hA4u0C8WHZHysHrMgh1/BItFd7GgCRzBYtFdLOgLR7BYdBcLesQRLBbdxYIGcgSLRTdYygtB2VAKtuAfmFqIXHsp7hz2gIeCKm8AbozbiPuKNc2kwelcvy1xIeZoMMEAoZ9LaeoXe+nYXrGnfwEAAP//AwBQSwMEFAAGAAgAAAAhACB5PDnBBwAAEyIAABMAAAB4bC90aGVtZS90aGVtZTEueG1s7FrNjxu3Fb8HyP9AzF3WzOh7YTnQpzf27nrhlV3kSEmUhl7OcEBSuysUAQrn1EuBAmnRS4HeeiiKBmiABrnkjzFgI03/iDxyRprhioq9/kCSYncvM9TvPf7mvcf33pBz95OrmKELIiTlSdcL7vgeIsmMz2my7HpPJuNK20NS4WSOGU9I11sT6X1y7+OP7uIDFZGYIJBP5AHueoFS6UG1KmcwjOUdnpIEfttwEWMFt2JZnQt8CXpjVg19v1mNMU08lOAY1E5ABs0perRY0Bnx7m3UjxjMkSipB2ZMnGnlJJcpYefngUbItRwwgS4w63ow05xfTsiV8hDDUsEPXc83f1713t0qPsiFmNojW5Ibm79cLheYn4dmTrGcbif1R2G7Hmz1GwBTu7hRW/9v9RkAns3gSTMuZZ1Bo+m3wxxbAmWXDt2dVlCz8SX9tR3OQafZD+uWfgPK9Nd3n3HcGQ0bFt6AMnxjB9/zw36nZuENKMM3d/D1Ua8Vjiy8AUWMJue76Gar3W7m6C1kwdmhE95pNv3WMIcXKIiGbXTpKRY8UftiLcbPuBgDQAMZVjRBap2SBZ5BHPdSxSUaUpkyvPZQihMuYdgPgwBCr+6H239jcXxAcEla8wImcmdI80FyJmiqut4D0OqVIC+/+ebF869fPP/Piy++ePH8X+iILiOVqbLkDnGyLMv98Pc//u+vv0P//fffvjyT264dIONf/fP3r7797qfUw1IrTPHyz1+9+vqrl3/5w/f/+NKhvSfwtAyf0JhIdEIu0WMewwMaU9j8yVTcTGISYWpJ4Ah0O1SPVGQBT9aYuXB9YpvwqYAs4wLeXz2zuJ5FYqWoY+aHUWwBjzlnfS6cBnio5ypZeLJKlu7JxaqMe4zxhWvuAU4sB49WKaRX6lI5iIhF85ThROElSYhC+jd+Tojj6T6j1LLrMZ0JLvlCoc8o6mPqNMmETq1AKoQOaQx+WbsIgqst2xw/RX3OXE89JBc2EpYFZg7yE8IsM97HK4Vjl8oJjlnZ4EdYRS6SZ2sxK+NGUoGnl4RxNJoTKV0yjwQ8b8npDzEkNqfbj9k6tpFC0XOXziPMeRk55OeDCMepkzNNojL2U3kOIYrRKVcu+DG3V4i+Bz/gZK+7n1Jiufv1ieAJJLgypSJA9C8r4fDlfcLt9bhmC0xcWaYnYiu79gR1Rkd/tbRC+4gQhi/xnBD05FMHgz5PLZsXpB9EkFUOiSuwHmA7VvV9QiRBpq/ZTZFHVFohe0aWfA+f4/W1xLPGSYzFPs0n4HUrdKcCFqPjOR+x2XkZeEKhAYR4cRrlkQQdpeAe7dN6GmGrdul76Y7XtbD89yZrDNbls5uuS5AhN5aBxP7GtplgZk1QBMwEU3TkSrcgYrm/ENF11YitnHILe9EWboDGyOp3Ypq8rvk5wULwy5+n9/lgXY9b8bv0O/vyyuG1Lmcf7lfY2wzxKjklUE52E9dta3Pb2nj/963NvrV829DcNjS3DY3rFeyDNDRFDwPtTbHVYzZ+4r37PgvK2JlaM3IkzdaPhNea+RgGzZ6U2Zjc7gOmEVzq54EJLNxSYCODBFe/oSo6i3AK+0OB2fFcylz1UqKUS9g2MsNmR5Vc0202n1bxMZ9n251mf8nPTCixKsb9Bmw8ZeOwVaUydLOVD2p+G+qG7dJstW4IaNmbkChNZpOoOUi0NoOvIaF3zt4Pi46DRVur37hqxxRAbesVeO9G8Lbe9Rr1jBHsyEGPPtd+yly98a52znv19D5jsnIEwNbirqc7muvex9NPl4XaG3jaImGckoWVTcL4yjR4MoK34Tw6y/vuPxVwN/V1p3CpRU+bYrMaChqt9ofwtU4i13IDS8qZgiXoEtZ4CIvOQzOcdr0F7BvDZZxC8Ej97oXZEo5fZkpkK/5tUksqpBpiGWUWN1kn809MFRGI0bjr6effhgNLTBLJyHVg6f5SyYV6wf3SyIHXbS+TxYLMVNnvpRFt6ewWUnyWLJy/GvG3B2tJvgJ3n0XzSzRlK/EYQ4g1WoH27pxKOD4IMlfPKZyHbTNZEX/XKlOe/a1DriIfY5ZGOC8p5WyewU1B2dIxd1sblO7yZwaD7ppwutQV9p3L7utrtbZcUR87RdG00ooum+5s+uGqfIlVUUUtVlnuvp5zO5tkB4HqLBPvXvtL1IrJLGqa8W4e1kk7H7WpvceOoFR9mnvsti0STku8bekHuetRqyvEprE0gW+Ozstn23z6DJLHEE4RVyw77WYJ3JnWMj0VxrdTPl/nl0xmiSbzuW5Ks1T+mCwQnV91vdDVOeaHx3k3wBJAm54XVthW0Nnt2YK62OWi2YLdCmdt7LV+1RbeSmyOWbfCZmvRRVtdbU7Uda9uZtYOy57apGFjKbjatSIc/wsMrXN2mJvlXsgzVyrvtOEKrQTter/1G736IGwMKn67MarUa3W/0m70apVeo1ELRo3AH/bDz4GeiuKgkX37MIbTILbOv4Aw4ztfQcSbA687Mx5Xufm6oWq8b76CCELrK4jsiwY00R85eOBIoBWOgnrYCweVwTBoVurhsFlpt2q9yiBsDsMeFO3muPe5hy4MOOgPh+NxI6w0B4Cr+71GpdevDSrN9qgfjoNRfegDOC8/V/AWo3Nubgu4NLzu/QgAAP//AwBQSwMEFAAGAAgAAAAhAGuf5NoYAwAAgAcAAA0AAAB4bC9zdHlsZXMueG1spFXbjtMwEH1H4h8sL49knWST0lZJEG03EhKskHaRkIAHN3G6Fr5EjrukIF74Hr6KL2GcpG2WO8tLY49nzlzOzDR53EqBbphpuFIpDk59jJgqdMnVJsUvr3JvilFjqSqp0IqleMQe+gaafBs9ezLZSHWnl5wbDwy5jsjSmGLs+zpe8ozpgSx4jpm5VBkzeBULXxeKs8QpZakfBsHIz5iISckwVoZwyPlcxPxKxquM56YkUTxlBv7rpSh0zZbFh9BlTN2tipNYZgUoZiIV5sGREi+LxzeLXCo2S7HuezpksXev8Avxf1qbcd9bljIRK6nl3AzA7Jc+t5d/6V/6LN4ytdd/EA0d+oqvhU3gjir8P5fo2ZYr3JGd/ifZaEtmw6XGK5FE5HdQ/Z1AUvsIdo967g+ZThKBDNtVeYrPI/Kcjm/PiT+duPr5IfhGPxp7hs2+8pTHhsMGJZ6RxXs+Ny95mkbkBT7Yep1JeWc1b4AJYEI7DWuCxUaseY3G2vUvZ/UFDa1Nf2v08bh24NrV+GflJXzOVqm5lZs3XCyWBp6cYeW2dMbJwxXXMWoWpgfhmWWNZQoKPL1M2M2HmmP3Tm5EYpYRwd5biiThbrJUKKFw0EEhK+j5xYAOgxGIvXiljcx+lhS0MlTqIQ9OD7LSOx32KmDWKUBWChRO9ViAfacAeZiFUaUAWVtAD+qxcF4pQFYKIcLQowCHnUuQlcJlLx6zDg9Ze9SvQOFwmTkMjsoH3ebcVmiZsX9kBAVZGdslP0TwegJA67TbQb0khK9PpU48fZR5+NinUqfe1vxxUahrgO6K4B8Rr4vAVmNvYfrlJnP794oZNp0oufHQarEYXTB7cNGxZenepdieFvzcosu+EhGNzrGeBhN/jWYQVwjbYvYQtIl42UaETcRVG3HaRLxqI4ZNxHUbcdZEvG4jRk3EmzbivIm4aSMumoi3bcRlE/GuI2J7QX3fAdmL6ocOyF5YP3ZA9uL6qQOyF9jPHZC9yH7pgOyF9rYDsoutj9rcFqg9hA4u0C8WHZHysHrMgh1/BItFd7GgCRzBYtFdLOgLR7BYdBcLesQRLBbdxYIGcgSLRTdYygtB2VAKtuAfmFqIXHsp7hz2gIeCKm8AbozbiPuKNc2kwelcvy1xIeZoMMEAoZ9LaeoXe+nYXrGnfwEAAP//AwBQSwMEFAAGAAgAAAAhABHe3LKEAQAAAwMAABAACAFkb2NQcm9wcy9hcHAueG1sIKIEASigAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAnJJPb9swDMXvA/YdBN8bOV0xDIGsYugf9NBhAZL2zsV0IlSRBIk1knz66TaaOm1PvZF89PNPT9JXex0QPYaquhbQQQCQxYqkHQfOIRtgMTuLvMwBJeVKz3rOEVi0E2z7MzXo5BHe8eY/eLxrk4JJ6hIUFfkxUoMFR5fsMEROW40DSNZG/bRUXlbz3N1tVKvpIuU0djYJ+KWl/KeQpVFztJJZspswLna3Yoviaw3bkkLzwRSj/s2/jKBKZkNHbvgDPH2OIp9sAwQo84uE8x0we+4dz8p3feD+48F8eTjjdA+BriqVCvtpCx4cyPAR8H+p6zy743ud5C2GDzuvORaG/7qTxTZv45q35UfJOTmVZvr9f8BwAA//8DAFBLAwQUAAYACAAAACEAtqXx32cBAACAAgAAEQAIAWRvY1Byb3BzL2NvcmUueG1sIKIEASigAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAchJFPi8IwFMTvgu8Q8t6mXUUkpB1TWVDwJGwX9hbTtC1sk5LEbfTTb1rxuN9++RgmMxROSYcOIecBAscOQ7OcQS2bKmnBhxtdn/Vchz0tFTgc/WJ/G64ZbCzwF2iFluYJXZirakvUaJHiaTK/MSB/fiYWTFs1z9RaCgVbbP7Km3R/I/yHO2nuJPuguefVv7/VD/R0MjjwymoE77PsO1ThN32AmkDli82WnUHSj/48hdHFNIqzC+/8OMq8KBpn3tloPPXG8TEZReR8dETiZ1Ch4yRXtLHlps4OM8URFHUv9IO2Q4QEScOLl/Wfgs3luf5NM8SenVJ3ot1ytjYvjnBD1N5xWah1ij0SgprH3eG6C97xwpbglOMggin9t2+Mr0pgTEZj9x843zFL8Q6jrGd0CZfnmh1G/itK3dkJ1Loeyc7vrK2VtnBIu3PVZZdgpBO3hp4VpKve8FtORQ7+dp2b2LnZH87xyT8AAAD//wMAUEsDBBQABgAIAAAAIQD7MoIEXQEAAL4CAAAUAAAAeGwvc2hhcmVkU3RyaW5ncy54bWx0UkFOw0AMvCPxBysnQIItHAChNFUVWqkXQFC4m6ybWkp2w65ToK/hL3wMh0oIJXBcz6zHnnE6easr2FCI7N04OT0ZJUCu8JZdOU4el/PjywSioLNYeUfj5J1iMsn299IYBfSvi+NkLdJcGROLNdUYT3xDTpGVDzWKPkNpYhMIbVwTSV2Zs9Ho3NTILoHCt05UV1Vaxy8t5T+FLI2cpZLNlFmB8zU7FN4QWA5ckhM+So1kqeloO+qDLxgrqMky9rF7LHVFgvjNoT58h0FYEBZP0z60cJ3iduvhtA/l07tBiUU+Pwbq9K1umuA37HTKfwj98uy4234w7CwfrM7i4ZWe+/Wbtqbg1TMNxXamQUMBVhj/mGG6nOW3GoklOFgsQWO6OOz323HAUiwCN6KWwv/ka1RHLUOh6W879/vd5ijSBtTRKx+sH3hZYYxd4BBYr4t/EYzeX/YFAAD//wMAUEsBAi0AFAAGAAgAAAAhAGLunWheAQAAkAQAABMAAAAAAAAAAAAAAAAAAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECLQAUAAYACAAAACEAtVUwI/QAAABMAgAACwAAAAAAAAAAAAAAAACXAwAAX3JlbHMvLnJlbHNQSwECLQAUAAYACAAAACEAhJJf95UCAAALBgAADwAAAAAAAAAAAAAAAAC8BgAAeGwvd29ya2Jvb2sueG1sUEsBAi0AFAAGAAgAAAAhAIE+lJfzAAAAugIAABoAAAAAAAAAAAAAAAAAfgkAAHhsL19yZWxzL3dvcmtib29rLnhtbC5yZWxzUEsBAi0AFAAGAAgAAAAhAHdvoABsAwAApwsAABgAAAAAAAAAAAAAAAAAsQsAAHhsL3dvcmtzaGVldHMvc2hlZXQxLnhtbFBLAQItABQABgAIAAAAIQAgeTw5wQcAABMiAAATAAAAAAAAAAAAAAAAAFMPAAB4bC90aGVtZS90aGVtZTEueG1sUEsBAi0AFAAGAAgAAAAhAGuf5NoYAwAAgAcAAA0AAAAAAAAAAAAAAAAARRcAAHhsL3N0eWxlcy54bWxQSwECLQAUAAYACAAAACEA+zKCBF0BAAC+AgAAFAAAAAAAAAAAAAAAAACIGgAAeGwvc2hhcmVkU3RyaW5ncy54bWxQSwECLQAUAAYACAAAACEAEd7csoQBAAADAwAAEAAAAAAAAAAAAAAAAABrHAAAZG9jUHJvcHMvYXBwLnhtbFBLAQItABQABgAIAAAAIQC2pfHfZwEAAIACAAARAAAAAAAAAAAAAAAAAC0eAABkb2NQcm9wcy9jb3JlLnhtbFBLBQYAAAAACgAKAIACAADDIAAAAAA=";
+                      const bin=atob(b64);
+                      const arr=new Uint8Array(bin.length);
+                      for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+                      const a=document.createElement("a");
+                      a.href=URL.createObjectURL(new Blob([arr],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
+                      a.download="modello_easybusiness.xlsx";
+                      a.click();
+                    }} style={{width:"100%",marginBottom:10,padding:"7px 0",fontSize:11,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:5,cursor:"pointer"}}>
+                      ⬇ Scarica modello Excel
+                    </button>
+                    <div style={{display:"flex",gap:8}}>
+                      <button onClick={()=>avviaRun("file")} disabled={!csvFile||loading.avvia}
+                        style={{flex:1,padding:"10px 0",fontSize:13,fontWeight:700,color:"#fff",
+                          background:csvFile&&!loading.avvia?"linear-gradient(135deg,#3b82f6,#2563eb)":"#1e2a3a",
+                          border:"none",borderRadius:6,cursor:csvFile&&!loading.avvia?"pointer":"not-allowed"}}>
+                        {loading.avvia?"⟳ Avvio in corso...":"▶ Avvia Run"}
+                      </button>
+                      {csvFile&&<button onClick={()=>setCsvFile(null)} style={{padding:"10px 14px",fontSize:12,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer"}}>✕</button>}
+                    </div>
                   </div>
-                  <div style={{fontSize:11,color:C.muted}}>.xlsx · .xls · .csv — oppure clicca per selezionare</div>
-                </div>
-                <div style={{marginBottom:12}}>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Nome campagna</div>
-                  <input value={campagna} onChange={e=>setCampagna(e.target.value)} placeholder="es. Ascensoristi Nord Italia"
-                    style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:4,padding:"8px 12px",fontSize:12,color:C.text}}/>
-                </div>
-                <div style={{display:"flex",gap:8}}>
-                  <button onClick={avviaRun} disabled={!csvFile||loading.avvia}
-                    style={{flex:1,padding:"10px 0",fontSize:13,fontWeight:700,color:"#fff",background:csvFile&&!loading.avvia?"linear-gradient(135deg,#3b82f6,#2563eb)":"#1e2a3a",border:"none",borderRadius:6,cursor:csvFile&&!loading.avvia?"pointer":"not-allowed"}}>
-                    {loading.avvia?"⟳ Avvio in corso...":"▶ Avvia Run"}
-                  </button>
-                  {csvFile&&<button onClick={()=>setCsvFile(null)} style={{padding:"10px 14px",fontSize:12,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer"}}>✕</button>}
                 </div>
               </div>
             ):(
