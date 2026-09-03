@@ -2584,6 +2584,10 @@ function App() {
                           <button onClick={fetchContattiRun} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>↻ Aggiorna</button>
                           <button onClick={deleteSelected} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>🗑 {contattiSelected.size>0?`Elimina (${contattiSelected.size})`:"Elimina"}</button>
                           <button onClick={richiestaEnrichment} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#7c3aed,#8b5cf6)",border:"none",borderRadius:5,cursor:"pointer"}}>✉ Cerca email{contattiSelected.size>0?` (${contattiSelected.size})`:""}</button>
+                          {(()=>{
+                            const busy=fasi.some(f=>['import','classifica','company','hubspot','aggiorna'].includes(f.id)&&f.stato==='in_corso');
+                            return <button disabled={busy} onClick={rilanciaSmartPipeline} style={{padding:"7px 12px",fontSize:11,fontWeight:700,color:busy?"#4b5563":"#fff",background:busy?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:5,cursor:busy?"not-allowed":"pointer",whiteSpace:"nowrap"}}>{busy?"⏳ In corso...":"▶ Rilancia Pipeline"}</button>;
+                          })()}
                           <button onClick={()=>setLeadsFullscreen(f=>!f)} style={{padding:"7px 10px",fontSize:13,fontWeight:700,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,cursor:"pointer"}} title={leadsFullscreen?"Esci da schermo intero":"Schermo intero"}>{leadsFullscreen?"⤡":"⤢"}</button>
                         </div>
                       </div>
@@ -2718,7 +2722,11 @@ function App() {
                     <div style={importFullscreen?{position:"absolute",top:0,left:0,right:0,bottom:0,zIndex:10,background:"#0d1117",display:"flex",flexDirection:"column",overflow:"hidden"}:{background:"rgba(37,99,235,0.10)",border:`1px solid rgba(59,130,246,0.4)`,borderRadius:6,overflow:"hidden",flex:1,minHeight:0}}>
                       <div style={{fontSize:12,fontWeight:700,color:"#60a5fa",padding:"10px 16px",borderBottom:`1px solid rgba(59,130,246,0.2)`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                         <span>🔍 Ricerca Aziende</span>
-                        <div style={{display:"flex",gap:6}}>
+                        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                          {(()=>{
+                            const busy=fasi.some(f=>['import','classifica','company','hubspot','aggiorna'].includes(f.id)&&f.stato==='in_corso');
+                            return <button disabled={busy} onClick={rilanciaSmartPipeline} style={{fontSize:10,fontWeight:700,color:busy?"#4b5563":"#fff",background:busy?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:3,padding:"3px 10px",cursor:busy?"not-allowed":"pointer",whiteSpace:"nowrap"}}>{busy?"⏳ In corso...":"▶ Rilancia Pipeline"}</button>;
+                          })()}
                           <button onClick={()=>openImportDati(runStart)} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>⟳ Aggiorna</button>
                           <button onClick={()=>setImportFullscreen(f=>!f)} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}} title={importFullscreen?"Esci da schermo intero":"Schermo intero"}>{importFullscreen?"⤡":"⤢"}</button>
                         </div>
