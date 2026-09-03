@@ -306,7 +306,6 @@ const STATO_CFG = {
   in_attesa:     {color:C.muted,  bg:"transparent", dot:C.muted,  label:"In attesa"},
   errore:        {color:C.red,    bg:C.redDim,     dot:C.red,    label:"Errore"},
   sito_updated:  {color:"#f59e0b",bg:"rgba(245,158,11,0.12)", dot:"#f59e0b", label:"Sito aggiornato"},
-  url_updated:   {color:"#06b6d4",bg:"rgba(6,182,212,0.12)",  dot:"#06b6d4", label:"URL confermata"},
   classificata:  {color:C.muted,  bg:"transparent",           dot:C.muted,   label:"Classificata"},
   esclusa:       {color:C.muted,  bg:"transparent",           dot:C.muted,   label:"Esclusa"},
   in_attesa:     {color:C.muted,  bg:"transparent",           dot:C.muted,   label:"In attesa"},
@@ -367,14 +366,6 @@ const FASE_LINKS = {"import": {"sheet": "https://docs.google.com/spreadsheets/d/
 const TARGET_ROLES = ["ceo","founder","fondatore","amministratore","direttore","director","sales","commerciale","general manager","managing"];
 const isTarget = r => TARGET_ROLES.some(t => r.toLowerCase().includes(t));
 
-const MOCK_EXECS = [
-  {id:1,azienda:"PAMIGA COSTRUZIONI IND. S.R.L.",nome:"Marco Ferretti",ruolo:"CEO & Fondatore",url:"https://linkedin.com/in/marcoferretti",approvato:null},
-  {id:2,azienda:"PAMIGA COSTRUZIONI IND. S.R.L.",nome:"Laura Bianchi",ruolo:"Direttore Commerciale",url:"https://linkedin.com/in/laurabianchi",approvato:null},
-  {id:3,azienda:"PAMIGA COSTRUZIONI IND. S.R.L.",nome:"Giulia Ricci",ruolo:"HR Manager",url:"https://linkedin.com/in/giuliaricci",approvato:null},
-  {id:4,azienda:"ALARM SYSTEM S.R.L.",nome:"Stefano Conti",ruolo:"Amministratore Delegato",url:"https://linkedin.com/in/stefanoconti",approvato:null},
-  {id:5,azienda:"ALARM SYSTEM S.R.L.",nome:"Francesca Marino",ruolo:"Sales Director",url:"https://linkedin.com/in/francescamarino",approvato:null},
-  {id:6,azienda:"ALARM SYSTEM S.R.L.",nome:"Andrea Galli",ruolo:"Procurement Manager",url:"https://linkedin.com/in/andreagalli",approvato:null},
-];
 
 // ── LEGGI STATO DA GOOGLE SHEET ───────────────────────────────────────────────
 function parseSheetData(raw) {
@@ -470,6 +461,7 @@ function App() {
   const fasiRef = React.useRef([]);
   const prevCountersRef = React.useRef({az_input:null, az_output:null, exec:null, scartati:null});
   const [importDati, setImportDati] = useState({open:false, rows:[], loading:false, edits:{}, sortCol:null, sortDir:"asc"});
+  const [importSelected, setImportSelected] = useState(new Set());
   const [importFullscreen, setImportFullscreen] = useState(false);
   const [leadsFullscreen, setLeadsFullscreen] = useState(false);
   const [dbSearch,   setDbSearch]   = useState('');
@@ -801,64 +793,15 @@ function App() {
   // Se ci sono solo aziende linkedin_ok (URL verificati) → salta Phantom, vai diretto a HubSpot
   // Se ci sono aziende da riclassificare → pipeline completa da classificatore
   const rilanciaIsBusy = fasi.some(f=>['import','classifica','company','hubspot','aggiorna'].includes(f.id)&&f.stato==='in_corso');
-  const rilanciaHasSomethingToDo = importDati.rows.some(r=>['sito_updated','url_updated','nuovo'].includes(r.stato));
+  const rilanciaHasSomethingToDo = importDati.rows.some(r=>['sito_updated','nuovo'].includes(r.stato));
   const rilanciaDisabled = rilanciaIsBusy || !rilanciaHasSomethingToDo;
 
   const rilanciaSmartPipeline = useCallback(async () => {
     const {url:sbU, key:sbK} = getSbCreds();
     if (!sbU || !sbK) { showToast("⚠ Credenziali Supabase mancanti"); return; }
     // Conta aziende per stato
-    let sitoUpdatedCount = 0;
-    let urlUpdatedIds = [];
-    try {
-      const [rSito, rUrl] = await Promise.all([
-        fetch(`${sbU}/rest/v1/companies?stato=in.(nuovo,sito_updated)&hubspot_id=is.null&select=id&limit=1`, {
-          headers:{apikey:sbK, Authorization:`Bearer ${sbK}`, Prefer:"count=exact", Range:"0-0"}
-        }),
-        fetch(`${sbU}/rest/v1/companies?stato=eq.url_updated&hubspot_id=is.null&select=id&limit=500`, {
-          headers:{apikey:sbK, Authorization:`Bearer ${sbK}`}
-        }),
-      ]);
-      const cr = rSito.headers.get("content-range")||"0/0";
-      sitoUpdatedCount = parseInt(cr.split("/")[1]||"0");
-      const urlArr = rUrl.ok ? await rUrl.json() : [];
-      urlUpdatedIds = urlArr.map(x=>x.id);
-    } catch(e) {}
-
-    if (sitoUpdatedCount > 0) {
-      // Ci sono aziende nuovo/sito_updated → pipeline completa da classificatore
-      rilanciClassificatore();
-    } else {
-      // Solo url_updated → resetta a linkedin_ok e vai a HubSpot
-      const hubspotIds = [...urlUpdatedIds];
-      if (hubspotIds.length === 0) { showToast("⚠ Nessuna azienda da processare"); return; }
-      if (!MAKE.hubspot) { pushLog("warn","⚠ Webhook HubSpot non configurato"); return; }
-      // Resetta url_updated → linkedin_ok così il Make scenario le trova
-      if (urlUpdatedIds.length > 0) {
-        const {url:sbU, key:sbK} = getSbCreds();
-        if (sbU && sbK) {
-          await fetch(`${sbU}/rest/v1/companies?id=in.(${urlUpdatedIds.join(',')})`, {
-            method:'PATCH',
-            headers:{apikey:sbK, Authorization:`Bearer ${sbK}`,'Content-Type':'application/json',Prefer:'return=minimal'},
-            body: JSON.stringify({stato:'linkedin_ok', aggiornato_il: new Date().toISOString()})
-          }).catch(()=>{});
-          setImportDati(p=>({...p, rows: p.rows.map(r=>urlUpdatedIds.includes(r.id) ? {...r, stato:'linkedin_ok'} : r)}));
-          pushLog("info", `↺ ${urlUpdatedIds.length} aziende url_updated → linkedin_ok`);
-        }
-      }
-      rilancioCompanyIdsRef.current = hubspotIds;
-      hubspotAutoFiredRef.current = false;
-      setFaseS("hubspot","in_attesa",{dettaglio:"Aggiornamento HubSpot per URL verificati..."});
-      setFaseS("lemlist","bloccato",{dettaglio:""});
-      sbWritePipelineState("hubspot","in_attesa","Aggiornamento HubSpot per URL verificati...");
-      sbWritePipelineState("lemlist","bloccato","");
-      setCodeQueue(q=>({...q, rilanciaReady:false}));
-      pushLog("ok", `▶ ${hubspotIds.length} aziende con URL verificato → avvio HubSpot diretto`);
-      await callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId||"", runStart: runStart||"", companyIds: hubspotIds }, "Aggiornamento Hubspot");
-      setFaseS("hubspot","in_corso",{iniziato:new Date().toISOString(), dettaglio:"Aggiornamento aziende su HubSpot..."});
-      pushLog("ok","▶ Aggiornamento HubSpot avviato");
-      showToast("✓ HubSpot avviato per URL verificati");
-    }
+    // Rilancia fa sempre il percorso classificatore (nuovo/sito_updated → Phantom → HubSpot)
+    rilanciClassificatore();
   }, [runId, runStart, sbWritePipelineState, setFaseS, pushLog, rilanciClassificatore]);
 
   // ── Stop forzato HubSpot (segna completato → triggera Lemlist) ──────────────
@@ -996,7 +939,7 @@ function App() {
         return;
       }
       if (e.data?.type === 'approveUrl' && e.data.id) {
-        const nuovoStato = e.data.linkedin_url && e.data.linkedin_url !== 'NESSUNA' ? 'url_updated' : 'linkedin_ko';
+        const nuovoStato = e.data.linkedin_url && e.data.linkedin_url !== 'NESSUNA' ? 'linkedin_ok' : 'linkedin_ko';
         const ok = await sbUpdate("companies", {id: e.data.id}, {
           linkedin_url: e.data.linkedin_url,
           stato: nuovoStato,
@@ -1087,9 +1030,14 @@ function App() {
   }, [fasi]);
 
   // Quando lemlist si attiva, carica dati Prospecting output e aggiorna Ricerca Aziende
+  const lemlistPrevStatoRef = React.useRef(null);
   useEffect(() => {
     const lemFase = fasi.find(f => f.id === "lemlist");
-    if (lemFase?.stato === "attesa_utente" || lemFase?.stato === "in_corso") {
+    const curStato = lemFase?.stato ?? null;
+    const prevStato = lemlistPrevStatoRef.current;
+    lemlistPrevStatoRef.current = curStato;
+    // Aggiorna solo quando lo stato CAMBIA verso attesa_utente/in_corso
+    if ((curStato === "attesa_utente" || curStato === "in_corso") && prevStato !== curStato) {
       fetchProspecting();
       if (runStart) openImportDati(runStart);
     }
@@ -1520,22 +1468,6 @@ function App() {
     setTab("run");
   };
 
-  const avviaDemo = () => {
-    const id = `RUN-DEMO-${Date.now().toString().slice(-4)}`;
-    setDropzoneMode(false); setRunId(id); setRunStart(new Date().toISOString()); setRunAttivo(true);
-    setLog([]); setFasi(FASI_INIT); setExecs(MOCK_EXECS);
-    setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
-    setErrori(DEFAULT_ERRORI.map(e=>({...e,stato:"aperto"})));
-    pushLog("info",`Demo run avviato — dati reali dai tuoi Google Sheet`);
-    setTimeout(()=>{
-      setFaseS("import","completato",{iniziato:new Date().toISOString(),completato:new Date().toISOString(),dettaglio:"10 aziende importate"});
-      setFaseS("company","completato",{iniziato:new Date().toISOString(),completato:new Date().toISOString(),dettaglio:"7 trovati · 9 ambigui"});
-      setFaseS("url_check","attesa_utente",{iniziato:new Date().toISOString(),dettaglio:"9 URL da verificare"});
-      pushLog("warn","⏸ Pipeline in pausa — verifica URL richiesta");
-      setTab("interventi");
-    },600);
-  };
-
   const openSheet = (url, label) => setEmbedSheet({url: url.replace("/edit", "/preview").replace(/[?#].*$/, ""), editUrl: url, label});
 
   const openImportDati = async (sinceTs) => {
@@ -1645,6 +1577,23 @@ function App() {
   };
 
   const customConfirm = (msg) => new Promise(resolve => setConfirmModal({msg, resolve}));
+
+  const deleteImportSelected = async () => {
+    const ids = importSelected.size > 0 ? [...importSelected] : importDati.rows.map(r=>r.id);
+    if (!ids.length) return;
+    const label = importSelected.size > 0 ? `${ids.length} aziende selezionate` : `tutte le ${ids.length} aziende`;
+    if (!await customConfirm(`Eliminare ${label} dal database?`)) return;
+    const {url:sbUrl, key:sbKey} = getSbCreds();
+    if (!sbUrl || !sbKey) return;
+    try {
+      await fetch(`${sbUrl}/rest/v1/companies?id=in.(${ids.join(",")})`, {
+        method:"DELETE", headers:{apikey:sbKey, Authorization:`Bearer ${sbKey}`, Prefer:"return=minimal"}
+      });
+      setImportDati(p=>({...p, rows:p.rows.filter(r=>!ids.includes(r.id))}));
+      setImportSelected(new Set());
+      showToast(`✓ ${ids.length} aziende eliminate`);
+    } catch(e){ showToast("✕ Errore eliminazione"); }
+  };
 
   const deleteSelected = async () => {
     const ids = contattiSelected.size > 0 ? [...contattiSelected] : contattiRun.rows.map(r=>r.id);
@@ -2275,13 +2224,6 @@ function App() {
                   </button>
                   {csvFile&&<button onClick={()=>setCsvFile(null)} style={{padding:"10px 14px",fontSize:12,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer"}}>✕</button>}
                 </div>
-                <div style={{textAlign:"center",marginTop:16,borderTop:`1px solid ${C.border}`,paddingTop:14}}>
-                  <div style={{fontSize:10,color:C.muted,marginBottom:8}}>oppure carica una demo</div>
-                  <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
-                    <Btn small color={C.accent} bg={C.accentDim} onClick={avviaDemo}>▶ Demo</Btn>
-                    <Btn small color={"#67e8f9"} bg={"rgba(103,232,249,0.12)"} onClick={()=>{avviaDemo();setTimeout(()=>{setFaseS("dipendenti","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Phantom in esecuzione..."});setDipLastChange(Date.now()-91000);setDipIdle(true);},500);}}>⏱ Demo idle</Btn>
-                  </div>
-                </div>
               </div>
             ):(
               <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
@@ -2741,6 +2683,7 @@ function App() {
                         <span>🔍 Ricerca Aziende</span>
                         <div style={{display:"flex",gap:6,alignItems:"center"}}>
                           <button disabled={rilanciaDisabled} onClick={rilanciaSmartPipeline} style={{fontSize:10,fontWeight:700,color:rilanciaDisabled?"#4b5563":"#fff",background:rilanciaDisabled?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:3,padding:"3px 10px",cursor:rilanciaDisabled?"not-allowed":"pointer",whiteSpace:"nowrap"}}>{rilanciaIsBusy?"⏳ In corso...":"▶ Rilancia Pipeline"}</button>
+                          <button onClick={deleteImportSelected} style={{fontSize:10,fontWeight:700,color:"#fff",color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🗑 {importSelected.size>0?`Elimina (${importSelected.size})`:"Elimina"}</button>
                           <button onClick={()=>openImportDati(runStart)} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>⟳ Aggiorna</button>
                           <button onClick={()=>setImportFullscreen(f=>!f)} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}} title={importFullscreen?"Esci da schermo intero":"Schermo intero"}>{importFullscreen?"⤡":"⤢"}</button>
                         </div>
@@ -2790,7 +2733,7 @@ function App() {
                                       contatti_trovati: C.green,
                                       hubspot_sync: C.green,
                                       linkedin_ok: C.green,
-                                      url_updated: "#06b6d4",
+
                                       sito_updated: "#f59e0b",
                                       nuovo: C.yellow,
                                       url_ambigua: C.yellow,
@@ -2798,7 +2741,7 @@ function App() {
                                       linkedin_ko: C.muted,
                                     }[row.stato] || C.muted;
                                     return (
-                                      <tr key={row.id} style={{borderBottom:`1px solid rgba(59,130,246,0.07)`,background:i%2===0?"transparent":"rgba(59,130,246,0.03)"}}>
+                                      <tr key={row.id} onClick={()=>setImportSelected(prev=>{const s=new Set(prev);s.has(row.id)?s.delete(row.id):s.add(row.id);return s;})} style={{borderBottom:`1px solid rgba(59,130,246,0.07)`,background:importSelected.has(row.id)?"rgba(59,130,246,0.15)":i%2===0?"transparent":"rgba(59,130,246,0.03)",cursor:"pointer"}}>
                                         <td style={{padding:"5px 10px",color:C.text,fontWeight:600,minWidth:140,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.nome}</td>
                                         <td style={{padding:"4px 8px",minWidth:120}}>
                                           {row.stato==="sito_mancante" ? (
@@ -2857,9 +2800,8 @@ function App() {
                         {[
                           {stato:"NUOVO",           color:C.yellow,  desc:"in attesa Phantom"},
                           {stato:"SITO_MANCANTE",   color:C.yellow,  desc:"verifica manuale"},
-                          {stato:"SITO_UPDATED",    color:"#f59e0b", desc:"pronto per classificatore"},
                           {stato:"URL_AMBIGUA",     color:C.yellow,  desc:"verifica manuale"},
-                          {stato:"URL_UPDATED",     color:"#06b6d4", desc:"pronto per HubSpot"},
+                
                           {stato:"LINKEDIN_OK",     color:C.green,   desc:"URL verificata"},
                           {stato:"CONTATTI_TROVATI",color:C.green,   desc:"contatti trovati"},
                           {stato:"HUBSPOT_SYNC",    color:C.green,   desc:"su HubSpot"},
