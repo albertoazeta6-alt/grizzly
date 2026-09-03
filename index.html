@@ -794,6 +794,8 @@ function App() {
   // ── Rilancia smart: controlla cosa c'è da fare e sceglie il percorso ────────────────────────
   // Se ci sono solo aziende linkedin_ok (URL verificati) → salta Phantom, vai diretto a HubSpot
   // Se ci sono aziende da riclassificare → pipeline completa da classificatore
+  const rilanciaIsBusy = fasi.some(f=>['import','classifica','company','hubspot','aggiorna'].includes(f.id)&&f.stato==='in_corso');
+
   const rilanciaSmartPipeline = useCallback(async () => {
     const {url:sbU, key:sbK} = getSbCreds();
     if (!sbU || !sbK) { showToast("⚠ Credenziali Supabase mancanti"); return; }
@@ -820,9 +822,9 @@ function App() {
       if (!MAKE.hubspot) { pushLog("warn","⚠ Webhook HubSpot non configurato"); return; }
       rilancioCompanyIdsRef.current = linkedinOkIds;
       hubspotAutoFiredRef.current = false;
-      setFaseS("hubspot","attesa",{dettaglio:"Aggiornamento HubSpot per URL verificati..."});
+      setFaseS("hubspot","in_attesa",{dettaglio:"Aggiornamento HubSpot per URL verificati..."});
       setFaseS("lemlist","bloccato",{dettaglio:""});
-      sbWritePipelineState("hubspot","attesa","Aggiornamento HubSpot per URL verificati...");
+      sbWritePipelineState("hubspot","in_attesa","Aggiornamento HubSpot per URL verificati...");
       sbWritePipelineState("lemlist","bloccato","");
       setCodeQueue(q=>({...q, rilanciaReady:false}));
       pushLog("ok", `▶ ${linkedinOkIds.length} aziende con URL verificato → avvio HubSpot diretto`);
@@ -2323,7 +2325,7 @@ function App() {
                     {(()=>{ return fasi.map((fase,i)=>{
                       const isLemlistActive = fase.id==="lemlist"&&(fase.stato==="attesa_utente"||fase.stato==="in_corso");
                       const blueCfg = {color:"#3b82f6", bg:"rgba(59,130,246,0.12)", dot:"#3b82f6", label:"Intervento richiesto"};
-                      const cfg = isLemlistActive ? blueCfg : STATO_CFG[fase.stato];
+                      const cfg = isLemlistActive ? blueCfg : (STATO_CFG[fase.stato] || STATO_CFG.bloccato);
                       const isActive = fase.stato==="in_corso"||fase.stato==="attesa_utente"||fase.stato==="intervento_richiesto";
                       const isDone   = fase.stato==="completato";
                       const isWait   = (fase.stato==="in_attesa"||fase.stato==="bloccato")&&!isLemlistActive;
@@ -2584,10 +2586,7 @@ function App() {
                           <button onClick={fetchContattiRun} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>↻ Aggiorna</button>
                           <button onClick={deleteSelected} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>🗑 {contattiSelected.size>0?`Elimina (${contattiSelected.size})`:"Elimina"}</button>
                           <button onClick={richiestaEnrichment} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#7c3aed,#8b5cf6)",border:"none",borderRadius:5,cursor:"pointer"}}>✉ Cerca email{contattiSelected.size>0?` (${contattiSelected.size})`:""}</button>
-                          {(()=>{
-                            const busy=fasi.some(f=>['import','classifica','company','hubspot','aggiorna'].includes(f.id)&&f.stato==='in_corso');
-                            return <button disabled={busy} onClick={rilanciaSmartPipeline} style={{padding:"7px 12px",fontSize:11,fontWeight:700,color:busy?"#4b5563":"#fff",background:busy?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:5,cursor:busy?"not-allowed":"pointer",whiteSpace:"nowrap"}}>{busy?"⏳ In corso...":"▶ Rilancia Pipeline"}</button>;
-                          })()}
+                          <button disabled={rilanciaIsBusy} onClick={rilanciaSmartPipeline} style={{padding:"7px 12px",fontSize:11,fontWeight:700,color:rilanciaIsBusy?"#4b5563":"#fff",background:rilanciaIsBusy?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:5,cursor:rilanciaIsBusy?"not-allowed":"pointer",whiteSpace:"nowrap"}}>{rilanciaIsBusy?"⏳ In corso...":"▶ Rilancia Pipeline"}</button>
                           <button onClick={()=>setLeadsFullscreen(f=>!f)} style={{padding:"7px 10px",fontSize:13,fontWeight:700,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,cursor:"pointer"}} title={leadsFullscreen?"Esci da schermo intero":"Schermo intero"}>{leadsFullscreen?"⤡":"⤢"}</button>
                         </div>
                       </div>
@@ -2723,10 +2722,7 @@ function App() {
                       <div style={{fontSize:12,fontWeight:700,color:"#60a5fa",padding:"10px 16px",borderBottom:`1px solid rgba(59,130,246,0.2)`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                         <span>🔍 Ricerca Aziende</span>
                         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                          {(()=>{
-                            const busy=fasi.some(f=>['import','classifica','company','hubspot','aggiorna'].includes(f.id)&&f.stato==='in_corso');
-                            return <button disabled={busy} onClick={rilanciaSmartPipeline} style={{fontSize:10,fontWeight:700,color:busy?"#4b5563":"#fff",background:busy?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:3,padding:"3px 10px",cursor:busy?"not-allowed":"pointer",whiteSpace:"nowrap"}}>{busy?"⏳ In corso...":"▶ Rilancia Pipeline"}</button>;
-                          })()}
+                          <button disabled={rilanciaIsBusy} onClick={rilanciaSmartPipeline} style={{fontSize:10,fontWeight:700,color:rilanciaIsBusy?"#4b5563":"#fff",background:rilanciaIsBusy?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:3,padding:"3px 10px",cursor:rilanciaIsBusy?"not-allowed":"pointer",whiteSpace:"nowrap"}}>{rilanciaIsBusy?"⏳ In corso...":"▶ Rilancia Pipeline"}</button>
                           <button onClick={()=>openImportDati(runStart)} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>⟳ Aggiorna</button>
                           <button onClick={()=>setImportFullscreen(f=>!f)} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}} title={importFullscreen?"Esci da schermo intero":"Schermo intero"}>{importFullscreen?"⤡":"⤢"}</button>
                         </div>
