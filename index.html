@@ -102,6 +102,11 @@ let PHANTOM = {
   email:         "7176684592672454",
 };
 
+// ── CLASSIFICAZIONE ───────────────────────────────────────────────────────────
+const SETTORI_CLASS = ["Facility management","Ascensori","Gru","Carrelli","Fotovoltaico",
+  "Antincendio","Automazione industriale","Impianti","Costruttore","Componentistica",
+  "Produzione","Manutenzione","Wholesale","Altro"];
+
 // ── SUPABASE ──────────────────────────────────────────────────────────────────
 const SB_URL_LS = "grizzly_sb_url";
 const SB_KEY_LS = "grizzly_sb_anon";
@@ -456,6 +461,10 @@ function App() {
   const [reviewDebugMode, setReviewDebugMode] = useState(false);
   const [reviewBlobUrl, setReviewBlobUrl] = useState(null);
   const [codeSubTab, setCodeSubTab] = useState('url_ambigui');
+  // ── Classificazione review ────────────────────────────────────────────────
+  const [classifReview, setClassifReview] = useState({rows:[], loading:false, loaded:false});
+  const [classifEdit,   setClassifEdit]   = useState({}); // {id:{settore,icebreaker}}
+  const [classifFilter, setClassifFilter] = useState('tutti'); // tutti|bassa|media|altro|errore
   const [counters, setCounters] = useState({az_input:null, az_output:null, exec:null, scartati:null, mail_ok:null, mail_no:null});
   const azOutputRef = React.useRef(0); // ref stabile per evitare loop in fetchUrlSheet
   const fasiRef = React.useRef([]);
@@ -539,6 +548,19 @@ function App() {
       if(unici.length>0) setSettori(unici);
     }).catch(()=>{});
   }, [sbReady]);
+
+  // ── Classificazione review: carica quando si apre il sub-tab ─────────────
+  useEffect(() => {
+    if(tab!=="revisione"||codeSubTab!=="classificazione"||!sbReady) return;
+    if(classifReview.loaded||classifReview.loading) return;
+    setClassifReview(s=>({...s,loading:true}));
+    const {url,key}=getSbCreds(); if(!url||!key){setClassifReview(s=>({...s,loading:false}));return;}
+    const h={apikey:key,Authorization:`Bearer ${key}`};
+    fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&or=(settore_confidenza.eq.bassa,settore_confidenza.eq.media,settore.eq.Altro,semaforo_verifica.eq.%E2%9A%A0,semaforo_verifica.eq.%E2%9C%97)&settore=not.is.null&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h})
+      .then(r=>r.ok?r.json():[])
+      .then(rows=>setClassifReview({rows,loading:false,loaded:true}))
+      .catch(()=>setClassifReview(s=>({...s,loading:false,loaded:true})));
+  }, [tab,codeSubTab,sbReady,classifReview.loaded,classifReview.loading]);
 
   // ── Code di Revisione: carica quando si apre il tab ──────────────────────
   useEffect(() => {
@@ -932,6 +954,9 @@ function App() {
       if (!r.ok) { setAuthError(data.error_description||data.msg||'Credenziali non valide'); setAuthLoading(false); return; }
       const session = {access_token:data.access_token, refresh_token:data.refresh_token, expires_at:data.expires_at, user:data.user};
       localStorage.setItem('grizzly_auth', JSON.stringify(session));
+      // Sincronizza le chiavi app con quelle del login screen
+      if(sbUrl) localStorage.setItem(SB_URL_LS, sbUrl);
+      if(sbKey) localStorage.setItem(SB_KEY_LS, sbKey);
       setAuthSession(session);
     } catch(e) { setAuthError('Errore di connessione a Supabase'); }
     setAuthLoading(false);
@@ -1955,8 +1980,9 @@ function App() {
   if (!authSession) {
     const hasCreds = !!loginSbUrl && !!loginSbKey;
     const saveCreds = () => {
-      if(loginSbUrl.trim()) localStorage.setItem('sb_url', loginSbUrl.trim());
-      if(loginSbKey.trim()) localStorage.setItem('sb_key', loginSbKey.trim());
+      const u = loginSbUrl.trim(), k = loginSbKey.trim();
+      if(u) { localStorage.setItem('sb_url', u); localStorage.setItem(SB_URL_LS, u); }
+      if(k) { localStorage.setItem('sb_key', k); localStorage.setItem(SB_KEY_LS, k); }
     };
     const handleSignIn = () => { saveCreds(); signIn(); };
     const inputStyle = {background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:8,padding:"11px 14px",color:"#f5f0eb",fontSize:14,outline:"none",width:"100%",boxSizing:"border-box"};
@@ -2145,7 +2171,7 @@ function App() {
               <span style={{fontSize:11}}>◈</span>Pipeline
             </button>
             {[
-              {key:"revisione",label:"Code",icon:"📋",badge:(codeQueue.urlAmbigue?.length||0)+(codeQueue.siti?.length||0)},
+              {key:"revisione",label:"Code",icon:"📋",badge:(codeQueue.urlAmbigue?.length||0)+(codeQueue.siti?.length||0)+(classifReview.loaded?classifReview.rows.length:((queueCounts.bassaConf||0)+(queueCounts.mediaConf||0)))},
               {key:"database",label:"CRM",icon:"🗄",badge:0},
               {key:"impostazioni",label:"Impostazioni",icon:"⚙",badge:0}
             ].map((t,i)=>{
@@ -3361,6 +3387,51 @@ function App() {
             }
           };
 
+          // ── Classificazione review: salva / approva ──────────────────────
+          const _classifPatch = async (id, body) => {
+            const {url,key}=getSbCreds(); if(!url||!key) return false;
+            const r = await fetch(`${url}/rest/v1/companies?id=eq.${id}`,{
+              method:'PATCH',headers:{apikey:key,Authorization:`Bearer ${key}`,'Content-Type':'application/json',Prefer:'return=minimal'},
+              body:JSON.stringify({...body,aggiornato_il:new Date().toISOString()})
+            });
+            return r.ok||r.status===204;
+          };
+
+          const salvaClassif = async (id) => {
+            const e=classifEdit[id]; if(!e) return;
+            const ok=await _classifPatch(id,e);
+            if(ok){
+              setClassifReview(s=>({...s,rows:s.rows.map(r=>r.id===id?{...r,...e}:r)}));
+              setClassifEdit(s=>{const n={...s};delete n[id];return n;});
+              showToast('✓ Salvato');
+            }
+          };
+
+          const approvaClassif = async (id) => {
+            const {url,key}=getSbCreds(); if(!url||!key) return;
+            const row=classifReview.rows.find(r=>r.id===id); if(!row) return;
+            const e=classifEdit[id]||{};
+            const settoreFin = e.settore||row.settore;
+            const iceFin    = e.icebreaker!==undefined?e.icebreaker:row.icebreaker;
+            const motFin    = row.settore_motivazione||'';
+            // 1. Aggiorna company
+            const ok=await _classifPatch(id,{settore:settoreFin,icebreaker:iceFin,settore_confidenza:'alta',semaforo_verifica:'✓',settore_suggerito:null});
+            if(!ok){showToast('Errore salvataggio',C.red);return;}
+            // 2. Inserisci/aggiorna esempi_approvati (upsert su nome)
+            try{
+              await fetch(`${url}/rest/v1/esempi_approvati`,{
+                method:'POST',
+                headers:{apikey:key,Authorization:`Bearer ${key}`,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},
+                body:JSON.stringify({nome:row.nome,settore:settoreFin,motivazione:motFin,aggiornato_il:new Date().toISOString()})
+              });
+            }catch(err){}
+            // 3. Rimuovi dalla lista
+            setClassifReview(s=>({...s,rows:s.rows.filter(r=>r.id!==id)}));
+            setClassifEdit(s=>{const n={...s};delete n[id];return n;});
+            showToast('✓ Approvato — aggiunto agli esempi');
+            fetchQueueCounts();
+          };
+
           // Approva URL ambigua (urlOverride per quando non c'è edit in stato)
           const approvaUrl = async (companyId, urlOverride) => {
             const linkedin = (urlOverride!==undefined ? urlOverride : (codeUrlEdit[companyId]||"")).trim();
@@ -3399,6 +3470,7 @@ function App() {
                 {[
                   {key:"url_ambigui", icon:"🔗", label:"URL Ambigui", badge:codeQueue.urlAmbigue?.length||0},
                   {key:"siti_mancanti", icon:"🌐", label:"Siti Mancanti", badge:codeQueue.siti?.length||0},
+                  {key:"classificazione", icon:"🏷", label:"Classificazioni", badge:classifReview.loaded?classifReview.rows.length:((queueCounts.bassaConf||0)+(queueCounts.mediaConf||0))},
                 ].map(st=>{
                   const active = codeSubTab===st.key;
                   return (
@@ -3491,6 +3563,139 @@ function App() {
 
               </div>
               </div>}
+
+              {/* ── CLASSIFICAZIONE REVIEW ── */}
+              {codeSubTab==='classificazione'&&(()=>{
+                const semBadge = (sem,conf) => {
+                  if(sem==='✗') return {icon:'✗',color:'#f87171',label:'Settore diverso'};
+                  if(sem==='⚠') return {icon:'⚠',color:'#fbbf24',label:'Incerto'};
+                  if(sem==='✓') return {icon:'✓',color:C.green, label:'Confermato'};
+                  if(conf==='bassa') return {icon:'🔴',color:'#f87171',label:'Confidenza bassa'};
+                  if(conf==='media') return {icon:'🟡',color:'#fbbf24',label:'Confidenza media'};
+                  return {icon:'?',color:C.muted,label:''};
+                };
+                const curVal=(id,field,row)=>{const e=classifEdit[id];return e&&e[field]!==undefined?e[field]:(row[field]||'');};
+                const setField=(id,field,val)=>setClassifEdit(s=>({...s,[id]:{...s[id],[field]:val}}));
+                const isDirty=(id,row)=>{const e=classifEdit[id]||{};return Object.keys(e).some(k=>e[k]!==(row[k]||''));};
+
+                const filtered=classifReview.rows.filter(r=>{
+                  if(classifFilter==='bassa') return r.settore_confidenza==='bassa'&&r.semaforo_verifica!=='✗';
+                  if(classifFilter==='media') return r.settore_confidenza==='media'&&r.semaforo_verifica!=='✗';
+                  if(classifFilter==='altro') return r.settore==='Altro';
+                  if(classifFilter==='errore') return r.semaforo_verifica==='✗';
+                  return true;
+                });
+                const counts={
+                  tutti:classifReview.rows.length,
+                  errore:classifReview.rows.filter(r=>r.semaforo_verifica==='✗').length,
+                  bassa:classifReview.rows.filter(r=>r.settore_confidenza==='bassa'&&r.semaforo_verifica!=='✗').length,
+                  media:classifReview.rows.filter(r=>r.settore_confidenza==='media'&&r.semaforo_verifica!=='✗').length,
+                  altro:classifReview.rows.filter(r=>r.settore==='Altro').length,
+                };
+
+                return (
+                  <div style={{display:"flex",flexDirection:"column",flex:1,minHeight:0}}>
+                    {/* toolbar */}
+                    <div style={{padding:"10px 16px 8px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8,flexShrink:0,flexWrap:"wrap"}}>
+                      {[
+                        {k:'tutti',  l:'Tutti'},
+                        {k:'errore', l:'✗ Settore diverso'},
+                        {k:'bassa',  l:'🔴 Bassa'},
+                        {k:'media',  l:'🟡 Media'},
+                        {k:'altro',  l:'Altro'},
+                      ].map(f=>(
+                        <button key={f.k} onClick={()=>setClassifFilter(f.k)}
+                          style={{padding:"3px 10px",fontSize:11,fontWeight:600,border:"none",borderRadius:5,cursor:"pointer",
+                            color:classifFilter===f.k?"#fff":"#93c5fd",
+                            background:classifFilter===f.k?"rgba(37,99,235,0.55)":"rgba(37,99,235,0.10)"}}>
+                          {f.l}{counts[f.k]>0?` (${counts[f.k]})`:''}
+                        </button>
+                      ))}
+                      <span style={{marginLeft:"auto",fontSize:11,color:C.muted}}>{filtered.length} aziende</span>
+                      <button onClick={()=>setClassifReview({rows:[],loading:false,loaded:false})}
+                        style={{padding:"3px 8px",fontSize:11,background:"rgba(99,102,241,0.08)",border:`1px solid ${C.border}`,borderRadius:5,color:"#818cf8",cursor:"pointer"}}
+                        title="Ricarica da Supabase">↺ Ricarica</button>
+                    </div>
+
+                    {/* lista */}
+                    <div style={{flex:1,minHeight:0,overflowY:"auto",padding:"12px 16px",display:"flex",flexDirection:"column",gap:10}}>
+                      {!sbReady&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>⚡ Configura Supabase in Impostazioni</div>}
+                      {sbReady&&classifReview.loading&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>Caricamento...</div>}
+                      {sbReady&&classifReview.loaded&&filtered.length===0&&(
+                        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,paddingTop:60}}>
+                          <div style={{fontSize:28}}>✓</div>
+                          <div style={{fontSize:14,fontWeight:600,color:C.green}}>Nessuna classificazione da rivedere</div>
+                          <div style={{fontSize:12,color:C.muted}}>Tutte le aziende hanno confidenza alta e semaforo verde</div>
+                        </div>
+                      )}
+                      {sbReady&&classifReview.loaded&&filtered.map(row=>{
+                        const badge=semBadge(row.semaforo_verifica,row.settore_confidenza);
+                        const curSettore=curVal(row.id,'settore',row);
+                        const curIce=curVal(row.id,'icebreaker',row);
+                        const dirty=isDirty(row.id,row);
+                        const hasSuggerimento=row.semaforo_verifica==='✗'&&row.settore_suggerito&&row.settore_suggerito!==curSettore;
+                        return (
+                          <div key={row.id} style={{background:C.surface,border:`1px solid ${dirty?C.accent:C.border}`,borderRadius:7,padding:"12px 16px",display:"flex",flexDirection:"column",gap:8}}>
+                            {/* riga 1: nome + badge + azioni */}
+                            <div style={{display:"flex",alignItems:"flex-start",gap:10,flexWrap:"wrap"}}>
+                              <div style={{flex:"1 1 180px",minWidth:0}}>
+                                <div style={{fontSize:12,fontWeight:700,color:C.textHi,marginBottom:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{row.nome}</div>
+                                {row.sito_web&&<a href={row.sito_web} target="_blank" rel="noopener noreferrer"
+                                  style={{fontSize:10,color:"#60a5fa",textDecoration:"none",wordBreak:"break-all"}}>{row.sito_web}</a>}
+                              </div>
+                              {/* semaforo */}
+                              <div title={badge.label} style={{fontSize:15,lineHeight:1,padding:"4px 6px",background:`${badge.color}18`,borderRadius:4,border:`1px solid ${badge.color}44`,color:badge.color,fontWeight:700,flexShrink:0}}>
+                                {badge.icon}
+                              </div>
+                              {/* settore */}
+                              <div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
+                                <label style={{fontSize:9,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>Settore</label>
+                                <select value={curSettore} onChange={e=>setField(row.id,'settore',e.target.value)}
+                                  style={{background:C.bg,border:`1px solid ${curSettore!==row.settore?C.accent:C.border}`,borderRadius:4,padding:"4px 6px",fontSize:11,color:C.textHi,cursor:"pointer"}}>
+                                  {SETTORI_CLASS.map(s=><option key={s} value={s}>{s}</option>)}
+                                </select>
+                              </div>
+                              {/* azioni */}
+                              <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0,marginLeft:"auto"}}>
+                                {dirty&&<Btn small color="#60a5fa" bg="rgba(37,99,235,0.12)" border="rgba(37,99,235,0.35)" onClick={()=>salvaClassif(row.id)}>Salva</Btn>}
+                                <Btn small color={C.green} bg={C.greenDim} border="rgba(34,197,94,.35)" onClick={()=>approvaClassif(row.id)}>✓ Approva</Btn>
+                              </div>
+                            </div>
+                            {/* suggerimento verifica ✗ */}
+                            {hasSuggerimento&&(
+                              <div style={{display:"flex",alignItems:"center",gap:8,background:"rgba(248,113,113,0.06)",border:"1px solid rgba(248,113,113,0.25)",borderRadius:5,padding:"6px 10px",fontSize:11}}>
+                                <span style={{color:"#f87171",fontWeight:700}}>✗</span>
+                                <span style={{color:C.muted}}>La verifica AI suggerisce:</span>
+                                <span style={{color:"#fbbf24",fontWeight:600}}>{row.settore_suggerito}</span>
+                                <button onClick={()=>setField(row.id,'settore',row.settore_suggerito)}
+                                  style={{marginLeft:"auto",padding:"2px 8px",fontSize:10,fontWeight:600,background:"rgba(251,191,36,0.12)",border:"1px solid rgba(251,191,36,0.35)",borderRadius:4,color:"#fbbf24",cursor:"pointer"}}>
+                                  Accetta
+                                </button>
+                              </div>
+                            )}
+                            {/* note verifica */}
+                            {row.note_verifica&&(
+                              <div style={{fontSize:10,color:C.muted,fontStyle:"italic",lineHeight:1.4}}>💬 {row.note_verifica}</div>
+                            )}
+                            {/* motivazione */}
+                            {row.settore_motivazione&&(
+                              <div style={{fontSize:10,color:C.muted,lineHeight:1.4}}>🤖 {row.settore_motivazione}</div>
+                            )}
+                            {/* icebreaker */}
+                            <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                              <label style={{fontSize:9,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>Icebreaker</label>
+                              <textarea value={curIce} rows={2} onChange={e=>setField(row.id,'icebreaker',e.target.value)}
+                                placeholder="Icebreaker commerciale..."
+                                style={{background:C.bg,border:`1px solid ${curIce!==row.icebreaker?C.accent:C.border}`,borderRadius:4,padding:"6px 8px",fontSize:11,color:C.text,resize:"vertical",fontFamily:"inherit",lineHeight:1.4,width:"100%",boxSizing:"border-box"}}/>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
             </div>
           );
         })()}
