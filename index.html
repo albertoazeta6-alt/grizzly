@@ -453,7 +453,7 @@ function App() {
   const [settingEdit, setSettingEdit] = useState({}); // {chiave: valore_editato}
   // Code di Revisione
   const [codeQueue, setCodeQueue] = useState({siti:[], urlAmbigue:[], contatti:[], rilanciaReady:false, loading:false, loaded:false});
-  const [queueCounts, setQueueCounts] = useState({siti:null, urlAmbigue:null, contatti:null, bassaConf:null, mediaConf:null, loaded:false});
+  const [queueCounts, setQueueCounts] = useState({siti:null, urlAmbigue:null, contatti:null, bassaConf:null, mediaConf:null, classifDaRevedere:null, loaded:false});
   const [codeSitoEdit, setCodeSitoEdit] = useState({}); // {company_id: url_string}
   const [sitoPreview, setSitoPreview] = useState(null); // company id con preview aperta
   const [codeUrlEdit, setCodeUrlEdit] = useState({});   // {company_id: linkedin_url}
@@ -782,7 +782,8 @@ function App() {
     {
       const {url:sbU, key:sbK} = getSbCreds();
       if (sbU && sbK) {
-        fetch(`${sbU}/rest/v1/companies?stato=in.(nuovo,sito_updated)&hubspot_id=is.null&select=id&limit=500`, {
+        // Escludi aziende in coda classificazione (bassa/media/Altro/⚠/✗)
+        fetch(`${sbU}/rest/v1/companies?stato=in.(nuovo,sito_updated)&hubspot_id=is.null&settore_confidenza=not.in.(bassa,media)&settore=not.eq.Altro&semaforo_verifica=not.in.(%E2%9A%A0,%E2%9C%97)&select=id&limit=500`, {
           headers:{apikey:sbK, Authorization:`Bearer ${sbK}`}
         }).then(rr=>rr.ok?rr.json():[]).then(async arr=>{
           const ids = arr.map(x=>x.id);
@@ -894,14 +895,15 @@ function App() {
       try { const r = await fetch(`${url}/rest/v1/${endpoint}`,{headers:h}); const cr = r.headers.get("content-range")||"0/0"; return parseInt(cr.split("/")[1]||"0"); }
       catch { return null; }
     };
-    const [siti, urlAmbigue, contatti, bassaConf, mediaConf] = await Promise.all([
+    const [siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere] = await Promise.all([
       cnt("companies?stato=eq.sito_mancante&select=id&limit=1"),
       cnt("companies?stato=eq.url_ambigua&select=id&limit=1"),
       Promise.resolve(0),
       cnt("companies?settore_confidenza=eq.bassa&select=id&limit=1"),
       cnt("companies?settore_confidenza=eq.media&select=id&limit=1"),
+      cnt("companies?or=(settore_confidenza.in.(bassa,media),settore.eq.Altro,semaforo_verifica.in.(%E2%9A%A0,%E2%9C%97))&settore=not.is.null&select=id&limit=1"),
     ]);
-    setQueueCounts({siti, urlAmbigue, contatti, bassaConf, mediaConf, loaded:true});
+    setQueueCounts({siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, loaded:true});
   }, []);
 
   // carica contatori quando il run è attivo
@@ -2171,7 +2173,7 @@ function App() {
               <span style={{fontSize:11}}>◈</span>Pipeline
             </button>
             {[
-              {key:"revisione",label:"Code",icon:"📋",badge:(codeQueue.urlAmbigue?.length||0)+(codeQueue.siti?.length||0)+(classifReview.loaded?classifReview.rows.length:((queueCounts.bassaConf||0)+(queueCounts.mediaConf||0)))},
+              {key:"revisione",label:"Code",icon:"📋",badge:(codeQueue.urlAmbigue?.length||0)+(codeQueue.siti?.length||0)+(classifReview.loaded?classifReview.rows.length:(queueCounts.classifDaRevedere||0))},
               {key:"database",label:"CRM",icon:"🗄",badge:0},
               {key:"impostazioni",label:"Impostazioni",icon:"⚙",badge:0}
             ].map((t,i)=>{
@@ -3471,7 +3473,7 @@ function App() {
                 {[
                   {key:"url_ambigui", icon:"🔗", label:"URL Ambigui", badge:codeQueue.urlAmbigue?.length||0},
                   {key:"siti_mancanti", icon:"🌐", label:"Siti Mancanti", badge:codeQueue.siti?.length||0},
-                  {key:"classificazione", icon:"🏷", label:"Classificazioni", badge:classifReview.loaded?classifReview.rows.length:((queueCounts.bassaConf||0)+(queueCounts.mediaConf||0))},
+                  {key:"classificazione", icon:"🏷", label:"Classificazioni", badge:classifReview.loaded?classifReview.rows.length:(queueCounts.classifDaRevedere||0)},
                 ].map(st=>{
                   const active = codeSubTab===st.key;
                   return (
