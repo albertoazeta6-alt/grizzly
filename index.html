@@ -460,11 +460,13 @@ function App() {
   const [showReviewTool, setShowReviewTool] = useState(false);
   const [reviewDebugMode, setReviewDebugMode] = useState(false);
   const [reviewBlobUrl, setReviewBlobUrl] = useState(null);
-  const [codeSubTab, setCodeSubTab] = useState('url_ambigui');
+  const [codeSubTab, setCodeSubTab] = useState('siti_mancanti');
   // ── Classificazione review ────────────────────────────────────────────────
-  const [classifReview, setClassifReview] = useState({rows:[], loading:false, loaded:false});
-  const [classifEdit,   setClassifEdit]   = useState({}); // {id:{settore,icebreaker}}
-  const [classifFilter, setClassifFilter] = useState('tutti'); // tutti|bassa|media|altro|errore
+  const [classifReview,    setClassifReview]    = useState({rows:[], loading:false, loaded:false});
+  const [classifEdit,      setClassifEdit]      = useState({}); // {id:{settore,icebreaker}}
+  const [classifFilter,    setClassifFilter]    = useState('tutti'); // tutti|bassa|media|altro|errore|approvati
+  const [classifSelected,  setClassifSelected]  = useState(0);  // indice nell'array filtrato
+  const [classifApprovati, setClassifApprovati] = useState({rows:[], loading:false, loaded:false});
   const [counters, setCounters] = useState({az_input:null, az_output:null, exec:null, scartati:null, mail_ok:null, mail_no:null});
   const azOutputRef = React.useRef(0); // ref stabile per evitare loop in fetchUrlSheet
   const fasiRef = React.useRef([]);
@@ -561,6 +563,19 @@ function App() {
       .then(rows=>setClassifReview({rows,loading:false,loaded:true}))
       .catch(()=>setClassifReview(s=>({...s,loading:false,loaded:true})));
   }, [tab,codeSubTab,sbReady,classifReview.loaded,classifReview.loading]);
+
+  // ── Classificazione approvati: carica quando si seleziona il filtro ───────
+  useEffect(() => {
+    if(tab!=="revisione"||codeSubTab!=="classificazione"||classifFilter!=="approvati"||!sbReady) return;
+    if(classifApprovati.loaded||classifApprovati.loading) return;
+    setClassifApprovati(s=>({...s,loading:true}));
+    const {url,key}=getSbCreds(); if(!url||!key){setClassifApprovati(s=>({...s,loading:false}));return;}
+    const h={apikey:key,Authorization:`Bearer ${key}`};
+    fetch(`${url}/rest/v1/esempi_approvati?select=id,nome,settore,motivazione,creato_il&order=aggiornato_il.desc&limit=500`,{headers:h})
+      .then(r=>r.ok?r.json():[])
+      .then(rows=>setClassifApprovati({rows,loading:false,loaded:true}))
+      .catch(()=>setClassifApprovati(s=>({...s,loading:false,loaded:true})));
+  }, [tab,codeSubTab,sbReady,classifFilter,classifApprovati.loaded,classifApprovati.loading]);
 
   // ── Code di Revisione: carica quando si apre il tab ──────────────────────
   useEffect(() => {
@@ -3471,9 +3486,9 @@ function App() {
               {/* ── BARRA SUB-TAB + RILANCIA ── */}
               <div style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
                 {[
-                  {key:"url_ambigui", icon:"🔗", label:"URL Ambigui", badge:codeQueue.urlAmbigue?.length||0},
                   {key:"siti_mancanti", icon:"🌐", label:"Siti Mancanti", badge:codeQueue.siti?.length||0},
                   {key:"classificazione", icon:"🏷", label:"Classificazioni", badge:classifReview.loaded?classifReview.rows.length:(queueCounts.classifDaRevedere||0)},
+                  {key:"url_ambigui", icon:"🔗", label:"URL Ambigui", badge:codeQueue.urlAmbigue?.length||0},
                 ].map(st=>{
                   const active = codeSubTab===st.key;
                   return (
@@ -3569,19 +3584,25 @@ function App() {
 
               {/* ── CLASSIFICAZIONE REVIEW ── */}
               {codeSubTab==='classificazione'&&(()=>{
-                const semBadge = (sem,conf) => {
+                const semBadge=(sem,conf)=>{
                   if(sem==='✗') return {icon:'✗',color:'#f87171',label:'Settore diverso'};
                   if(sem==='⚠') return {icon:'⚠',color:'#fbbf24',label:'Incerto'};
-                  if(sem==='✓') return {icon:'✓',color:C.green, label:'Confermato'};
-                  if(conf==='bassa') return {icon:'🔴',color:'#f87171',label:'Confidenza bassa'};
-                  if(conf==='media') return {icon:'🟡',color:'#fbbf24',label:'Confidenza media'};
+                  if(sem==='✓') return {icon:'✓',color:C.green,label:'Confermato'};
+                  if(conf==='bassa') return {icon:'●',color:'#f87171',label:'Confidenza bassa'};
+                  if(conf==='media') return {icon:'●',color:'#fbbf24',label:'Confidenza media'};
                   return {icon:'?',color:C.muted,label:''};
                 };
                 const curVal=(id,field,row)=>{const e=classifEdit[id];return e&&e[field]!==undefined?e[field]:(row[field]||'');};
                 const setField=(id,field,val)=>setClassifEdit(s=>({...s,[id]:{...s[id],[field]:val}}));
                 const isDirty=(id,row)=>{const e=classifEdit[id]||{};return Object.keys(e).some(k=>e[k]!==(row[k]||''));};
-
-                const filtered=classifReview.rows.filter(r=>{
+                const pillColor=(r)=>{
+                  if(r.semaforo_verifica==='✗') return {bg:'rgba(248,113,113,.12)',border:'rgba(248,113,113,.3)',color:'#f87171'};
+                  if(r.semaforo_verifica==='⚠') return {bg:'rgba(251,191,36,.08)',border:'rgba(251,191,36,.3)',color:'#fbbf24'};
+                  if(r.settore_confidenza==='bassa') return {bg:'rgba(239,68,68,.1)',border:'rgba(239,68,68,.28)',color:'#f87171'};
+                  if(r.settore_confidenza==='media') return {bg:'rgba(251,191,36,.08)',border:'rgba(251,191,36,.28)',color:'#fbbf24'};
+                  return {bg:'rgba(100,116,139,.08)',border:'rgba(100,116,139,.25)',color:'#64748b'};
+                };
+                const filtered=classifFilter==='approvati'?[]:classifReview.rows.filter(r=>{
                   if(classifFilter==='bassa') return r.settore_confidenza==='bassa'&&r.semaforo_verifica!=='✗';
                   if(classifFilter==='media') return r.settore_confidenza==='media'&&r.semaforo_verifica!=='✗';
                   if(classifFilter==='altro') return r.settore==='Altro';
@@ -3595,101 +3616,171 @@ function App() {
                   media:classifReview.rows.filter(r=>r.settore_confidenza==='media'&&r.semaforo_verifica!=='✗').length,
                   altro:classifReview.rows.filter(r=>r.settore==='Altro').length,
                 };
-
+                const selIdx=filtered.length>0?Math.min(classifSelected,filtered.length-1):-1;
+                const row=selIdx>=0?filtered[selIdx]:null;
+                const curSettore=row?curVal(row.id,'settore',row):'';
+                const curSito=row?curVal(row.id,'sito_web',row):'';
+                const curIce=row?curVal(row.id,'icebreaker',row):'';
+                const dirty=row?isDirty(row.id,row):false;
+                const hasSug=row&&row.semaforo_verifica==='✗'&&row.settore_suggerito&&row.settore_suggerito!==curSettore;
+                const badge=row?semBadge(row.semaforo_verifica,row.settore_confidenza):null;
                 return (
                   <div style={{display:"flex",flexDirection:"column",flex:1,minHeight:0}}>
-                    {/* toolbar */}
-                    <div style={{padding:"10px 16px 8px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8,flexShrink:0,flexWrap:"wrap"}}>
+                    {/* FILTER BAR */}
+                    <div style={{padding:"7px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:4,flexShrink:0,background:C.bg,flexWrap:"wrap"}}>
                       {[
-                        {k:'tutti',  l:'Tutti'},
-                        {k:'errore', l:'✗ Settore diverso'},
-                        {k:'bassa',  l:'🔴 Bassa'},
-                        {k:'media',  l:'🟡 Media'},
-                        {k:'altro',  l:'Altro'},
+                        {k:'tutti',     l:'Tutti'},
+                        {k:'errore',    l:'✗ Settore diverso'},
+                        {k:'bassa',     l:'🔴 Bassa'},
+                        {k:'media',     l:'🟡 Media'},
+                        {k:'altro',     l:'Altro'},
+                        {k:'approvati', l:'✓ Approvati'},
                       ].map(f=>(
-                        <button key={f.k} onClick={()=>setClassifFilter(f.k)}
-                          style={{padding:"3px 10px",fontSize:11,fontWeight:600,border:"none",borderRadius:5,cursor:"pointer",
+                        <button key={f.k} onClick={()=>{setClassifFilter(f.k);setClassifSelected(0);}}
+                          style={{padding:"3px 11px",fontSize:11,fontWeight:600,border:"none",borderRadius:20,cursor:"pointer",
                             color:classifFilter===f.k?"#fff":"#93c5fd",
-                            background:classifFilter===f.k?"rgba(37,99,235,0.55)":"rgba(37,99,235,0.10)"}}>
-                          {f.l}{counts[f.k]>0?` (${counts[f.k]})`:''}
+                            background:classifFilter===f.k?(f.k==='approvati'?"rgba(34,197,94,.45)":"rgba(37,99,235,0.55)"):"rgba(37,99,235,0.10)"}}>
+                          {f.l}{f.k!=='approvati'&&counts[f.k]!=null&&counts[f.k]>0?` (${counts[f.k]})`:''}
                         </button>
                       ))}
-                      <span style={{marginLeft:"auto",fontSize:11,color:C.muted}}>{filtered.length} aziende</span>
-                      <button onClick={()=>setClassifReview({rows:[],loading:false,loaded:false})}
-                        style={{padding:"3px 8px",fontSize:11,background:"rgba(99,102,241,0.08)",border:`1px solid ${C.border}`,borderRadius:5,color:"#818cf8",cursor:"pointer"}}
-                        title="Ricarica da Supabase">↺ Ricarica</button>
+                      <button onClick={()=>{setClassifReview({rows:[],loading:false,loaded:false});setClassifApprovati({rows:[],loading:false,loaded:false});}}
+                        style={{marginLeft:"auto",padding:"3px 8px",fontSize:11,background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,color:C.muted,cursor:"pointer"}}>↺</button>
                     </div>
+                    {!sbReady&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>⚡ Configura Supabase in Impostazioni</div>}
+                    {sbReady&&classifReview.loading&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>Caricamento...</div>}
 
-                    {/* lista */}
-                    <div style={{flex:1,minHeight:0,overflowY:"auto",padding:"12px 16px",display:"flex",flexDirection:"column",gap:10}}>
-                      {!sbReady&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>⚡ Configura Supabase in Impostazioni</div>}
-                      {sbReady&&classifReview.loading&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>Caricamento...</div>}
-                      {sbReady&&classifReview.loaded&&filtered.length===0&&(
-                        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,paddingTop:60}}>
-                          <div style={{fontSize:28}}>✓</div>
-                          <div style={{fontSize:14,fontWeight:600,color:C.green}}>Nessuna classificazione da rivedere</div>
-                          <div style={{fontSize:12,color:C.muted}}>Tutte le aziende hanno confidenza alta e semaforo verde</div>
-                        </div>
-                      )}
-                      {sbReady&&classifReview.loaded&&filtered.map(row=>{
-                        const badge=semBadge(row.semaforo_verifica,row.settore_confidenza);
-                        const curSettore=curVal(row.id,'settore',row);
-                        const curSito=curVal(row.id,'sito_web',row);
-                        const curIce=curVal(row.id,'icebreaker',row);
-                        const dirty=isDirty(row.id,row);
-                        const hasSuggerimento=row.semaforo_verifica==='✗'&&row.settore_suggerito&&row.settore_suggerito!==curSettore;
-                        const borderCol=hasSuggerimento?"rgba(248,113,113,.35)":dirty?C.accent:C.border;
-                        return (
-                          <div key={row.id} style={{background:C.surface,border:`1px solid ${borderCol}`,borderRadius:7,overflow:"hidden"}}>
-                            {/* RIGA 1: nome · sito · note · semaforo · settore · approva */}
-                            <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",flexWrap:"nowrap"}}>
-                              {/* nome */}
-                              <div style={{fontSize:12,fontWeight:700,color:C.textHi,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flexShrink:0,maxWidth:200}}>{row.nome}</div>
-                              {/* sito modificabile */}
-                              <input value={curSito} onChange={e=>setField(row.id,'sito_web',e.target.value)}
-                                placeholder="nessun sito"
-                                style={{background:"transparent",border:"none",borderBottom:`1px solid ${curSito!==row.sito_web?C.accent:"#1a2535"}`,padding:"2px 0",fontSize:10,color:"#3b82f6",fontFamily:"inherit",outline:"none",flexShrink:0,width:160,minWidth:0}}/>
-                              {/* note verifica */}
-                              <div style={{fontSize:10,color:"#3d5068",fontStyle:"italic",lineHeight:1.4,flex:1,minWidth:0,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
-                                {row.note_verifica?`💬 ${row.note_verifica}`:row.settore_motivazione?`🤖 ${row.settore_motivazione}`:''}
-                              </div>
-                              {/* semaforo */}
-                              <div title={badge.label} style={{width:24,height:24,minWidth:24,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,background:`${badge.color}18`,border:`1px solid ${badge.color}44`,color:badge.color,flexShrink:0}}>
-                                {badge.icon}
-                              </div>
-                              {/* settore */}
-                              <select value={curSettore} onChange={e=>setField(row.id,'settore',e.target.value)}
-                                style={{background:C.bg,border:`1px solid ${curSettore!==row.settore?C.accent:C.border}`,borderRadius:4,padding:"4px 6px",fontSize:11,color:C.textHi,cursor:"pointer",flexShrink:0,width:130}}>
-                                {SETTORI_CLASS.map(s=><option key={s} value={s}>{s}</option>)}
-                              </select>
-                              {/* azioni */}
-                              <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
-                                {dirty&&<Btn small color="#60a5fa" bg="rgba(37,99,235,0.12)" border="rgba(37,99,235,0.35)" onClick={()=>salvaClassif(row.id)}>Salva</Btn>}
-                                <Btn small color={C.green} bg={C.greenDim} border="rgba(34,197,94,.35)" onClick={()=>approvaClassif(row.id)}>✓ Approva</Btn>
-                              </div>
+                    {/* ── TAB APPROVATI ── */}
+                    {sbReady&&classifFilter==='approvati'&&(
+                      <div style={{flex:1,minHeight:0,overflowY:"auto",padding:"12px 16px"}}>
+                        {classifApprovati.loading&&<div style={{textAlign:"center",color:C.muted,fontSize:12,padding:24}}>Caricamento...</div>}
+                        {classifApprovati.loaded&&classifApprovati.rows.length===0&&<div style={{textAlign:"center",color:C.muted,fontSize:12,padding:24}}>Nessun esempio approvato</div>}
+                        {classifApprovati.loaded&&classifApprovati.rows.map(r=>(
+                          <div key={r.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderBottom:`1px solid ${C.border}`}}>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:12,fontWeight:600,color:C.textHi,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.nome}</div>
+                              {r.motivazione&&<div style={{fontSize:10,color:C.muted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🤖 {r.motivazione}</div>}
                             </div>
-                            {/* suggerimento ✗ */}
-                            {hasSuggerimento&&(
-                              <div style={{display:"flex",alignItems:"center",gap:8,background:"rgba(248,113,113,0.04)",borderTop:"1px solid rgba(248,113,113,0.15)",borderBottom:"1px solid rgba(248,113,113,0.15)",padding:"4px 12px",fontSize:10}}>
-                                <span style={{color:"#f87171",fontWeight:700}}>✗</span>
-                                <span style={{color:C.muted}}>La verifica AI suggerisce:</span>
-                                <span style={{color:"#fbbf24",fontWeight:600}}>{row.settore_suggerito}</span>
-                                <button onClick={()=>setField(row.id,'settore',row.settore_suggerito)}
-                                  style={{marginLeft:"auto",padding:"2px 8px",fontSize:10,fontWeight:600,background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.3)",borderRadius:3,color:"#fbbf24",cursor:"pointer"}}>
-                                  Accetta
-                                </button>
+                            <div style={{fontSize:11,color:C.green,fontWeight:600,flexShrink:0,background:C.greenDim,border:"1px solid rgba(34,197,94,.3)",borderRadius:4,padding:"2px 8px"}}>{r.settore}</div>
+                            <div style={{fontSize:10,color:"#2d3a50",flexShrink:0}}>{r.creato_il?new Date(r.creato_il).toLocaleDateString('it-IT'):''}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* ── PILLS + SPLIT PANE ── */}
+                    {sbReady&&classifFilter!=='approvati'&&classifReview.loaded&&(
+                      <>
+                        {/* PILLS BAR */}
+                        <div style={{display:"flex",alignItems:"center",gap:5,padding:"5px 14px",borderBottom:`1px solid ${C.border}`,flexShrink:0,overflowX:"auto",background:C.surface,minHeight:38}}>
+                          {filtered.length===0
+                            ? <span style={{fontSize:11,color:C.green}}>✓ Nessuna azienda da rivedere</span>
+                            : <>
+                                <span style={{fontSize:9,color:"#2d3a50",flexShrink:0,marginRight:2}}>{filtered.length}</span>
+                                {filtered.map((r,i)=>{
+                                  const pc=pillColor(r);
+                                  const isSel=i===selIdx;
+                                  return (
+                                    <div key={r.id} onClick={()=>setClassifSelected(i)} title={r.nome}
+                                      style={{width:24,height:24,minWidth:24,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+                                        fontSize:10,fontWeight:600,cursor:"pointer",flexShrink:0,transition:"all .12s",
+                                        background:isSel?"rgba(59,130,246,.2)":pc.bg,
+                                        border:isSel?"2px solid #3b82f6":`1px solid ${pc.border}`,
+                                        color:isSel?"#93c5fd":pc.color,
+                                        boxShadow:isSel?"0 0 0 2px rgba(59,130,246,.25)":"none"}}>
+                                      {i+1}
+                                    </div>
+                                  );
+                                })}
+                              </>
+                          }
+                        </div>
+
+                        {/* SPLIT PANE */}
+                        {row&&(
+                          <div style={{display:"flex",flex:1,minHeight:0}}>
+                            {/* LEFT: iframe */}
+                            <div style={{flex:1,minWidth:0,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column"}}>
+                              <div style={{display:"flex",alignItems:"center",gap:8,padding:"5px 10px",background:C.bg,borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+                                <span style={{fontSize:10,color:"#3b82f6",flex:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{curSito||'—'}</span>
+                                {curSito&&<a href={curSito} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:"#3b82f6",textDecoration:"none",flexShrink:0}}>↗ Apri</a>}
                               </div>
-                            )}
-                            {/* RIGA 2: icebreaker */}
-                            <div style={{padding:"0 12px 7px"}}>
-                              <textarea value={curIce} rows={1} onChange={e=>setField(row.id,'icebreaker',e.target.value)}
-                                placeholder="Icebreaker commerciale..."
-                                style={{background:"#0d1520",border:`1px solid ${curIce!==row.icebreaker?C.accent:"#131e2d"}`,borderRadius:4,padding:"5px 8px",fontSize:11,color:C.text,resize:"vertical",fontFamily:"inherit",lineHeight:1.45,width:"100%",boxSizing:"border-box",marginTop:6}}/>
+                              {curSito
+                                ? <iframe key={curSito} src={curSito} style={{flex:1,border:"none",width:"100%"}} title={row.nome} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"/>
+                                : <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:12,flexDirection:"column",gap:8}}>
+                                    <div style={{fontSize:24,opacity:.3}}>🌐</div>
+                                    <div>Nessun sito disponibile</div>
+                                  </div>
+                              }
+                            </div>
+                            {/* RIGHT: panel */}
+                            <div style={{width:320,flexShrink:0,display:"flex",flexDirection:"column",overflowY:"auto"}}>
+                              {/* nome + sito */}
+                              <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
+                                <div style={{fontSize:13,fontWeight:700,color:C.textHi,lineHeight:1.3,marginBottom:4}}>{row.nome}</div>
+                                <input value={curSito} onChange={e=>setField(row.id,'sito_web',e.target.value)} placeholder="nessun sito"
+                                  style={{background:"transparent",border:"none",borderBottom:`1px solid ${curSito!==row.sito_web?C.accent:"#1a2535"}`,padding:"2px 0",fontSize:10,color:"#3b82f6",fontFamily:"inherit",outline:"none",width:"100%"}}/>
+                                {hasSug&&(
+                                  <div style={{display:"flex",alignItems:"center",gap:6,background:"rgba(248,113,113,.04)",border:"1px solid rgba(248,113,113,.18)",borderRadius:4,padding:"5px 9px",fontSize:10,marginTop:6}}>
+                                    <span style={{color:"#f87171",fontWeight:700}}>✗</span>
+                                    <span style={{color:C.muted}}>Verifica AI suggerisce:</span>
+                                    <span style={{color:"#fbbf24",fontWeight:600}}>{row.settore_suggerito}</span>
+                                    <button onClick={()=>setField(row.id,'settore',row.settore_suggerito)}
+                                      style={{padding:"2px 7px",fontSize:10,fontWeight:600,background:"rgba(251,191,36,.08)",border:"1px solid rgba(251,191,36,.3)",borderRadius:3,color:"#fbbf24",cursor:"pointer",marginLeft:"auto"}}>
+                                      Accetta
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                              {/* semaforo + settore */}
+                              <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
+                                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                                  <div style={{width:22,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,background:`${badge.color}18`,border:`1px solid ${badge.color}44`,color:badge.color,flexShrink:0}}>{badge.icon}</div>
+                                  <span style={{fontSize:10,color:C.muted}}>{badge.label}</span>
+                                </div>
+                                <div style={{fontSize:9,color:"#3d5068",fontWeight:600,textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>Settore</div>
+                                <select value={curSettore} onChange={e=>setField(row.id,'settore',e.target.value)}
+                                  style={{background:C.bg,border:`1px solid ${curSettore!==row.settore?C.accent:C.border}`,borderRadius:4,padding:"5px 8px",fontSize:11,color:C.textHi,width:"100%",cursor:"pointer"}}>
+                                  {SETTORI_CLASS.map(s=><option key={s} value={s}>{s}</option>)}
+                                </select>
+                              </div>
+                              {/* icebreaker */}
+                              <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
+                                <div style={{fontSize:9,color:"#3d5068",fontWeight:600,textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>Icebreaker</div>
+                                <textarea value={curIce} rows={3} onChange={e=>setField(row.id,'icebreaker',e.target.value)} placeholder="Icebreaker commerciale..."
+                                  style={{background:"#0d1520",border:`1px solid ${curIce!==row.icebreaker?C.accent:"#131e2d"}`,borderRadius:4,padding:"6px 8px",fontSize:11,color:C.text,resize:"vertical",fontFamily:"inherit",lineHeight:1.45,width:"100%",boxSizing:"border-box"}}/>
+                              </div>
+                              {/* note verifica */}
+                              {row.note_verifica&&(
+                                <div style={{padding:"8px 14px",borderBottom:`1px solid ${C.border}`}}>
+                                  <div style={{fontSize:9,color:"#3d5068",fontWeight:600,textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>Note verifica AI</div>
+                                  <div style={{fontSize:10,color:"#3d5068",fontStyle:"italic",lineHeight:1.5}}>💬 {row.note_verifica}</div>
+                                </div>
+                              )}
+                              {/* motivazione */}
+                              {row.settore_motivazione&&(
+                                <div style={{padding:"8px 14px",borderBottom:`1px solid ${C.border}`}}>
+                                  <div style={{fontSize:9,color:"#3d5068",fontWeight:600,textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>Motivazione classificazione</div>
+                                  <div style={{fontSize:10,color:"#2d3a50",lineHeight:1.5}}>🤖 {row.settore_motivazione}</div>
+                                </div>
+                              )}
+                              <div style={{flex:1}}/>
+                              {/* action bar */}
+                              <div style={{display:"flex",gap:8,padding:"10px 14px",borderTop:`1px solid ${C.border}`,background:C.bg,flexShrink:0}}>
+                                {dirty&&<Btn color="#60a5fa" bg="rgba(37,99,235,0.12)" border="rgba(37,99,235,0.35)" onClick={()=>salvaClassif(row.id)}>Salva</Btn>}
+                                <Btn color={C.green} bg={C.greenDim} border="rgba(34,197,94,.35)" style={{flex:1}} onClick={()=>approvaClassif(row.id)}>✓ Approva →</Btn>
+                              </div>
                             </div>
                           </div>
-                        );
-                      })}
-                    </div>
+                        )}
+                        {!row&&filtered.length===0&&classifReview.loaded&&(
+                          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,flex:1}}>
+                            <div style={{fontSize:28}}>✓</div>
+                            <div style={{fontSize:14,fontWeight:600,color:C.green}}>Nessuna classificazione da rivedere</div>
+                            <div style={{fontSize:12,color:C.muted}}>Tutte le aziende hanno confidenza alta e semaforo verde</div>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 );
               })()}
