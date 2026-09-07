@@ -959,9 +959,9 @@ function App() {
   // ── AUTH functions ────────────────────────────────────────────────────────
   const signIn = async () => {
     setAuthLoading(true); setAuthError('');
-    const sbUrl = localStorage.getItem('sb_url')?.trim();
-    const sbKey = localStorage.getItem('sb_key')?.trim();
-    if (!sbUrl || !sbKey) { setAuthError('Configura prima le credenziali Supabase nelle Impostazioni'); setAuthLoading(false); return; }
+    // Legge le credenziali dalla stessa sorgente di getSbCreds() (Impostazioni)
+    const {url: sbUrl, key: sbKey} = getSbCreds();
+    if (!sbUrl || !sbKey) { setAuthError('Configura prima Project URL e Anon Key in Impostazioni → Supabase'); setAuthLoading(false); return; }
     try {
       const r = await fetch(`${sbUrl}/auth/v1/token?grant_type=password`, {
         method:'POST', headers:{'Content-Type':'application/json', apikey:sbKey},
@@ -971,17 +971,13 @@ function App() {
       if (!r.ok) { setAuthError(data.error_description||data.msg||'Credenziali non valide'); setAuthLoading(false); return; }
       const session = {access_token:data.access_token, refresh_token:data.refresh_token, expires_at:data.expires_at, user:data.user};
       localStorage.setItem('grizzly_auth', JSON.stringify(session));
-      // Sincronizza le chiavi app con quelle del login screen
-      if(sbUrl) localStorage.setItem(SB_URL_LS, sbUrl);
-      if(sbKey) localStorage.setItem(SB_KEY_LS, sbKey);
       setAuthSession(session);
     } catch(e) { setAuthError('Errore di connessione a Supabase'); }
     setAuthLoading(false);
   };
 
   const signOut = async () => {
-    const sbUrl = localStorage.getItem('sb_url')?.trim();
-    const sbKey = localStorage.getItem('sb_key')?.trim();
+    const {url: sbUrl, key: sbKey} = getSbCreds();
     if (sbUrl && sbKey && authSession?.access_token) {
       try { await fetch(`${sbUrl}/auth/v1/logout`, {method:'POST', headers:{apikey:sbKey, Authorization:`Bearer ${authSession.access_token}`}}); } catch(e) {}
     }
@@ -995,8 +991,7 @@ function App() {
     const refresh = async () => {
       const expiresAt = (authSession.expires_at||0) * 1000;
       if (Date.now() < expiresAt - 5*60*1000) return; // > 5 min left, skip
-      const sbUrl = localStorage.getItem('sb_url')?.trim();
-      const sbKey = localStorage.getItem('sb_key')?.trim();
+      const {url: sbUrl, key: sbKey} = getSbCreds();
       if (!sbUrl || !sbKey) return;
       try {
         const r = await fetch(`${sbUrl}/auth/v1/token?grant_type=refresh_token`, {
@@ -1995,13 +1990,7 @@ function App() {
 
   // ── LOGIN SCREEN ─────────────────────────────────────────────────────────
   if (!authSession) {
-    const hasCreds = !!loginSbUrl && !!loginSbKey;
-    const saveCreds = () => {
-      const u = loginSbUrl.trim(), k = loginSbKey.trim();
-      if(u) { localStorage.setItem('sb_url', u); localStorage.setItem(SB_URL_LS, u); }
-      if(k) { localStorage.setItem('sb_key', k); localStorage.setItem(SB_KEY_LS, k); }
-    };
-    const handleSignIn = () => { saveCreds(); signIn(); };
+    const handleSignIn = () => signIn();
     const inputStyle = {background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:8,padding:"11px 14px",color:"#f5f0eb",fontSize:14,outline:"none",width:"100%",boxSizing:"border-box"};
     return (
       <div style={{minHeight:"100vh",background:"#060402",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Inter',sans-serif"}}>
@@ -2038,20 +2027,6 @@ function App() {
             </div>
             <div style={{fontSize:22,fontWeight:800,letterSpacing:"-0.5px",color:"#f5f0eb"}}>Grizzly<span style={{color:"#e05a2b"}}>4</span></div>
             <div style={{fontSize:12,color:"rgba(255,255,255,0.35)",marginTop:4}}>Accedi al tuo account</div>
-          </div>
-          {/* Supabase config (collapsible) */}
-          <div style={{marginBottom:18}}>
-            <button onClick={()=>setLoginShowCreds(v=>!v)} style={{background:"none",border:"none",cursor:"pointer",padding:0,color:"rgba(255,255,255,0.35)",fontSize:11,display:"flex",alignItems:"center",gap:5}}>
-              <span style={{transition:"transform 0.2s",display:"inline-block",transform:loginShowCreds?"rotate(90deg)":"rotate(0deg)"}}>▶</span>
-              Configurazione Supabase {hasCreds&&!loginShowCreds ? <span style={{color:"#4ade80"}}>✓ configurato</span> : ""}
-            </button>
-            {loginShowCreds && (
-              <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:12,padding:"16px",background:"rgba(255,255,255,0.03)",borderRadius:8,border:"1px solid rgba(255,255,255,0.07)"}}>
-                <div style={{fontSize:11,color:"rgba(255,255,255,0.35)",marginBottom:2}}>Inserisci le credenziali del tuo progetto Supabase (si salvano automaticamente)</div>
-                <input placeholder="Project URL  (es. https://xxx.supabase.co)" value={loginSbUrl} onChange={e=>setLoginSbUrl(e.target.value)} style={{...inputStyle,fontSize:12}} />
-                <input placeholder="anon/public key" value={loginSbKey} onChange={e=>setLoginSbKey(e.target.value)} style={{...inputStyle,fontSize:12,fontFamily:"monospace"}} />
-              </div>
-            )}
           </div>
           {/* Login form */}
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
