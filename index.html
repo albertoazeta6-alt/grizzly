@@ -439,7 +439,7 @@ function App() {
   const [loading, setLoading]       = useState({});
   const [csvFile, setCsvFile]       = useState(null);
   const [lastSync, setLastSync]     = useState(null);
-  const [nextSyncIn, setNextSyncIn]       = useState(10);
+  const [nextSyncIn, setNextSyncIn]       = useState(5);
   const [splash, setSplash] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   // Supabase
@@ -530,7 +530,7 @@ function App() {
   useEffect(() => { fasiRef.current = fasi; }, [fasi]);
 
   // ── Orologio ──────────────────────────────────────────────────────────────
-  useEffect(() => { const t = setInterval(()=>{ setClock(new Date()); setNextSyncIn(n=>n>0?n-1:10); },1000); return ()=>clearInterval(t); }, []);
+  useEffect(() => { const t = setInterval(()=>{ setClock(new Date()); setNextSyncIn(n=>n>0?n-1:5); },1000); return ()=>clearInterval(t); }, []);
 
   // ── Supabase: carica settings all'avvio ───────────────────────────────────
   useEffect(() => {
@@ -718,6 +718,15 @@ function App() {
       prevCountersRef.current = {az_input, az_output, exec, scartati};
       setCounters({az_input, az_output, exec, scartati, mail_ok: null, mail_no: null});
       if (az_output) azOutputRef.current = az_output;
+
+      // Auto-completa fase company quando Phantom ha finito (nuovo===0 e company era in_corso)
+      const companyFaseNow = fasiRef.current.find(f => f.id === "company");
+      if (companyFaseNow?.stato === "in_corso" && nuovo === 0 && runStart) {
+        const now = new Date().toISOString();
+        pushLog("ok", "✓ Cerca Company Page completato — tutte le aziende processate da Phantom");
+        setFaseS("company", "completato", {completato: now, dettaglio: "Phantom completato automaticamente"});
+        sbWritePipelineState("company", "completato", "Phantom completato automaticamente");
+      }
 
       // Leggi pipeline_state da Supabase e aggiorna fasi
       const rPipeline = await fetch(`${url}/rest/v1/pipeline_state?select=fase,stato,dettaglio,aggiornato_il`, {
@@ -1018,7 +1027,7 @@ function App() {
       const r = await fetch(`${url}/rest/v1/companies?select=id&limit=1`, {
         headers: {apikey: key, Authorization: `Bearer ${key}`}
       });
-      if (r.ok) { setSyncErr(false); setLastSync(new Date()); setNextSyncIn(10); }
+      if (r.ok) { setSyncErr(false); setLastSync(new Date()); setNextSyncIn(5); }
       else setSyncErr(true);
     } catch(e) { setSyncErr(true); }
   }, []);
@@ -1416,7 +1425,7 @@ function App() {
   const showToast = (msg,color=C.green) => { setToast({msg,color}); setTimeout(()=>setToast(null),3000); };
   const setFaseS  = (id,stato,extra={}) => setFasi(p=>p.map(f=>f.id===id?{...f,stato,...extra}:f));
   const setLoad   = (k,v) => setLoading(p=>({...p,[k]:v}));
-  const forceRefresh = useCallback(() => { fetchSheetStatus(); fetchCounters(); if(runAttivo&&sbReady) fetchQueueCounts(); setNextSyncIn(10); }, [fetchSheetStatus, fetchCounters, fetchQueueCounts, runAttivo, sbReady]);
+  const forceRefresh = useCallback(() => { fetchSheetStatus(); fetchCounters(); if(runAttivo&&sbReady) fetchQueueCounts(); setNextSyncIn(5); }, [fetchSheetStatus, fetchCounters, fetchQueueCounts, runAttivo, sbReady]);
 
   // Persisti stato run su localStorage
   useEffect(() => {
