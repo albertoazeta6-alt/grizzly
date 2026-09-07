@@ -719,21 +719,13 @@ function App() {
       setCounters({az_input, az_output, exec, scartati, mail_ok: null, mail_no: null});
       if (az_output) azOutputRef.current = az_output;
 
-      // Auto-completa fase company quando Phantom ha finito:
-      // - company è in_corso da almeno 60s (evita race condition con import)
-      // - nuovo===0 (tutte le aziende processate)
-      // - almeno una trovata (az_output>0) o tutte ambigue (scartati>0), altrimenti aspetta
+      // Auto-completa fase company quando nuovo===0 (tutte le aziende processate da Phantom)
       const companyFaseNow = fasiRef.current.find(f => f.id === "company");
       if (companyFaseNow?.stato === "in_corso" && nuovo === 0 && runStart) {
-        const iniziato = companyFaseNow.iniziato ? new Date(companyFaseNow.iniziato) : null;
-        const secondsRunning = iniziato ? (Date.now() - iniziato.getTime()) / 1000 : 0;
-        const phantomHasDoneWork = (az_output || 0) > 0 || (scartati || 0) > 0;
-        if (nuovo === 0 || (secondsRunning >= 180 && phantomHasDoneWork)) {
-          const now = new Date().toISOString();
-          pushLog("ok", "✓ Cerca Company Page completato — tutte le aziende processate da Phantom");
-          setFaseS("company", "completato", {completato: now, dettaglio: "Phantom completato automaticamente"});
-          sbWritePipelineState("company", "completato", "Phantom completato automaticamente");
-        }
+        const now = new Date().toISOString();
+        pushLog("ok", "✓ Cerca Company Page completato — tutte le aziende processate da Phantom");
+        setFaseS("company", "completato", {completato: now, dettaglio: "Phantom completato automaticamente"});
+        sbWritePipelineState("company", "completato", "Phantom completato automaticamente");
       }
 
       // Leggi pipeline_state da Supabase e aggiorna fasi
