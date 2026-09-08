@@ -697,21 +697,23 @@ function App() {
     try {
       const h = {apikey: key, Authorization: `Bearer ${key}`, Prefer: "count=exact"};
       const ts = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
-      const [rAll, rLiOk, rAmb, rEB, rNuovo, rHubspot] = await Promise.all([
+      const [rAll, rLiOk, rAmb, rEB, rNuovo, rHubspot, rClassificata] = await Promise.all([
         fetch(`${url}/rest/v1/companies?select=id&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.linkedin_ok&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.url_ambigua&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&fonte=eq.Automazione%20Bancadati&linkedin_url_eb=not.is.null&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.nuovo&limit=1`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.hubspot_sync&limit=1${ts}`, {headers: h}),
+        fetch(`${url}/rest/v1/companies?select=id&stato=eq.classificata&limit=1${ts}`, {headers: h}),
       ]);
       const count = r => parseInt(r.headers.get("content-range")?.split("/")?.[1] ?? "0");
-      const az_input  = rAll.ok     ? count(rAll)     : null;
-      const az_output = rLiOk.ok    ? count(rLiOk)    : null;
-      const scartati  = rAmb.ok     ? count(rAmb)     : null;
-      const exec      = rEB.ok      ? count(rEB)      : null;
-      const nuovo     = rNuovo.ok   ? count(rNuovo)   : 0;
-      const hubspot   = rHubspot.ok ? count(rHubspot) : 0;
+      const az_input    = rAll.ok          ? count(rAll)          : null;
+      const az_output   = rLiOk.ok        ? count(rLiOk)         : null;
+      const scartati    = rAmb.ok         ? count(rAmb)          : null;
+      const exec        = rEB.ok          ? count(rEB)           : null;
+      const nuovo       = rNuovo.ok       ? count(rNuovo)        : 0;
+      const hubspot     = rHubspot.ok     ? count(rHubspot)      : 0;
+      const classificata = rClassificata.ok ? count(rClassificata) : -1;
       // Log variazioni contatori
       const pc = prevCountersRef.current;
       if (az_input !== null && az_input !== pc.az_input && pc.az_input !== null)
@@ -724,9 +726,10 @@ function App() {
       setCounters({az_input, az_output, exec, scartati, mail_ok: null, mail_no: null});
       if (az_output) azOutputRef.current = az_output;
 
-      // Auto-completa fase company quando nuovo===0 (tutte le aziende processate da Phantom)
+      // Auto-completa fase company quando classificata===0 (tutte le ALTA processate da Phantom → linkedin_ok)
+      // Non usare nuovo===0: le aziende ALTA passano direttamente nuovo→classificata, quindi nuovo è già 0 da subito
       const companyFaseNow = fasiRef.current.find(f => f.id === "company");
-      if (companyFaseNow?.stato === "in_corso" && nuovo === 0 && runStart) {
+      if (companyFaseNow?.stato === "in_corso" && classificata === 0 && runStart) {
         const now = new Date().toISOString();
         pushLog("ok", "✓ Cerca Company Page completato — tutte le aziende processate da Phantom");
         setFaseS("company", "completato", {completato: now, dettaglio: "Phantom completato automaticamente"});
