@@ -464,7 +464,10 @@ function App() {
   // ── Classificazione review ────────────────────────────────────────────────
   const [classifReview,    setClassifReview]    = useState({rows:[], loading:false, loaded:false});
   const [classifEdit,      setClassifEdit]      = useState({}); // {id:{settore,icebreaker}}
-  const [classifFilter,    setClassifFilter]    = useState('tutti'); // tutti|bassa|media|altro|errore|approvati
+  const [classifFilter,    setClassifFilter]    = useState('errore'); // errore|bassa|media|altro (solo manuale)
+  const [classifFilterAll, setClassifFilterAll] = useState('classificazioni'); // classificazioni|approvati
+  const [classifSelectedAll, setClassifSelectedAll] = useState(0);
+  const [savedModelliNomi, setSavedModelliNomi] = useState(new Set());
   const [classifSelected,  setClassifSelected]  = useState(0);  // indice nell'array filtrato
   const [classifApprovati, setClassifApprovati] = useState({rows:[], loading:false, loaded:false});
   const [classifViewMode,  setClassifViewMode]  = useState('split'); // 'split' | 'tabella'
@@ -554,7 +557,7 @@ function App() {
 
   // ── Classificazione review: carica quando si apre il sub-tab ─────────────
   useEffect(() => {
-    if(tab!=="revisione"||codeSubTab!=="classificazione"||!sbReady) return;
+    if((tab!=="revisione"||codeSubTab!=="classificazione")&&tab!=="classificatore"||!sbReady) return;
     if(classifReview.loaded||classifReview.loading) return;
     setClassifReview(s=>({...s,loading:true}));
     const {url,key}=getSbCreds(); if(!url||!key){setClassifReview(s=>({...s,loading:false}));return;}
@@ -567,7 +570,8 @@ function App() {
 
   // ── Classificazione approvati: carica quando si seleziona il filtro ───────
   useEffect(() => {
-    if(tab!=="revisione"||codeSubTab!=="classificazione"||classifFilter!=="approvati"||!sbReady) return;
+    const needApprovati=(tab==="revisione"&&codeSubTab==="classificazione"&&classifFilter==="approvati")||(tab==="classificatore"&&classifFilterAll==="approvati");
+    if(!needApprovati||!sbReady) return;
     if(classifApprovati.loaded||classifApprovati.loading) return;
     setClassifApprovati(s=>({...s,loading:true}));
     const {url,key}=getSbCreds(); if(!url||!key){setClassifApprovati(s=>({...s,loading:false}));return;}
@@ -576,7 +580,7 @@ function App() {
       .then(r=>r.ok?r.json():[])
       .then(rows=>setClassifApprovati({rows,loading:false,loaded:true}))
       .catch(()=>setClassifApprovati(s=>({...s,loading:false,loaded:true})));
-  }, [tab,codeSubTab,sbReady,classifFilter,classifApprovati.loaded,classifApprovati.loading]);
+  }, [tab,codeSubTab,sbReady,classifFilter,classifFilterAll,classifApprovati.loaded,classifApprovati.loading]);
 
   // ── Code di Revisione: carica quando si apre il tab ──────────────────────
   useEffect(() => {
@@ -2181,7 +2185,8 @@ function App() {
               <span style={{fontSize:11}}>◈</span>Pipeline
             </button>
             {[
-              {key:"revisione",label:"Code",icon:"📋",badge:(codeQueue.urlAmbigue?.length||0)+(codeQueue.siti?.length||0)+(classifReview.loaded?classifReview.rows.length:(queueCounts.classifDaRevedere||0))},
+              {key:"revisione",label:"Code",icon:"📋",badge:(codeQueue.urlAmbigue?.length||0)+(codeQueue.siti?.length||0)+(classifReview.loaded?classifReview.rows.filter(r=>r.settore_confidenza!=='alta').length:(queueCounts.classifDaRevedere||0))},
+              {key:"classificatore",label:"Classificatore",icon:"🏷",badge:0},
               {key:"database",label:"CRM",icon:"🗄",badge:0},
               {key:"impostazioni",label:"Impostazioni",icon:"⚙",badge:0}
             ].map((t,i)=>{
@@ -2206,6 +2211,7 @@ function App() {
                   {[
                     {key:"run",label:"Pipeline",icon:"◈"},
                     {key:"revisione",label:"Code",icon:"📋"},
+                    {key:"classificatore",label:"Classificatore",icon:"🏷"},
                     {key:"database",label:"CRM",icon:"🗄"},
                     {key:"impostazioni",label:"Impostazioni",icon:"⚙"}
                   ].map((t,i)=>{
@@ -3191,6 +3197,135 @@ function App() {
           </div>
         )}
 
+        {/* ══ CLASSIFICATORE ══ */}
+        {tab==="classificatore"&&(()=>{
+          const salvaModello=async(r)=>{
+            const {url,key}=getSbCreds();if(!url||!key)return;
+            try{await fetch(`${url}/rest/v1/esempi_approvati`,{method:"POST",headers:{apikey:key,Authorization:`Bearer ${key}`,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify({nome:r.nome,settore:r.settore||'',motivazione:r.settore_motivazione||''})});}catch(e){showToast("Errore salvataggio");return;}
+            if(classifApprovati.loaded) setClassifApprovati(s=>({...s,rows:[{id:Date.now(),nome:r.nome,settore:r.settore||'',motivazione:r.settore_motivazione||'',creato_il:new Date().toISOString()},...s.rows]}));
+            setSavedModelliNomi(s=>{const n=new Set(s);n.add(r.nome);return n;});
+            showToast("✓ Modello salvato");
+          };
+          const rimuoviApprovato=async(r)=>{
+            const {url,key}=getSbCreds();if(!url||!key)return;
+            await fetch(`${url}/rest/v1/esempi_approvati?id=eq.${r.id}`,{method:"DELETE",headers:{apikey:key,Authorization:`Bearer ${key}`,Prefer:"return=minimal"}});
+            setClassifApprovati(s=>({...s,rows:s.rows.filter(x=>x.id!==r.id)}));
+            setSavedModelliNomi(s=>{const n=new Set(s);n.delete(r.nome);return n;});
+            showToast("Rimosso");
+          };
+          const semColor=(sem,conf)=>sem==='✗'?'#f87171':sem==='✓'?C.green:conf==='alta'?C.green:conf==='bassa'?'#f87171':conf==='media'?'#fbbf24':'#64748b';
+          const confColor=(c)=>c==='alta'?C.green:c==='media'?'#fbbf24':c==='bassa'?'#f87171':'#64748b';
+          return (
+            <div style={{display:"flex",flexDirection:"column",flex:1,minHeight:0,overflow:"hidden"}}>
+              {/* TAB BAR */}
+              <div style={{padding:"6px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8,flexShrink:0,background:C.bg}}>
+                {[{k:'classificazioni',l:`Classificazioni${classifReview.loaded?' ('+classifReview.rows.length+')':''}`},{k:'approvati',l:`Modelli salvati${classifApprovati.loaded?' ('+classifApprovati.rows.length+')':''}`}].map(t=>(
+                  <button key={t.k} onClick={()=>{setClassifFilterAll(t.k);if(t.k==='approvati'&&!classifApprovati.loaded&&!classifApprovati.loading){setClassifApprovati(s=>({...s,loading:true}));const {url,key}=getSbCreds();if(url&&key){fetch(`${url}/rest/v1/esempi_approvati?select=id,nome,settore,motivazione,creato_il&order=creato_il.desc&limit=500`,{headers:{apikey:key,Authorization:`Bearer ${key}`}}).then(r=>r.ok?r.json():[]).then(rows=>setClassifApprovati({rows,loading:false,loaded:true})).catch(()=>setClassifApprovati(s=>({...s,loading:false,loaded:true})));}}}}
+                    style={{padding:"4px 14px",fontSize:12,fontWeight:600,border:"none",borderRadius:5,cursor:"pointer",
+                      color:classifFilterAll===t.k?"#fff":C.muted,
+                      background:classifFilterAll===t.k?"rgba(37,99,235,0.55)":"transparent"}}>
+                    {t.l}
+                  </button>
+                ))}
+                <button onClick={()=>{setClassifReview({rows:[],loading:false,loaded:false});setClassifApprovati({rows:[],loading:false,loaded:false});}}
+                  style={{marginLeft:"auto",padding:"3px 8px",fontSize:11,background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,color:C.muted,cursor:"pointer"}}>↺</button>
+              </div>
+              {!sbReady&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>⚡ Configura Supabase in Impostazioni</div>}
+
+              {/* CLASSIFICAZIONI TABLE */}
+              {sbReady&&classifFilterAll==='classificazioni'&&(
+                classifReview.loading
+                  ? <div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>Caricamento...</div>
+                  : <div style={{flex:1,minHeight:0,overflowY:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,tableLayout:"fixed"}}>
+                        <colgroup>
+                          <col style={{width:180}}/>
+                          <col style={{width:130}}/>
+                          <col style={{width:110}}/>
+                          <col style={{width:52}}/>
+                          <col style={{width:44}}/>
+                          <col style={{width:220}}/>
+                          <col style={{width:160}}/>
+                          <col/>{/* icebreaker */}
+                          <col style={{width:120}}/>
+                        </colgroup>
+                        <thead style={{position:"sticky",top:0,zIndex:2}}>
+                          <tr style={{background:"rgba(59,130,246,0.10)"}}>
+                            {["Azienda","Sito web","Settore","Conf.","Sem.","Motivazione AI","Note verifica","Icebreaker",""].map(h=>(
+                              <th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:9,letterSpacing:"0.07em",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {classifReview.rows.map((r,i)=>(
+                            <tr key={r.id} style={{borderBottom:`1px solid rgba(59,130,246,0.06)`,background:i%2===0?"transparent":"rgba(59,130,246,0.02)"}}>
+                              <td style={{padding:"6px 10px",fontWeight:600,color:C.textHi,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.nome}</td>
+                              <td style={{padding:"6px 10px",overflow:"hidden",maxWidth:0}}>
+                                {r.sito_web?<a href={/^https?:\/\//i.test(r.sito_web)?r.sito_web:"https://"+r.sito_web} target="_blank" rel="noreferrer" style={{fontSize:10,color:C.accent,textDecoration:"none",display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.sito_web}</a>:<span style={{color:C.muted}}>—</span>}
+                              </td>
+                              <td style={{padding:"6px 10px",color:"#a78bfa",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.settore||"—"}</td>
+                              <td style={{padding:"6px 10px"}}><span style={{fontSize:9,fontWeight:700,color:confColor(r.settore_confidenza),textTransform:"uppercase"}}>{r.settore_confidenza||"—"}</span></td>
+                              <td style={{padding:"6px 10px",textAlign:"center"}}><span style={{fontSize:13,color:semColor(r.semaforo_verifica,r.settore_confidenza)}}>{r.semaforo_verifica||"—"}</span></td>
+                              <td style={{padding:"6px 10px",color:C.muted,fontSize:9,lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.settore_motivazione||""}>{r.settore_motivazione||"—"}</td>
+                              <td style={{padding:"6px 10px",color:"#fbbf24",fontSize:9,lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.note_verifica||""}>{r.note_verifica||"—"}</td>
+                              <td style={{padding:"6px 10px",color:C.muted,fontSize:9,lineHeight:1.5}}>{r.icebreaker||"—"}</td>
+                              <td style={{padding:"4px 14px 4px 6px",textAlign:"center"}}>
+                                {(savedModelliNomi.has(r.nome)||(classifApprovati.loaded&&classifApprovati.rows.some(x=>x.nome===r.nome)))
+                                  ? <span style={{fontSize:10,color:C.green}}>✓ Salvato</span>
+                                  : <button onClick={()=>salvaModello(r)}
+                                      style={{fontSize:9,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:4,padding:"3px 7px",cursor:"pointer",whiteSpace:"nowrap"}}>Salva Modello</button>
+                                }
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {classifReview.rows.length===0&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>Nessuna classificazione disponibile</div>}
+                    </div>
+              )}
+
+              {/* APPROVATI TABLE */}
+              {sbReady&&classifFilterAll==='approvati'&&(
+                classifApprovati.loading
+                  ? <div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>Caricamento...</div>
+                  : <div style={{flex:1,minHeight:0,overflowY:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,tableLayout:"fixed"}}>
+                        <colgroup>
+                          <col style={{width:220}}/>
+                          <col style={{width:140}}/>
+                          <col/>{/* motivazione */}
+                          <col style={{width:90}}/>
+                          <col style={{width:72}}/>
+                        </colgroup>
+                        <thead style={{position:"sticky",top:0,zIndex:2}}>
+                          <tr style={{background:"rgba(34,197,94,0.08)"}}>
+                            {["Azienda","Settore","Motivazione AI","Data",""].map(h=>(
+                              <th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:9,letterSpacing:"0.07em",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {classifApprovati.rows.map((r,i)=>(
+                            <tr key={r.id} style={{borderBottom:`1px solid rgba(34,197,94,0.06)`,background:i%2===0?"transparent":"rgba(34,197,94,0.02)"}}>
+                              <td style={{padding:"6px 10px",fontWeight:600,color:C.textHi,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.nome}</td>
+                              <td style={{padding:"6px 10px",color:C.green,fontWeight:600}}>{r.settore||"—"}</td>
+                              <td style={{padding:"6px 10px",color:C.muted,fontSize:9,lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.motivazione||""}>{r.motivazione||"—"}</td>
+                              <td style={{padding:"6px 10px",color:C.muted,fontSize:10}}>{r.creato_il?new Date(r.creato_il).toLocaleDateString('it-IT'):""}</td>
+                              <td style={{padding:"4px 6px",textAlign:"center"}}>
+                                <button onClick={()=>rimuoviApprovato(r)}
+                                  style={{fontSize:9,fontWeight:700,color:"#f87171",background:"rgba(248,113,113,0.1)",border:"1px solid rgba(248,113,113,0.3)",borderRadius:4,padding:"3px 7px",cursor:"pointer"}}>Rimuovi</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {classifApprovati.loaded&&classifApprovati.rows.length===0&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>Nessun esempio approvato</div>}
+                    </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* ══ CRM ══ */}
         {tab==="database"&&(()=>{
           /* ── Aziende ── */
@@ -3476,7 +3611,7 @@ function App() {
               <div style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
                 {[
                   {key:"siti_mancanti", icon:"🌐", label:"Siti Mancanti", badge:codeQueue.siti?.length||0},
-                  {key:"classificazione", icon:"🏷", label:"Classificazioni", badge:classifReview.loaded?classifReview.rows.length:(queueCounts.classifDaRevedere||0)},
+                  {key:"classificazione", icon:"🏷", label:"Classificazioni", badge:classifReview.loaded?classifReview.rows.filter(r=>r.settore_confidenza!=='alta').length:(queueCounts.classifDaRevedere||0)},
                   {key:"url_ambigui", icon:"🔗", label:"URL Ambigui", badge:codeQueue.urlAmbigue?.length||0},
                 ].map(st=>{
                   const active = codeSubTab===st.key;
@@ -3591,7 +3726,8 @@ function App() {
                   if(r.settore_confidenza==='media') return {bg:'rgba(251,191,36,.08)',border:'rgba(251,191,36,.28)',color:'#fbbf24'};
                   return {bg:'rgba(100,116,139,.08)',border:'rgba(100,116,139,.25)',color:'#64748b'};
                 };
-                const filtered=classifFilter==='approvati'?[]:classifReview.rows.filter(r=>{
+                const manualRows=classifReview.rows.filter(r=>r.settore_confidenza!=='alta');
+                const filtered=manualRows.filter(r=>{
                   if(classifFilter==='bassa') return r.settore_confidenza==='bassa'&&r.semaforo_verifica!=='✗';
                   if(classifFilter==='media') return r.settore_confidenza==='media'&&r.semaforo_verifica!=='✗';
                   if(classifFilter==='altro') return r.settore==='Altro';
@@ -3599,11 +3735,11 @@ function App() {
                   return true;
                 });
                 const counts={
-                  tutti:classifReview.rows.length,
-                  errore:classifReview.rows.filter(r=>r.semaforo_verifica==='✗').length,
-                  bassa:classifReview.rows.filter(r=>r.settore_confidenza==='bassa'&&r.semaforo_verifica!=='✗').length,
-                  media:classifReview.rows.filter(r=>r.settore_confidenza==='media'&&r.semaforo_verifica!=='✗').length,
-                  altro:classifReview.rows.filter(r=>r.settore==='Altro').length,
+                  tutti:manualRows.length,
+                  errore:manualRows.filter(r=>r.semaforo_verifica==='✗').length,
+                  bassa:manualRows.filter(r=>r.settore_confidenza==='bassa'&&r.semaforo_verifica!=='✗').length,
+                  media:manualRows.filter(r=>r.settore_confidenza==='media'&&r.semaforo_verifica!=='✗').length,
+                  altro:manualRows.filter(r=>r.settore==='Altro').length,
                 };
                 const selIdx=filtered.length>0?Math.min(classifSelected,filtered.length-1):-1;
                 const row=selIdx>=0?filtered[selIdx]:null;
@@ -3623,13 +3759,12 @@ function App() {
                         {k:'bassa',     l:'🔴 Bassa'},
                         {k:'media',     l:'🟡 Media'},
                         {k:'altro',     l:'Altro'},
-                        {k:'approvati', l:'✓ Approvati'},
                       ].map(f=>(
                         <button key={f.k} onClick={()=>{setClassifFilter(f.k);setClassifSelected(0);}}
                           style={{padding:"3px 11px",fontSize:11,fontWeight:600,border:"none",borderRadius:20,cursor:"pointer",
                             color:classifFilter===f.k?"#fff":"#93c5fd",
-                            background:classifFilter===f.k?(f.k==='approvati'?"rgba(34,197,94,.45)":"rgba(37,99,235,0.55)"):"rgba(37,99,235,0.10)"}}>
-                          {f.l}{f.k!=='approvati'&&counts[f.k]!=null&&counts[f.k]>0?` (${counts[f.k]})`:''}
+                            background:classifFilter===f.k?"rgba(37,99,235,0.55)":"rgba(37,99,235,0.10)"}}>
+                          {f.l}{counts[f.k]!=null&&counts[f.k]>0?` (${counts[f.k]})`:''}
                         </button>
                       ))}
                       <button onClick={()=>setClassifViewMode(m=>m==='tabella'?'split':'tabella')}
