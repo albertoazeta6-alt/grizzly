@@ -467,6 +467,7 @@ function App() {
   const [classifFilter,    setClassifFilter]    = useState('tutti'); // tutti|bassa|media|altro|errore|approvati
   const [classifSelected,  setClassifSelected]  = useState(0);  // indice nell'array filtrato
   const [classifApprovati, setClassifApprovati] = useState({rows:[], loading:false, loaded:false});
+  const [classifViewMode,  setClassifViewMode]  = useState('split'); // 'split' | 'tabella'
   const [counters, setCounters] = useState({az_input:null, az_output:null, exec:null, scartati:null, mail_ok:null, mail_no:null});
   const azOutputRef = React.useRef(0); // ref stabile per evitare loop in fetchUrlSheet
   const fasiRef = React.useRef([]);
@@ -558,7 +559,7 @@ function App() {
     setClassifReview(s=>({...s,loading:true}));
     const {url,key}=getSbCreds(); if(!url||!key){setClassifReview(s=>({...s,loading:false}));return;}
     const h={apikey:key,Authorization:`Bearer ${key}`};
-    fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&or=(settore_confidenza.eq.bassa,settore_confidenza.eq.media,settore.eq.Altro,semaforo_verifica.eq.%E2%9A%A0,semaforo_verifica.eq.%E2%9C%97)&settore=not.is.null&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h})
+    fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&settore=not.is.null&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h})
       .then(r=>r.ok?r.json():[])
       .then(rows=>setClassifReview({rows,loading:false,loaded:true}))
       .catch(()=>setClassifReview(s=>({...s,loading:false,loaded:true})));
@@ -3642,8 +3643,10 @@ function App() {
                           {f.l}{f.k!=='approvati'&&counts[f.k]!=null&&counts[f.k]>0?` (${counts[f.k]})`:''}
                         </button>
                       ))}
+                      <button onClick={()=>setClassifViewMode(m=>m==='tabella'?'split':'tabella')}
+                        style={{marginLeft:"auto",padding:"3px 10px",fontSize:11,background:classifViewMode==='tabella'?"rgba(37,99,235,0.15)":"transparent",border:`1px solid ${classifViewMode==='tabella'?"#3b82f6":C.border}`,borderRadius:5,color:classifViewMode==='tabella'?"#93c5fd":C.muted,cursor:"pointer"}}>⊞ Tabella</button>
                       <button onClick={()=>{setClassifReview({rows:[],loading:false,loaded:false});setClassifApprovati({rows:[],loading:false,loaded:false});}}
-                        style={{marginLeft:"auto",padding:"3px 8px",fontSize:11,background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,color:C.muted,cursor:"pointer"}}>↺</button>
+                        style={{padding:"3px 8px",fontSize:11,background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,color:C.muted,cursor:"pointer"}}>↺</button>
                     </div>
                     {!sbReady&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>⚡ Configura Supabase in Impostazioni</div>}
                     {sbReady&&classifReview.loading&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>Caricamento...</div>}
@@ -3694,11 +3697,46 @@ function App() {
                           }
                         </div>
 
+                        {/* TABELLA */}
+                        {classifViewMode==='tabella'&&(
+                          <div style={{flex:1,minHeight:0,overflowY:"auto"}}>
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                              <thead>
+                                <tr style={{background:C.bg,position:"sticky",top:0,zIndex:1}}>
+                                  {["Nome","Sito","Settore","Conf.","Sem.","Motivazione","Icebreaker"].map(h=>(
+                                    <th key={h} style={{padding:"6px 10px",textAlign:"left",fontWeight:600,fontSize:9,textTransform:"uppercase",letterSpacing:".05em",color:C.muted,borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{h}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {filtered.map((r,i)=>{
+                                  const conf=r.settore_confidenza;
+                                  const cc=conf==='alta'?C.green:conf==='media'?'#f59e0b':conf==='bassa'?C.red:C.muted;
+                                  const sem=r.semaforo_verifica;
+                                  const sc=sem==='✓'?C.green:sem==='⚠'?'#f59e0b':sem==='✗'?C.red:C.muted;
+                                  return (
+                                    <tr key={r.id} onClick={()=>{setClassifSelected(i);setClassifViewMode('split');}}
+                                      style={{borderBottom:`1px solid ${C.border}`,cursor:"pointer",background:i%2===0?C.surface:"transparent"}}>
+                                      <td style={{padding:"6px 10px",fontWeight:600,color:C.textHi,whiteSpace:"nowrap",maxWidth:140,overflow:"hidden",textOverflow:"ellipsis"}}>{r.nome}</td>
+                                      <td style={{padding:"6px 10px",color:"#3b82f6",fontSize:10,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.sito_web||'—'}</td>
+                                      <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}>{r.settore}</td>
+                                      <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}><span style={{fontSize:9,fontWeight:700,color:cc,textTransform:"uppercase"}}>{conf||'—'}</span></td>
+                                      <td style={{padding:"6px 10px",textAlign:"center",fontSize:13,color:sc}}>{sem||'—'}</td>
+                                      <td style={{padding:"6px 10px",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:C.muted,fontSize:10}}>{r.settore_motivazione||'—'}</td>
+                                      <td style={{padding:"6px 10px",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:C.muted,fontSize:10}}>{r.icebreaker||'—'}</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+
                         {/* SPLIT PANE */}
-                        {row&&(
+                        {classifViewMode==='split'&&row&&(
                           <div style={{display:"flex",flex:1,minHeight:0}}>
                             {/* LEFT: iframe */}
-                            <div style={{flex:1,minWidth:0,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column"}}>
+                            <div style={{flex:2,minWidth:0,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column"}}>
                               <div style={{display:"flex",alignItems:"center",gap:8,padding:"5px 10px",background:C.bg,borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
                                 <span style={{fontSize:10,color:"#3b82f6",flex:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{curSito||'—'}</span>
                                 {curSito&&<a href={curSito} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:"#3b82f6",textDecoration:"none",flexShrink:0}}>↗ Apri</a>}
@@ -3712,7 +3750,7 @@ function App() {
                               }
                             </div>
                             {/* RIGHT: panel */}
-                            <div style={{width:320,flexShrink:0,display:"flex",flexDirection:"column",overflowY:"auto"}}>
+                            <div style={{flex:1,minWidth:260,maxWidth:380,display:"flex",flexDirection:"column",overflowY:"auto"}}>
                               {/* nome + sito */}
                               <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
                                 <div style={{fontSize:13,fontWeight:700,color:C.textHi,lineHeight:1.3,marginBottom:4}}>{row.nome}</div>
@@ -3768,7 +3806,7 @@ function App() {
                             </div>
                           </div>
                         )}
-                        {!row&&filtered.length===0&&classifReview.loaded&&(
+                        {classifViewMode==='split'&&!row&&filtered.length===0&&classifReview.loaded&&(
                           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,flex:1}}>
                             <div style={{fontSize:28}}>✓</div>
                             <div style={{fontSize:14,fontWeight:600,color:C.green}}>Nessuna classificazione da rivedere</div>
