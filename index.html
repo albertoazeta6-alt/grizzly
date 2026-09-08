@@ -1265,8 +1265,8 @@ function App() {
                 setFaseS("classifica", "errore", {dettaglio: msg});
                 return;
               }
-              // Agente terminato senza classificare nulla (es. 0 aziende trovate)
-              if (!sj?.in_corso && sj?.in_coda === 0) {
+              // Classificatore ha segnalato esplicitamente di aver finito
+              if (sj?.ultimo_run?.fase === "completato") {
                 clearInterval(poll);
                 setFaseS("classifica","completato",{completato:new Date().toISOString(),dettaglio:"Tutte le aziende classificate"});
                 sbWritePipelineState("classifica","completato","Tutte le aziende classificate");
