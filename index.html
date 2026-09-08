@@ -2524,8 +2524,9 @@ function App() {
                 </div>
               </div>
             ):(
-              <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
-                <div style={{flex:1,minWidth:0,height:"calc(100vh - 110px)",display:"flex",flexDirection:"column",overflow:"hidden",position:"relative"}}>
+              <div style={{display:"flex",flexDirection:"column",gap:16,height:"calc(100vh - 78px)",overflow:"hidden",position:"relative"}}>
+              <div style={{display:"flex",gap:0,alignItems:"flex-start",position:"relative"}}>
+                <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",position:"relative",paddingRight:328}}>
                 {/* ── TOP AREA: Run corrente | Da gestire ── */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1px 1fr",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",marginBottom:16,flexShrink:0}}>
                   {/* Pannello sinistro — Run corrente */}
@@ -2588,10 +2589,10 @@ function App() {
                     </div>
                   </div>
                 </div>
-                <div style={{display:"flex",flexDirection:"column",gap:16,flex:1,minHeight:0,overflowY:"auto"}}>
+                <div style={{display:"flex",flexDirection:"column",gap:16,overflowY:"auto"}}>
 
                   {/* ── PIPELINE ORIZZONTALE ── */}
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,paddingBottom:6}}>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}}>
                     {(()=>{ return fasi.map((fase,i)=>{
                       const isLemlistActive = fase.id==="lemlist"&&(fase.stato==="attesa_utente"||fase.stato==="in_corso");
                       const blueCfg = {color:"#3b82f6", bg:"rgba(59,130,246,0.12)", dot:"#3b82f6", label:"Intervento richiesto"};
@@ -2600,8 +2601,8 @@ function App() {
                       const isDone   = fase.stato==="completato";
                       const isWait   = (fase.stato==="in_attesa"||fase.stato==="bloccato")&&!isLemlistActive;
                       return (
-                        <div key={fase.id} style={{
-                          
+                        <div key={fase.id} onClick={()=>openImportDati(runStart)} style={{
+                          cursor:"pointer",
                           background: isDone?"rgba(34,197,94,0.05)":isActive?"rgba(59,130,246,0.07)":C.surface,
                           border: isActive?`2px solid ${cfg.color}`:`1px solid ${isDone?"rgba(34,197,94,0.2)":C.border}`,
                           borderRadius:8, padding:"10px 11px",
@@ -2808,37 +2809,45 @@ function App() {
                     </div>
                   )}
 
-                  {/* ── TOGGLE LEADS / AZIENDE + RILANCIA PIPELINE ── */}
-                  <div style={{display:"flex",gap:6,marginBottom:0,alignItems:"center",width:"100%"}}>
-                      {[
-                        {key:"run_attuale", label:"🔍 Ricerca Aziende"},
-                        {key:"leads",       label:"📊 Leads"},
-                      ].map(({key,label})=>{
-                        const active = runView===key;
-                        return (
-                          <button key={key} onClick={()=>{
-                            setRunView(key);
-                            if(key==='run_attuale') openImportDati(runStart);
-                          }}
-                            style={{padding:"6px 18px",fontSize:12,fontWeight:700,border:"none",borderRadius:6,cursor:"pointer",
-                              color: active?"#fff":"#e2e8f0",
-                              background: active?"linear-gradient(135deg,#2563eb,#3b82f6)":"rgba(37,99,235,0.18)",
-                              transition:"all 0.15s"}}>
-                            {label}
-                          </button>
-                        );
-                      })}
-                      <div style={{flex:1}}/>
+                </div>
+                </div>
+                {/* ── LOG SIDEBAR ── */}
+                <div style={{position:"absolute",top:0,bottom:0,right:0,width:312,display:"flex",flexDirection:"column",background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+                    <div style={{width:7,height:7,borderRadius:"50%",background:C.green,boxShadow:`0 0 6px ${C.green}`,animation:"pulse 2s infinite"}}/>
+                    <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.12em",color:C.muted,textTransform:"uppercase"}}>Log Live</span>
                   </div>
+                  <div ref={logSidebarRef} style={{overflowY:"auto",flex:1,height:0}}>
+                    {log.length===0
+                      ?<div style={{padding:14,textAlign:"center",color:C.muted,fontSize:11}}>Nessun evento ancora</div>
+                      :log.map((ev,i)=>{
+                        const ec={ok:{c:C.green,icon:"✓"},warn:{c:C.yellow,icon:"⚠"},error:{c:C.red,icon:"✕"},info:{c:C.accent,icon:"i"},attesa:{c:C.orange,icon:"⏸"}}[ev.tipo]||{c:C.muted,icon:"·"};
+                        return (
+                          <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"6px 10px",borderBottom:`1px solid ${C.border}`}}>
+                            <div style={{width:12,height:12,borderRadius:"50%",background:`${ec.c}18`,border:`1px solid ${ec.c}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:6,color:ec.c,flexShrink:0,marginTop:2}}>{ec.icon}</div>
+                            <div style={{flex:1,minWidth:0}}>
+                              <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:8,color:C.muted,display:"block",marginBottom:1}}>{fmtTime(ev.ts)}</span>
+                              <span style={{fontSize:10,color:ev.tipo==="error"?C.red:ev.tipo==="attesa"?C.orange:ev.tipo==="warn"?C.yellow:C.text,lineHeight:1.4,wordBreak:"break-word"}}>{ev.msg}</span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    }
+                  </div>
+                </div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:8,flex:1,minHeight:0}}>
 
                   {/* ── LEADS (Dashboard contatti) ── */}
                   {runView==='leads'&&(
                     <div style={leadsFullscreen?{position:"absolute",top:0,left:0,right:0,bottom:0,zIndex:10,background:"#0d1117",display:"flex",flexDirection:"column",padding:"12px 16px",gap:12,overflow:"hidden"}:{background:"rgba(37,99,235,0.10)",border:`1px solid rgba(59,130,246,0.4)`,borderRadius:6,padding:"12px 16px",display:"flex",flexDirection:"column",gap:12,flex:1,minHeight:0}}>
                       {/* Header */}
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-                        <div>
-                          <div style={{fontSize:12,fontWeight:700,color:"#60a5fa",marginBottom:2}}>📊 Dashboard leads</div>
-                          <div style={{fontSize:10,color:C.muted}}>Contatti trovati da Grizzly Scraper per questo run</div>
+                        <div style={{display:"flex",gap:6}}>
+                          {[{key:"run_attuale",label:"🔍 Ricerca Aziende"},{key:"leads",label:"📊 Leads"}].map(({key,label})=>{
+                            const active=runView===key;
+                            return <button key={key} onClick={()=>{setRunView(key);if(key==='run_attuale')openImportDati(runStart);}} style={{padding:"5px 14px",fontSize:11,fontWeight:700,border:"none",borderRadius:5,cursor:"pointer",color:active?"#fff":"#e2e8f0",background:active?"linear-gradient(135deg,#2563eb,#3b82f6)":"rgba(37,99,235,0.18)",transition:"all 0.15s"}}>{label}</button>;
+                          })}
                         </div>
                         <div style={{display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
                           <button onClick={fetchContattiRun} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>↻ Aggiorna</button>
@@ -2977,8 +2986,13 @@ function App() {
                   {/* ── AZIENDE IMPORTATE ── */}
                   {importDati.open&&runView==='run_attuale'&&(
                     <div style={importFullscreen?{position:"absolute",top:0,left:0,right:0,bottom:0,zIndex:10,background:"#0d1117",display:"flex",flexDirection:"column",overflow:"hidden"}:{background:"rgba(37,99,235,0.10)",border:`1px solid rgba(59,130,246,0.4)`,borderRadius:6,overflow:"hidden",flex:1,minHeight:0,display:"flex",flexDirection:"column"}}>
-                      <div style={{fontSize:12,fontWeight:700,color:"#60a5fa",padding:"10px 16px",borderBottom:`1px solid rgba(59,130,246,0.2)`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                        <span>🔍 Ricerca Aziende</span>
+                      <div style={{padding:"8px 16px",borderBottom:`1px solid rgba(59,130,246,0.2)`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                        <div style={{display:"flex",gap:6}}>
+                          {[{key:"run_attuale",label:"🔍 Ricerca Aziende"},{key:"leads",label:"📊 Leads"}].map(({key,label})=>{
+                            const active=runView===key;
+                            return <button key={key} onClick={()=>{setRunView(key);if(key==='run_attuale')openImportDati(runStart);}} style={{padding:"4px 12px",fontSize:11,fontWeight:700,border:"none",borderRadius:5,cursor:"pointer",color:active?"#fff":"#e2e8f0",background:active?"linear-gradient(135deg,#2563eb,#3b82f6)":"rgba(37,99,235,0.18)",transition:"all 0.15s"}}>{label}</button>;
+                          })}
+                        </div>
                         <div style={{display:"flex",gap:6,alignItems:"center"}}>
                           <button disabled={rilanciaDisabled} onClick={rilanciaSmartPipeline} style={{fontSize:10,fontWeight:700,color:rilanciaDisabled?"#4b5563":"#fff",background:rilanciaDisabled?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:3,padding:"3px 10px",cursor:rilanciaDisabled?"not-allowed":"pointer",whiteSpace:"nowrap"}}>{rilanciaIsBusy?"⏳ In corso...":"▶ Rilancia Pipeline"}</button>
                           <button onClick={deleteImportSelected} style={{fontSize:10,fontWeight:700,color:"#fff",color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🗑 {importSelected.size>0?`Elimina (${importSelected.size})`:"Elimina"}</button>
@@ -2991,28 +3005,28 @@ function App() {
                         : importDati.rows.length===0
                           ? <div style={{padding:20,textAlign:"center",color:C.muted,fontSize:11}}>Nessuna azienda trovata</div>
                           : <div style={{overflowX:"auto",maxHeight:importFullscreen?"calc(100vh - 150px)":"calc(100vh - 420px)",overflowY:"auto",flex:importFullscreen?1:undefined}}>
-                              <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+                              <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,tableLayout:"fixed"}}>
                                 <thead>
                                   <tr style={{background:"rgba(59,130,246,0.07)"}}>
                                     {[
-                                      {label:"Azienda",key:"nome"},
-                                      {label:"Sito web",key:null},
-                                      {label:"LinkedIn URL",key:null},
-                                      {label:"Città",key:null},
-                                      {label:"Stato",key:"stato"},
-                                      {label:"Settore",key:"settore"},
-                                      {label:"Conf.",key:"settore_confidenza"},
+                                      {label:"Azienda",key:"nome",w:220},
+                                      {label:"Sito web",key:null,w:110},
+                                      {label:"LinkedIn URL",key:null,w:140},
+                                      {label:"Città",key:null,w:110},
+                                      {label:"Stato",key:"stato",w:100},
+                                      {label:"Settore",key:"settore",w:140},
+                                      {label:"Conf.",key:"settore_confidenza",w:52},
                                       {label:"Icebreaker",key:null},
-                                    ].map(({label,key})=>{
+                                    ].map(({label,key,w})=>{
                                       const active = importDati.sortCol===key && key;
                                       return (
                                         <th key={label} onClick={key?()=>setImportDati(p=>({...p,sortCol:key,sortDir:p.sortCol===key&&p.sortDir==="asc"?"desc":"asc"})):undefined}
-                                          style={{padding:"6px 10px",textAlign:"left",color:active?C.accent:C.muted,fontWeight:600,fontSize:9,letterSpacing:"0.08em",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",cursor:key?"pointer":"default",userSelect:"none"}}>
+                                          style={{padding:"6px 14px",textAlign:"left",color:active?C.accent:C.muted,fontWeight:600,fontSize:9,letterSpacing:"0.08em",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",cursor:key?"pointer":"default",userSelect:"none",...(w?{width:w}:{})}}>
                                           {label}{active?(importDati.sortDir==="asc"?" ↑":" ↓"):(key?" ·":"")}
                                         </th>
                                       );
                                     })}
-                                    <th style={{padding:"6px 10px",borderBottom:`1px solid ${C.border}`}}></th>
+                                    <th style={{padding:"6px 10px",borderBottom:`1px solid ${C.border}`,width:40}}></th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -3041,8 +3055,8 @@ function App() {
                                     }[row.stato] || C.muted;
                                     return (
                                       <tr key={row.id} onClick={()=>setImportSelected(prev=>{const s=new Set(prev);s.has(row.id)?s.delete(row.id):s.add(row.id);return s;})} style={{borderBottom:`1px solid rgba(59,130,246,0.07)`,background:importSelected.has(row.id)?"rgba(59,130,246,0.15)":i%2===0?"transparent":"rgba(59,130,246,0.03)",cursor:"pointer"}}>
-                                        <td style={{padding:"5px 10px",color:C.text,fontWeight:600,minWidth:140,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.nome}</td>
-                                        <td style={{padding:"4px 8px",minWidth:120}}>
+                                        <td style={{padding:"5px 14px",color:C.text,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.nome}</td>
+                                        <td style={{padding:"4px 8px",overflow:"hidden",maxWidth:0}}>
                                           {row.stato==="sito_mancante" ? (
                                             <span style={{color:C.muted,fontSize:10}}>—</span>
                                           ) : sito ? (
@@ -3051,7 +3065,7 @@ function App() {
                                             <span style={{color:C.muted,fontSize:10}}>—</span>
                                           )}
                                         </td>
-                                        <td style={{padding:"5px 10px",minWidth:180,maxWidth:240}}>
+                                        <td style={{padding:"5px 10px",overflow:"hidden",maxWidth:0}}>
                                           {row.linkedin_url ? (
                                             <a href={row.linkedin_url} target="_blank" rel="noreferrer" title={row.linkedin_url} style={{display:"flex",alignItems:"center",gap:4,textDecoration:"none",overflow:"hidden"}}>
                                               <span style={{fontSize:10,flexShrink:0,color:row.stato==="url_ambigua"?C.yellow:C.green}}>{row.stato==="url_ambigua"?"⚠":"✓"}</span>
@@ -3089,8 +3103,8 @@ function App() {
                                             return <span style={{fontSize:8,fontWeight:700,color:confColor,textTransform:"uppercase",letterSpacing:"0.05em"}}>{conf||"—"}</span>;
                                           })()}
                                         </td>
-                                        <td style={{padding:"5px 10px",minWidth:200,maxWidth:320}}>
-                                          <span style={{fontSize:9,color:C.muted,lineHeight:1.4,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",userSelect:"none"}} title={row.icebreaker||""}>{row.icebreaker||"—"}</span>
+                                        <td style={{padding:"5px 14px"}}>
+                                          <span style={{fontSize:9,color:C.muted,lineHeight:1.5,display:"block",userSelect:"text"}}>{row.icebreaker||"—"}</span>
                                         </td>
                                         <td style={{padding:"4px 8px",textAlign:"center"}}>
                                           {dirty&&<button onClick={()=>saveImportEdit(row.id)} style={{fontSize:9,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#3b82f6,#6366f1)",border:"none",borderRadius:3,padding:"3px 8px",cursor:"pointer"}}>Salva</button>}
@@ -3139,32 +3153,7 @@ function App() {
                   )}
 
 
-                </div>
-                </div>
-                {/* ── LOG SIDEBAR ── */}
-                <div style={{width:312,flexShrink:0,position:"sticky",top:0,height:"calc(100vh - 110px)",display:"flex",flexDirection:"column",background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
-                    <div style={{width:7,height:7,borderRadius:"50%",background:C.green,boxShadow:`0 0 6px ${C.green}`,animation:"pulse 2s infinite"}}/>
-                    <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.12em",color:C.muted,textTransform:"uppercase"}}>Log Live</span>
-                  </div>
-                  <div ref={logSidebarRef} style={{overflowY:"auto",flex:1}}>
-                    {log.length===0
-                      ?<div style={{padding:14,textAlign:"center",color:C.muted,fontSize:11}}>Nessun evento ancora</div>
-                      :log.map((ev,i)=>{
-                        const ec={ok:{c:C.green,icon:"✓"},warn:{c:C.yellow,icon:"⚠"},error:{c:C.red,icon:"✕"},info:{c:C.accent,icon:"i"},attesa:{c:C.orange,icon:"⏸"}}[ev.tipo]||{c:C.muted,icon:"·"};
-                        return (
-                          <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"6px 10px",borderBottom:`1px solid ${C.border}`}}>
-                            <div style={{width:12,height:12,borderRadius:"50%",background:`${ec.c}18`,border:`1px solid ${ec.c}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:6,color:ec.c,flexShrink:0,marginTop:2}}>{ec.icon}</div>
-                            <div style={{flex:1,minWidth:0}}>
-                              <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:8,color:C.muted,display:"block",marginBottom:1}}>{fmtTime(ev.ts)}</span>
-                              <span style={{fontSize:10,color:ev.tipo==="error"?C.red:ev.tipo==="attesa"?C.orange:ev.tipo==="warn"?C.yellow:C.text,lineHeight:1.4,wordBreak:"break-word"}}>{ev.msg}</span>
-                            </div>
-                          </div>
-                        );
-                      })
-                    }
-                  </div>
-                </div>
+              </div>
               </div>
             )}
           </div>
