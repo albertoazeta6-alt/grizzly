@@ -1166,6 +1166,7 @@ function App() {
 
   // Carica dati CRM quando si apre il tab
   useEffect(() => {
+    if (tab === "run") { openImportDati(runStart); }
     if (tab === "database") { openDbAziende(); openImportContatti(); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
