@@ -1174,29 +1174,16 @@ function App() {
     }
   }, []);
 
-  // Quando import è completato → avvia Classificazione e Company Page IN PARALLELO
+  // Quando import è completato → avvia Classificazione
   useEffect(() => {
     const importFase     = fasi.find(f => f.id === "import");
     const classificaFase = fasi.find(f => f.id === "classifica");
-    const companyFase    = fasi.find(f => f.id === "company");
     if (importFase?.stato === "completato" && runId) {
       // Avvia classificazione
       if (!classificaFiredRef.current && classificaFase?.stato === "bloccato") {
         classificaFiredRef.current = true;
         setFaseS("classifica", "attesa_utente", {dettaglio:"Azure classificatore in avvio..."});
         fetchClassificaCount();
-      }
-      // Avvia Company Page in parallelo (senza aspettare classifica)
-      const companyGiaAvviata = ["in_corso","completato","attesa_utente"].includes(companyFase?.stato);
-      if (!companyCeckFiredRef.current && !companyGiaAvviata) {
-        const lsKey = `grizzly_company_fired_${runId}`;
-        if (!localStorage.getItem(lsKey)) {
-          localStorage.setItem(lsKey, '1');
-          companyCeckFiredRef.current = true;
-          fetchAzSenzaSito();
-        } else {
-          pushLog("warn","⚠ Phantom già avviato per questo runId (localStorage)");
-        }
       }
     }
     if (importFase?.stato !== "completato") {
@@ -1304,6 +1291,24 @@ function App() {
     const classificaFase = fasi.find(f => f.id === "classifica");
     if (classificaFase?.stato !== "completato") setAzSenzaSito([]);
   }, [fasi]);
+
+  // Avvia Company Page (Phantom) quando classificazione è completata
+  useEffect(() => {
+    const classificaFase = fasi.find(f => f.id === "classifica");
+    const companyFase    = fasi.find(f => f.id === "company");
+    if (classificaFase?.stato !== "completato" || !runId) return;
+    if (companyCeckFiredRef.current) return;
+    const companyGiaAvviata = ["in_corso","completato","attesa_utente"].includes(companyFase?.stato);
+    if (companyGiaAvviata) return;
+    const lsKey = `grizzly_company_fired_${runId}`;
+    if (localStorage.getItem(lsKey)) {
+      pushLog("warn","⚠ Phantom già avviato per questo runId (localStorage)");
+      return;
+    }
+    localStorage.setItem(lsKey, '1');
+    companyCeckFiredRef.current = true;
+    fetchAzSenzaSito();
+  }, [fasi, runId, fetchAzSenzaSito]);
 
   // Ref per auto-scroll log
   const logSidebarRef = React.useRef(null);
