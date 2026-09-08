@@ -697,7 +697,7 @@ function App() {
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.linkedin_ok&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.url_ambigua&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&fonte=eq.Automazione%20Bancadati&linkedin_url_eb=not.is.null&limit=1${ts}`, {headers: h}),
-        fetch(`${url}/rest/v1/companies?select=id&stato=eq.nuovo&limit=1${ts}`, {headers: h}),
+        fetch(`${url}/rest/v1/companies?select=id&stato=eq.nuovo&limit=1`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.hubspot_sync&limit=1${ts}`, {headers: h}),
       ]);
       const count = r => parseInt(r.headers.get("content-range")?.split("/")?.[1] ?? "0");
@@ -1632,7 +1632,7 @@ function App() {
       const BATCH = 1000;
       let allRows = [], offset = 0, done = false;
       while (!done) {
-        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,icebreaker${filter}&order=creato_il.desc&limit=${BATCH}&offset=${offset}`, {
+        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,settore_confidenza,icebreaker${filter}&order=creato_il.desc&limit=${BATCH}&offset=${offset}`, {
           headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`, Prefer:"count=none"}
         });
         const batch = r.ok ? await r.json() : [];
@@ -2358,7 +2358,6 @@ function App() {
 {/* WEBHOOK MAKE */}
             <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
               <SectionHead title="WEBHOOK MAKE"/>
-              <SettingRow chiave="make_webhook_company"  label="Lancia Phantom URL" {...sr}/>
               <SettingRow chiave="make_webhook_email"    label="Carica Contatti" {...sr}/>
             </div>
 
@@ -2636,7 +2635,7 @@ function App() {
                             {FASE_LINKS[fase.id]?.sheet&&fase.stato!=="bloccato"&&fase.id!=="company"&&fase.id!=="import"&&(
                               <button onClick={()=>openSheet(FASE_LINKS[fase.id].sheet,FASE_LINKS[fase.id].sheetLabel||fase.label)} style={{fontSize:8,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,0.3)`,borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Dati</button>
                             )}
-                            {FASE_LINKS[fase.id]?.phantom&&(
+                            {FASE_LINKS[fase.id]?.phantom&&fase.id!=="company"&&(
                               <a href={FASE_LINKS[fase.id].phantom} target="_blank" style={{textDecoration:"none"}}>
                                 <button style={{fontSize:8,fontWeight:600,color:C.purple,background:C.purpleDim,border:"1px solid rgba(168,85,247,.2)",borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Phantom</button>
                               </a>
@@ -3001,6 +3000,7 @@ function App() {
                                       {label:"Città",key:null},
                                       {label:"Stato",key:"stato"},
                                       {label:"Settore",key:"settore"},
+                                      {label:"Conf.",key:"settore_confidenza"},
                                       {label:"Icebreaker",key:null},
                                     ].map(({label,key})=>{
                                       const active = importDati.sortCol===key && key;
@@ -3079,6 +3079,13 @@ function App() {
                                               {settori.map(s=><option key={s} value={s}>{s}</option>)}
                                               {cur && !settori.includes(cur) && <option value={cur}>{cur}</option>}
                                             </select>;
+                                          })()}
+                                        </td>
+                                        <td style={{padding:"5px 10px",whiteSpace:"nowrap"}}>
+                                          {(()=>{
+                                            const conf = row.settore_confidenza;
+                                            const confColor = conf==="alta"?C.green:conf==="media"?"#f59e0b":conf==="bassa"?C.red:C.muted;
+                                            return <span style={{fontSize:8,fontWeight:700,color:confColor,textTransform:"uppercase",letterSpacing:"0.05em"}}>{conf||"—"}</span>;
                                           })()}
                                         </td>
                                         <td style={{padding:"5px 10px",minWidth:200,maxWidth:320}}>
@@ -3728,6 +3735,7 @@ function App() {
                                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
                                   <div style={{width:22,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,background:`${badge.color}18`,border:`1px solid ${badge.color}44`,color:badge.color,flexShrink:0}}>{badge.icon}</div>
                                   <span style={{fontSize:10,color:C.muted}}>{badge.label}</span>
+                                  {(()=>{const conf=row.settore_confidenza;const cc=conf==='alta'?C.green:conf==='media'?'#f59e0b':conf==='bassa'?C.red:C.muted;return conf?<span style={{marginLeft:'auto',fontSize:9,fontWeight:700,color:cc,textTransform:'uppercase',letterSpacing:'.05em',background:`${cc}18`,border:`1px solid ${cc}44`,borderRadius:3,padding:'2px 6px'}}>{conf}</span>:null;})()}
                                 </div>
                                 <div style={{fontSize:9,color:"#3d5068",fontWeight:600,textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>Settore</div>
                                 <select value={curSettore} onChange={e=>setField(row.id,'settore',e.target.value)}
@@ -3741,20 +3749,16 @@ function App() {
                                 <textarea value={curIce} rows={3} onChange={e=>setField(row.id,'icebreaker',e.target.value)} placeholder="Icebreaker commerciale..."
                                   style={{background:"#0d1520",border:`1px solid ${curIce!==row.icebreaker?C.accent:"#131e2d"}`,borderRadius:4,padding:"6px 8px",fontSize:11,color:C.text,resize:"vertical",fontFamily:"inherit",lineHeight:1.45,width:"100%",boxSizing:"border-box"}}/>
                               </div>
-                              {/* note verifica */}
-                              {row.note_verifica&&(
-                                <div style={{padding:"8px 14px",borderBottom:`1px solid ${C.border}`}}>
-                                  <div style={{fontSize:9,color:"#3d5068",fontWeight:600,textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>Note verifica AI</div>
-                                  <div style={{fontSize:10,color:"#3d5068",fontStyle:"italic",lineHeight:1.5}}>💬 {row.note_verifica}</div>
-                                </div>
-                              )}
                               {/* motivazione */}
-                              {row.settore_motivazione&&(
-                                <div style={{padding:"8px 14px",borderBottom:`1px solid ${C.border}`}}>
-                                  <div style={{fontSize:9,color:"#3d5068",fontWeight:600,textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>Motivazione classificazione</div>
-                                  <div style={{fontSize:10,color:"#2d3a50",lineHeight:1.5}}>🤖 {row.settore_motivazione}</div>
-                                </div>
-                              )}
+                              <div style={{padding:"8px 14px",borderBottom:`1px solid ${C.border}`}}>
+                                <div style={{fontSize:9,color:"#3d5068",fontWeight:600,textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>Motivazione classificazione</div>
+                                <div style={{fontSize:10,color:row.settore_motivazione?"#2d3a50":C.muted,lineHeight:1.5,fontStyle:row.settore_motivazione?'normal':'italic'}}>🤖 {row.settore_motivazione||'—'}</div>
+                              </div>
+                              {/* note verifica */}
+                              <div style={{padding:"8px 14px",borderBottom:`1px solid ${C.border}`}}>
+                                <div style={{fontSize:9,color:"#3d5068",fontWeight:600,textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>Note verifica AI</div>
+                                <div style={{fontSize:10,color:row.note_verifica?"#3d5068":C.muted,fontStyle:row.note_verifica?'italic':'italic',lineHeight:1.5}}>💬 {row.note_verifica||'—'}</div>
+                              </div>
                               <div style={{flex:1}}/>
                               {/* action bar */}
                               <div style={{display:"flex",gap:8,padding:"10px 14px",borderTop:`1px solid ${C.border}`,background:C.bg,flexShrink:0}}>
