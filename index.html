@@ -2635,7 +2635,7 @@ function App() {
                             {FASE_LINKS[fase.id]?.sheet&&fase.stato!=="bloccato"&&fase.id!=="company"&&fase.id!=="import"&&(
                               <button onClick={()=>openSheet(FASE_LINKS[fase.id].sheet,FASE_LINKS[fase.id].sheetLabel||fase.label)} style={{fontSize:8,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,0.3)`,borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Dati</button>
                             )}
-                            {FASE_LINKS[fase.id]?.phantom&&fase.id!=="company"&&(
+                            {FASE_LINKS[fase.id]?.phantom&&(
                               <a href={FASE_LINKS[fase.id].phantom} target="_blank" style={{textDecoration:"none"}}>
                                 <button style={{fontSize:8,fontWeight:600,color:C.purple,background:C.purpleDim,border:"1px solid rgba(168,85,247,.2)",borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Phantom</button>
                               </a>
