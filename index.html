@@ -1243,48 +1243,67 @@ function App() {
     const poll = setInterval(async () => {
       const n = await fetchClassificaCount();
       if (n === null) return; // errore fetch, riprova al prossimo giro
-      if (n === 0) {
-        clearInterval(poll);
-        setFaseS("classifica", "completato", {completato: new Date().toISOString(), dettaglio:"Tutte le aziende classificate"});
-        sbWritePipelineState("classifica","completato","Tutte le aziende classificate");
-        pushLog("ok", "✓ Classificazione completata");
-      } else {
-        // Chiedi anche lo stato dettagliato all'agente Azure
-        try {
-          const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
-          const {url:sbUrl, key:sbKey} = getSbCreds();
-          if (base && sbUrl && sbKey) {
-            const sr = await fetch(`${base}/classifica/stato?supabase_url=${encodeURIComponent(sbUrl)}&supabase_key=${encodeURIComponent(sbKey)}`);
-            if (sr.ok) {
-              const sj = await sr.json();
-              // Errore fatale nell'agente → blocca polling e segnala
-              if (sj?.ultimo_run?.errore_fatale) {
-                clearInterval(poll);
-                const msg = sj.ultimo_run.errore_fatale;
-                pushLog("error", `✕ Classificazione interrotta — errore agente: ${msg}`);
-                setFaseS("classifica", "errore", {dettaglio: msg});
-                return;
-              }
-              // Classificatore ha segnalato esplicitamente di aver finito
-              if (sj?.ultimo_run?.fase === "completato") {
-                clearInterval(poll);
-                setFaseS("classifica","completato",{completato:new Date().toISOString(),dettaglio:"Tutte le aziende classificate"});
-                sbWritePipelineState("classifica","completato","Tutte le aziende classificate");
-                pushLog("ok","✓ Classificazione completata");
-                return;
-              }
-              const cl = sj?.ultimo_run?.classificate ?? "?";
-              const er = sj?.ultimo_run?.errori ?? "?";
-              const cur = sj?.ultimo_run?.nome_corrente ? ` · ora: ${sj.ultimo_run.nome_corrente}` : "";
-              const lastErr = sj?.ultimo_run?.ultimo_errore ? ` — errore: ${sj.ultimo_run.ultimo_errore}` : "";
-              pushLog(er > 0 && cl === 0 ? "warn" : "info", `⟳ Classificazione: ${n} rimanenti · ${cl} classificate · ${er} errori${cur}${lastErr}`);
+
+      // Controlla SEMPRE lo stato dell'agente — fase="completato" è l'unico segnale affidabile.
+      // Non usare n===0 da solo: Loop 1 (settore) finisce prima di Loop 2 (semaforo_verifica),
+      // quindi n può essere 0 mentre la verifica è ancora in corso.
+      try {
+        const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
+        const {url:sbUrl, key:sbKey} = getSbCreds();
+        if (base && sbUrl && sbKey) {
+          const sr = await fetch(`${base}/classifica/stato?supabase_url=${encodeURIComponent(sbUrl)}&supabase_key=${encodeURIComponent(sbKey)}`);
+          if (sr.ok) {
+            const sj = await sr.json();
+            // Errore fatale nell'agente → blocca polling e segnala
+            if (sj?.ultimo_run?.errore_fatale) {
+              clearInterval(poll);
+              const msg = sj.ultimo_run.errore_fatale;
+              pushLog("error", `✕ Classificazione interrotta — errore agente: ${msg}`);
+              setFaseS("classifica", "errore", {dettaglio: msg});
+              return;
+            }
+            // Unico trigger di completamento: segnale esplicito dell'agente dopo ENTRAMBI i loop
+            if (sj?.ultimo_run?.fase === "completato") {
+              clearInterval(poll);
+              setFaseS("classifica","completato",{completato:new Date().toISOString(),dettaglio:"Tutte le aziende classificate"});
+              sbWritePipelineState("classifica","completato","Tutte le aziende classificate");
+              pushLog("ok","✓ Classificazione completata");
+              return;
+            }
+            // Log progresso dettagliato
+            const tot     = sj?.ultimo_run?.totale        ?? "?";
+            const cl      = sj?.ultimo_run?.classificate  ?? "?";
+            const er      = sj?.ultimo_run?.errori        ?? 0;
+            const fase    = sj?.ultimo_run?.fase          ?? "in_corso";
+            const cur     = sj?.ultimo_run?.nome_corrente ? ` · ${sj.ultimo_run.nome_corrente}` : "";
+            const lastErr = er > 0 && sj?.ultimo_run?.ultimo_errore ? ` — errore: ${sj.ultimo_run.ultimo_errore}` : "";
+            const faseLabel = fase === "verifica" ? "Verifica semaforo" : "Classificazione";
+            const nLabel    = n === 0 ? "" : ` · DB: ${n} da classificare`;
+            pushLog(er > 0 ? "warn" : "info", `⟳ ${faseLabel}: ${cl}/${tot}${cur}${lastErr}${nLabel}`);
+          } else {
+            // Agente non raggiungibile — n=0 ma non possiamo confermare la fine del loop verifica
+            if (n === 0) {
+              pushLog("warn", "⟳ Classificazione: DB aggiornato, attesa conferma agente...");
             } else {
               pushLog("info", `⟳ Classificazione in corso: ${n} azien${n===1?"da":"de"} rimanenti`);
             }
+          }
+        } else {
+          // Nessun agente configurato: fallback a n (non c'è Loop 2 senza agente Azure)
+          if (n === 0) {
+            clearInterval(poll);
+            setFaseS("classifica","completato",{completato:new Date().toISOString(),dettaglio:"Tutte le aziende classificate"});
+            sbWritePipelineState("classifica","completato","Tutte le aziende classificate");
+            pushLog("ok","✓ Classificazione completata");
           } else {
             pushLog("info", `⟳ Classificazione in corso: ${n} azien${n===1?"da":"de"} rimanenti`);
           }
-        } catch(_) {
+        }
+      } catch(_) {
+        // Errore di rete verso l'agente — mantieni polling, avvisa se DB già aggiornato
+        if (n === 0) {
+          pushLog("warn", "⟳ Classificazione: DB aggiornato, attesa conferma agente...");
+        } else {
           pushLog("info", `⟳ Classificazione in corso: ${n} azien${n===1?"da":"de"} rimanenti`);
         }
       }
