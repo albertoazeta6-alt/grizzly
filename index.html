@@ -773,17 +773,20 @@ function App() {
   }, []);
 
   const fetchAzSenzaSito = useCallback(async () => {
-    if(!MAKE.company) {
-      pushLog("warn","⚠ Webhook 'Lancia Phantom URL' non configurato nelle Impostazioni — Cerca Company Page non avviato");
-      showToast("⚠ Configura il webhook Phantom URL nelle Impostazioni");
-      return;
-    }
+    const {url: sbUrl} = getSbCreds();
+    const edgeFnUrl = `${sbUrl}/functions/v1/phantom-input`;
     try {
-      pushLog("info","▶ Invio webhook Cerca Company Page (Phantom)...");
-      const companyPayload = {runId, campagna, secret:"grizzly2026"};
+      pushLog("info","▶ Lancio Phantom via Edge Function...");
+      const companyPayload = {};
       if (rilancioCompanyIdsRef.current?.length) companyPayload.companyIds = rilancioCompanyIdsRef.current;
-      await fetch(MAKE.company, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(companyPayload)});
-      pushLog("ok", "✓ Cerca Company Page avviato (Phantom)");
+      const res = await fetch(edgeFnUrl, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(companyPayload)});
+      const resData = await res.json();
+      if (!res.ok || resData.error) throw new Error(resData.error || res.statusText);
+      if (resData.launched === false) {
+        pushLog("warn","⚠ Nessuna azienda da processare — Phantom non avviato");
+        return;
+      }
+      pushLog("ok", `✓ Phantom avviato — ${resData.companies} aziende`);
       setFaseS("company","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Phantom in esecuzione..."});
       sbWritePipelineState("company","in_corso","Phantom in esecuzione...");
       showToast("✓ Company Page avviato");
