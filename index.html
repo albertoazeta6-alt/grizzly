@@ -3093,6 +3093,7 @@ function App() {
 
                                       sito_updated: "#f59e0b",
                                       nuovo: C.yellow,
+                                      classificata: C.yellow,
                                       url_ambigua: C.yellow,
                                       sito_mancante: C.yellow,
                                       linkedin_ko: C.muted,
@@ -3119,7 +3120,7 @@ function App() {
                                             </a>
                                           ) : (
                                             <span style={{fontSize:9,color:C.muted,fontStyle:"italic"}}>
-                                              {row.stato==="sito_mancante" ? "no sito web" : row.stato==="nuovo" ? "in attesa Phantom" : "non trovata"}
+                                              {row.stato==="sito_mancante" ? "no sito web" : (row.stato==="classificata"||row.stato==="nuovo") ? "in attesa Phantom" : "non trovata"}
                                             </span>
                                           )}
                                         </td>
@@ -3162,7 +3163,7 @@ function App() {
                       }
                       <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:"3px 14px",padding:"8px 14px",borderTop:`1px solid ${C.border}`,fontSize:9,marginTop:"auto",flexShrink:0}}>
                         {[
-                          {stato:"NUOVO",           color:C.yellow,  desc:"in attesa Phantom"},
+                          {stato:"CLASSIFICATA",     color:C.yellow,  desc:"in attesa Phantom"},
                           {stato:"SITO_MANCANTE",   color:C.yellow,  desc:"verifica manuale"},
                           {stato:"URL_AMBIGUA",     color:C.yellow,  desc:"verifica manuale"},
                 
