@@ -523,6 +523,10 @@ function App() {
   const companyCeckFiredRef = React.useRef(false);
   const hubspotAutoFiredRef = React.useRef(false);
   const hubspotLinkedinUpdFiringRef = React.useRef(false); // guard anti-doppio per sync linkedin_upd
+  const autoNuovoFiringRef       = React.useRef(false);  // guard anti-doppio per auto-classifica stato=nuovo
+  const pendingAutoClassificaRef = React.useRef(false);  // pending: classifica da lanciare dopo fine pipeline
+  const pendingAutoHubspotRef    = React.useRef(false);  // pending: hubspot da lanciare dopo fine pipeline
+  const rilanciClassificatoreRef = React.useRef(null);   // ref stabile a rilanciClassificatore
   const rilancioCompanyIdsRef = React.useRef([]); // IDs aziende oggetto dell'ultimo rilancio pipeline
   const lemlistHadContactsRef   = React.useRef(false); // evita auto-complete prima che l'extension carichi i contatti
   const lemlistAutoFiredRef     = React.useRef(false); // guard anti-doppio-lancio avviaLemlist automatico
@@ -739,15 +743,41 @@ function App() {
         sbWritePipelineState("company", "completato", "Phantom completato automaticamente");
       }
 
+      // Determina se pipeline è attualmente in corso
+      const pipelineInCorso = fasiRef.current.some(f =>
+        ['import','classifica','company','hubspot'].includes(f.id) && f.stato === 'in_corso'
+      );
+
+      // Auto-classificatore per aziende stato=nuovo (es. aggiunte manualmente o da run precedente)
+      if (nuovo > 0 && !autoNuovoFiringRef.current) {
+        if (!pipelineInCorso) {
+          autoNuovoFiringRef.current = true;
+          pendingAutoClassificaRef.current = false;
+          pushLog("info", `↺ Auto-avvio classificatore (${nuovo} aziend${nuovo===1?"a":"e"} in attesa)`);
+          rilanciClassificatoreRef.current?.();
+        } else if (!pendingAutoClassificaRef.current) {
+          pendingAutoClassificaRef.current = true;
+          pushLog("info", `⏳ Pipeline in corso — classificatore auto in attesa (${nuovo} aziend${nuovo===1?"a":"e"})`);
+        }
+      }
+      // Reset guard quando non ci sono più aziende nuovo (classificazione completata)
+      if (nuovo === 0) autoNuovoFiringRef.current = false;
+
       // Sync HubSpot per URL ambigue confermate manualmente (stato=linkedin_upd)
-      // Viene triggerato ogni volta che fetchCounters gira (ogni 10s) — una sola chiamata batch
+      // Attende la fine della pipeline prima di lanciare Make
       if (liUpdRows.length > 0 && MAKE.hubspot && !hubspotLinkedinUpdFiringRef.current) {
-        hubspotLinkedinUpdFiringRef.current = true;
-        const ids = liUpdRows.map(r => r.id);
-        const nomi = liUpdRows.map(r => r.nome).join(", ");
-        pushLog("info", `↗ Sync HubSpot per ${ids.length} URL confermat${ids.length===1?"a":"e"}: ${nomi}`);
-        callMake(MAKE.hubspot, {secret:"grizzly2026", runId:runId||"", runStart:runStart||"", companyIds:ids, source:"linkedin_upd"}, "Aggiornamento HubSpot — URL ambigue risolte")
-          .finally(() => { hubspotLinkedinUpdFiringRef.current = false; });
+        if (!pipelineInCorso) {
+          hubspotLinkedinUpdFiringRef.current = true;
+          pendingAutoHubspotRef.current = false;
+          const ids = liUpdRows.map(r => r.id);
+          const nomi = liUpdRows.map(r => r.nome).join(", ");
+          pushLog("info", `↗ Sync HubSpot per ${ids.length} URL confermat${ids.length===1?"a":"e"}: ${nomi}`);
+          callMake(MAKE.hubspot, {secret:"grizzly2026", runId:runId||"", runStart:runStart||"", companyIds:ids, source:"linkedin_upd"}, "Aggiornamento HubSpot — URL ambigue risolte")
+            .finally(() => { hubspotLinkedinUpdFiringRef.current = false; });
+        } else if (!pendingAutoHubspotRef.current) {
+          pendingAutoHubspotRef.current = true;
+          pushLog("info", `⏳ Pipeline in corso — sync HubSpot URL ambigue in attesa`);
+        }
       }
 
       // Leggi pipeline_state da Supabase e aggiorna fasi
@@ -870,6 +900,9 @@ function App() {
     // classificaAutoRef useEffect rilancia /classifica/avvia
     // poi: classifica→completato → company (Phantom) se ci sono stato=nuovo → hubspot → lemlist
   }, [sbSettings, runId]);
+
+  // Mantieni ref stabile (usato da fetchCounters per evitare deps circolari)
+  useEffect(() => { rilanciClassificatoreRef.current = rilanciClassificatore; }, [rilanciClassificatore]);
 
   // ── Rilancia smart: controlla cosa c'è da fare e sceglie il percorso ────────────────────────
   // Se ci sono solo aziende linkedin_ok (URL verificati) → salta Phantom, vai diretto a HubSpot
@@ -1515,6 +1548,9 @@ function App() {
     classificaFiredRef.current = false;
     hubspotAutoFiredRef.current = false;
     classificaAutoRef.current = false;
+    autoNuovoFiringRef.current = false;
+    pendingAutoClassificaRef.current = false;
+    pendingAutoHubspotRef.current = false;
     rilancioCompanyIdsRef.current = [];
     setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
     setErrori(DEFAULT_ERRORI.map(e=>({...e,stato:"aperto"})));
