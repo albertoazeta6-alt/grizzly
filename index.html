@@ -1074,6 +1074,11 @@ function App() {
           setCodeQueue(q=>({...q, urlAmbigue:q.urlAmbigue.filter(c=>c.id!==e.data.id)}));
           // aggiorna riga in importDati.rows se presente
           setImportDati(p=>({...p, rows: p.rows.map(r=>r.id===e.data.id ? {...r, linkedin_url:e.data.linkedin_url, stato:nuovoStato} : r)}));
+          // Se URL trovata → aggiorna subito HubSpot
+          if (nuovoStato === 'linkedin_ok' && MAKE.hubspot) {
+            callMake(MAKE.hubspot, {secret:"grizzly2026", runId:runId||"", runStart:runStart||"", companyIds:[e.data.id]}, "Aggiornamento HubSpot — URL ambigua risolta");
+            pushLog("info", "↗ HubSpot notificato per URL confermata");
+          }
         } else pushLog("error", `✕ Errore salvataggio URL: ${e.data.ragione}`);
       }
     };
@@ -3606,6 +3611,11 @@ function App() {
               setCodeQueue(q=>({...q, urlAmbigue:q.urlAmbigue.filter(c=>c.id!==companyId)}));
               setCodeUrlEdit(e=>{const n={...e};delete n[companyId];return n;});
               setCodeQueue(q=>({...q, rilanciaReady:true}));
+              // Aggiorna subito HubSpot
+              if (MAKE.hubspot) {
+                callMake(MAKE.hubspot, {secret:"grizzly2026", runId:runId||"", runStart:runStart||"", companyIds:[companyId]}, "Aggiornamento HubSpot — URL ambigua risolta");
+                pushLog("info", "↗ HubSpot notificato per URL confermata");
+              }
             }
           };
 
