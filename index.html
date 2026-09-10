@@ -559,8 +559,6 @@ function App() {
   const pendingAutoClassificaRef = React.useRef(false);  // pending: classifica da lanciare dopo fine pipeline
   const pendingAutoHubspotRef    = React.useRef(false);  // pending: hubspot da lanciare dopo fine pipeline
   const rilanciClassificatoreRef = React.useRef(null);   // ref stabile a rilanciClassificatore
-  const fetchAzSenzaSitoRef     = React.useRef(null);   // ref stabile a fetchAzSenzaSito (trigger Phantom)
-  const autoPhantomFiringRef    = React.useRef(false);  // guard anti-doppio per auto-avvio Phantom
   const rilancioCompanyIdsRef = React.useRef([]); // IDs aziende oggetto dell'ultimo rilancio pipeline
   const lemlistHadContactsRef   = React.useRef(false); // evita auto-complete prima che l'extension carichi i contatti
   const lemlistAutoFiredRef     = React.useRef(false); // guard anti-doppio-lancio avviaLemlist automatico
@@ -823,22 +821,6 @@ function App() {
       // Reset guard quando non ci sono più aziende nuovo (classificazione completata)
       if (nuovo === 0) autoNuovoFiringRef.current = false;
 
-      // Auto-avvio Phantom: se ci sono aziende classificate in attesa e pipeline idle
-      // Usato per il caso Code→Classificazioni Salva (senza run attiva o classifica già completata)
-      if (classificata > 0 && !autoPhantomFiringRef.current && !pipelineInCorso) {
-        const _companyFase = fasiRef.current.find(f => f.id === "company");
-        const _companyOk   = !["in_corso","attesa_utente"].includes(_companyFase?.stato);
-        // Usa lo stesso guard della useEffect normale per evitare double-launch
-        if (_companyOk && !companyCeckFiredRef.current) {
-          autoPhantomFiringRef.current = true;
-          companyCeckFiredRef.current = true; // blocca la useEffect dal ri-scattare
-          pushLog("info", `↺ Auto-avvio Phantom (${classificata} aziend${classificata===1?"a":"e"} classificat${classificata===1?"a":"e"} in attesa)`);
-          fetchAzSenzaSitoRef.current?.();
-        }
-      }
-      // Reset guard quando non ci sono più aziende classificate in attesa
-      if (classificata === 0) autoPhantomFiringRef.current = false;
-
       // Sync HubSpot per URL ambigue confermate manualmente (stato=linkedin_upd)
       // Attende la fine della pipeline prima di lanciare Make
       if (liUpdRows.length > 0 && MAKE.hubspot && !hubspotLinkedinUpdFiringRef.current) {
@@ -984,7 +966,6 @@ function App() {
 
   // Mantieni ref stabile (usato da fetchCounters per evitare deps circolari)
   useEffect(() => { rilanciClassificatoreRef.current = rilanciClassificatore; }, [rilanciClassificatore]);
-  useEffect(() => { fetchAzSenzaSitoRef.current = fetchAzSenzaSito; }, [fetchAzSenzaSito]);
 
   // ── Rilancia smart: controlla cosa c'è da fare e sceglie il percorso ────────────────────────
   // Se ci sono solo aziende linkedin_ok (URL verificati) → salta Phantom, vai diretto a HubSpot
@@ -1631,7 +1612,7 @@ function App() {
     hubspotAutoFiredRef.current = false;
     classificaAutoRef.current = false;
     autoNuovoFiringRef.current = false;
-    autoPhantomFiringRef.current = false;
+
     pendingAutoClassificaRef.current = false;
     pendingAutoHubspotRef.current = false;
     rilancioCompanyIdsRef.current = [];
