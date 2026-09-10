@@ -818,7 +818,13 @@ function App() {
         }
       }
     } catch(e) {}
-  }, [runStart]);
+
+    // Auto-refresh tab Classificatore e Classificazioni (Code): invalida cache ad ogni sync
+    // Il useEffect di classifReview rilancia la fetch automaticamente quando loaded=false
+    if (tab === "classificatore" || (tab === "revisione" && codeSubTab === "classificazione")) {
+      setClassifReview(s => s.loading ? s : {...s, loaded: false});
+    }
+  }, [runStart, tab, codeSubTab]);
 
   const fetchProspecting = useCallback(async () => {
     // Migrato a Supabase — i contatti vengono ora da fetchContattiRun
