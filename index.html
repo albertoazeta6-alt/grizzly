@@ -576,6 +576,32 @@ function App() {
       .catch(()=>setClassifReview(s=>({...s,loading:false,loaded:true})));
   }, [tab,codeSubTab,sbReady,classifReview.loaded,classifReview.loading]);
 
+  // ── Refresh silenzioso classifReview (usato da fetchCounters per evitare flash) ──────────────
+  // Throttle: max 1 refresh ogni 30s; skip se dati identici (evita re-render inutili)
+  const classifReviewRefreshRef = React.useRef(null);
+  const classifRefreshLastRef   = React.useRef(0);
+  useEffect(() => {
+    const fn = async () => {
+      const now = Date.now();
+      if (now - classifRefreshLastRef.current < 30000) return; // throttle 30s
+      classifRefreshLastRef.current = now;
+      const {url,key}=getSbCreds(); if(!url||!key) return;
+      const h={apikey:key,Authorization:`Bearer ${key}`};
+      try {
+        const r = await fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&settore=not.is.null&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h});
+        if(r.ok) {
+          const rows=await r.json();
+          // Aggiorna solo se i dati sono effettivamente cambiati (evita re-render inutili)
+          setClassifReview(s=>{
+            if(s.rows.length===rows.length && s.rows.every((x,i)=>x.id===rows[i].id&&x.settore===rows[i].settore&&x.semaforo_verifica===rows[i].semaforo_verifica)) return s;
+            return {...s,rows,loaded:true};
+          });
+        }
+      } catch(e) {}
+    };
+    classifReviewRefreshRef.current = fn;
+  }); // no deps — cattura sempre getSbCreds aggiornato
+
   // ── Classificazione approvati: carica quando si seleziona il filtro ───────
   useEffect(() => {
     const needApprovati=(tab==="revisione"&&codeSubTab==="classificazione"&&classifFilter==="approvati")||(tab==="classificatore"&&classifFilterAll==="approvati");
@@ -767,15 +793,12 @@ function App() {
       if (nuovo === 0) autoNuovoFiringRef.current = false;
 
       // Auto-avvio Phantom: se ci sono aziende classificate in attesa e pipeline idle
-      if (classificata > 0 && !autoPhantomFiringRef.current) {
-        const companyFase = fasiRef.current.find(f => f.id === "company");
-        const companyIdle = !["in_corso","completato","attesa_utente"].includes(companyFase?.stato);
-        if (!pipelineInCorso && companyIdle) {
-          autoPhantomFiringRef.current = true;
-          companyCeckFiredRef.current = false; // reset guard per permettere il lancio
-          pushLog("info", `↺ Auto-avvio Phantom (${classificata} aziend${classificata===1?"a":"e"} classificat${classificata===1?"a":"e"} in attesa)`);
-          fetchAzSenzaSitoRef.current?.();
-        }
+      // Nota: pipelineInCorso già copre il caso company "in_corso"; non serve check aggiuntivo
+      if (classificata > 0 && !autoPhantomFiringRef.current && !pipelineInCorso) {
+        autoPhantomFiringRef.current = true;
+        companyCeckFiredRef.current = false; // reset guard per permettere il lancio
+        pushLog("info", `↺ Auto-avvio Phantom (${classificata} aziend${classificata===1?"a":"e"} classificat${classificata===1?"a":"e"} in attesa)`);
+        fetchAzSenzaSitoRef.current?.();
       }
       // Reset guard quando non ci sono più aziende classificate in attesa
       if (classificata === 0) autoPhantomFiringRef.current = false;
@@ -835,10 +858,9 @@ function App() {
       }
     } catch(e) {}
 
-    // Auto-refresh tab Classificatore e Classificazioni (Code): invalida cache ad ogni sync
-    // Il useEffect di classifReview rilancia la fetch automaticamente quando loaded=false
+    // Auto-refresh tab Classificatore e Classificazioni (Code): refresh silenzioso senza flash
     if (tab === "classificatore" || (tab === "revisione" && codeSubTab === "classificazione")) {
-      setClassifReview(s => s.loading ? s : {...s, loaded: false});
+      classifReviewRefreshRef.current?.();
     }
   }, [runStart, tab, codeSubTab]);
 
@@ -1756,7 +1778,7 @@ function App() {
       const BATCH = 1000;
       let allRows = [], offset = 0, done = false;
       while (!done) {
-        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,citta,stato,settore&order=creato_il.desc&limit=${BATCH}&offset=${offset}`, {
+        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,citta,stato,settore,icebreaker,linkedin_url&order=creato_il.desc&limit=${BATCH}&offset=${offset}`, {
           headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`, Prefer:"count=none"}
         });
         const batch = r.ok ? await r.json() : [];
@@ -3483,11 +3505,13 @@ function App() {
           const azPage = Math.min(dbPage, azTotalPages);
           const azPageRows = azFiltered.slice((azPage-1)*DB_PAGE_SIZE, azPage*DB_PAGE_SIZE);
           const azCols = [
-            {label:"Azienda", k:"nome"},
-            {label:"Sito",    k:null},
-            {label:"Città",   k:"citta"},
-            {label:"Stato",   k:"stato"},
-            {label:"Settore", k:"settore"},
+            {label:"Azienda",    k:"nome"},
+            {label:"Sito",       k:null},
+            {label:"LinkedIn",   k:null},
+            {label:"Città",      k:"citta"},
+            {label:"Stato",      k:"stato"},
+            {label:"Settore",    k:"settore"},
+            {label:"Icebreaker", k:null},
           ];
 
           /* ── Contatti ── */
@@ -3557,11 +3581,13 @@ function App() {
                           : <div style={{overflowX:"auto",overflowY:"auto",flex:1,minHeight:0}}>
                               <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,tableLayout:"fixed"}}>
                                 <colgroup>
-                                  <col style={{width:"28%"}}/>
-                                  <col style={{width:"22%"}}/>
                                   <col style={{width:"16%"}}/>
                                   <col style={{width:"14%"}}/>
-                                  <col style={{width:"20%"}}/>
+                                  <col style={{width:"10%"}}/>
+                                  <col style={{width:"10%"}}/>
+                                  <col style={{width:"10%"}}/>
+                                  <col style={{width:"14%"}}/>
+                                  <col style={{width:"26%"}}/>
                                 </colgroup>
                                 <thead>
                                   <tr style={{background:"rgba(37,99,235,0.15)"}}>
@@ -3580,9 +3606,11 @@ function App() {
                                       <tr key={row.id} style={{borderBottom:`1px solid ${C.border}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
                                         <td style={{padding:"5px 10px",color:C.text,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.nome}</td>
                                         <td style={{padding:"5px 10px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.sito_web?<a href={row.sito_web} target="_blank" rel="noopener noreferrer" style={{color:C.accent,textDecoration:"none"}}>{row.sito_web.replace(/^https?:\/\/(www\.)?/,"").split("/")[0]}</a>:"—"}</td>
+                                        <td style={{padding:"5px 10px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.linkedin_url?<a href={row.linkedin_url} target="_blank" rel="noopener noreferrer" style={{color:"#60a5fa",textDecoration:"none",fontSize:9}}>LinkedIn ↗</a>:"—"}</td>
                                         <td style={{padding:"5px 10px",color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.citta||"—"}</td>
                                         <td style={{padding:"5px 10px",whiteSpace:"nowrap"}}><span style={{color:stCfg.color,fontWeight:600,fontSize:9}}>{stCfg.label||row.stato}</span></td>
                                         <td style={{padding:"5px 10px",color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.settore||"—"}</td>
+                                        <td style={{padding:"5px 10px",color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontStyle:row.icebreaker?"normal":"italic",fontSize:9}} title={row.icebreaker||""}>{row.icebreaker||"—"}</td>
                                       </tr>
                                     );
                                   })}
