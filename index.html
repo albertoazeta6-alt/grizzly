@@ -827,9 +827,9 @@ function App() {
 
       // Auto-Phantom per aziende classificate manualmente da Code→Classificazioni (stato=classificata)
       // Stesso pattern di linkedin_upd: query rows espliciti, passa IDs a fetchAzSenzaSito
-      // GUARD: scatta solo se company è già 'completato' — evita doppio lancio con pipeline useEffect
-      const companyGiaCompletata = fasiRef.current.find(f => f.id === 'company')?.stato === 'completato';
-      if (classificataRows.length > 0 && !autoPhantomFiringRef.current && companyGiaCompletata) {
+      // GUARD: scatta solo se la pipeline useEffect ha già chiamato Phantom almeno una volta
+      // (companyCeckFiredRef=true), evitando doppio lancio con il pipeline useEffect
+      if (classificataRows.length > 0 && !autoPhantomFiringRef.current && companyCeckFiredRef.current) {
         if (!pipelineInCorso) {
           autoPhantomFiringRef.current = true;
           const ids  = classificataRows.map(r => r.id);
