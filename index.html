@@ -556,9 +556,11 @@ function App() {
   const hubspotAutoFiredRef = React.useRef(false);
   const hubspotLinkedinUpdFiringRef = React.useRef(false); // guard anti-doppio per sync linkedin_upd
   const autoNuovoFiringRef       = React.useRef(false);  // guard anti-doppio per auto-classifica stato=nuovo
+  const autoPhantomFiringRef     = React.useRef(false);  // guard anti-doppio per auto-Phantom da Salva classificazioni
   const pendingAutoClassificaRef = React.useRef(false);  // pending: classifica da lanciare dopo fine pipeline
   const pendingAutoHubspotRef    = React.useRef(false);  // pending: hubspot da lanciare dopo fine pipeline
   const rilanciClassificatoreRef = React.useRef(null);   // ref stabile a rilanciClassificatore
+  const fetchAzSenzaSitoRef      = React.useRef(null);   // ref stabile a fetchAzSenzaSito
   const rilancioCompanyIdsRef = React.useRef([]); // IDs aziende oggetto dell'ultimo rilancio pipeline
   const lemlistHadContactsRef   = React.useRef(false); // evita auto-complete prima che l'extension carichi i contatti
   const lemlistAutoFiredRef     = React.useRef(false); // guard anti-doppio-lancio avviaLemlist automatico
@@ -767,7 +769,7 @@ function App() {
         fetch(`${url}/rest/v1/companies?select=id&fonte=eq.Automazione%20Bancadati&linkedin_url_eb=not.is.null&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.nuovo&limit=1`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.hubspot_sync&limit=1${ts}`, {headers: h}),
-        fetch(`${url}/rest/v1/companies?select=id&stato=eq.classificata&limit=1${ts}`, {headers: h}),
+        fetch(`${url}/rest/v1/companies?select=id,nome&stato=eq.classificata&limit=500${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id,nome&stato=eq.linkedin_upd&limit=500${ts}`, {headers: h}),
       ]);
       const count = r => parseInt(r.headers.get("content-range")?.split("/")?.[1] ?? "0");
@@ -777,8 +779,8 @@ function App() {
       const exec        = rEB.ok          ? count(rEB)           : null;
       const nuovo       = rNuovo.ok       ? count(rNuovo)        : 0;
       const hubspot     = rHubspot.ok     ? count(rHubspot)      : 0;
-      const classificata = rClassificata.ok ? count(rClassificata) : -1;
-      const liUpdRows   = rLiUpd.ok       ? await rLiUpd.json()  : [];
+      const classificataRows = rClassificata.ok ? await rClassificata.json() : [];
+      const liUpdRows        = rLiUpd.ok        ? await rLiUpd.json()        : [];
       // Log variazioni contatori
       const pc = prevCountersRef.current;
       if (az_input !== null && az_input !== pc.az_input && pc.az_input !== null)
@@ -794,7 +796,7 @@ function App() {
       // Auto-completa fase company quando classificata===0 (tutte le ALTA processate da Phantom → linkedin_ok)
       // Non usare nuovo===0: le aziende ALTA passano direttamente nuovo→classificata, quindi nuovo è già 0 da subito
       const companyFaseNow = fasiRef.current.find(f => f.id === "company");
-      if (companyFaseNow?.stato === "in_corso" && classificata === 0 && runStart) {
+      if (companyFaseNow?.stato === "in_corso" && classificataRows.length === 0 && runStart) {
         const now = new Date().toISOString();
         pushLog("ok", "✓ Cerca Company Page completato — tutte le aziende processate da Phantom");
         setFaseS("company", "completato", {completato: now, dettaglio: "Phantom completato automaticamente"});
@@ -820,6 +822,23 @@ function App() {
       }
       // Reset guard quando non ci sono più aziende nuovo (classificazione completata)
       if (nuovo === 0) autoNuovoFiringRef.current = false;
+
+      // Auto-Phantom per aziende classificate manualmente da Code→Classificazioni (stato=classificata)
+      // Stesso pattern di linkedin_upd: query rows espliciti, passa IDs a fetchAzSenzaSito
+      if (classificataRows.length > 0 && !autoPhantomFiringRef.current) {
+        if (!pipelineInCorso) {
+          autoPhantomFiringRef.current = true;
+          const ids  = classificataRows.map(r => r.id);
+          const nomi = classificataRows.map(r => r.nome).join(", ");
+          pushLog("info", `↺ Auto-avvio Phantom (${ids.length} aziend${ids.length===1?"a":"e"} classificat${ids.length===1?"a":"e"}): ${nomi}`);
+          rilancioCompanyIdsRef.current = ids;
+          fetchAzSenzaSitoRef.current?.();
+          // Il guard viene resettato automaticamente quando classificataRows torna a 0
+        } else {
+          pushLog("info", `⏳ Pipeline in corso — Phantom auto per classificate in attesa`);
+        }
+      }
+      if (classificataRows.length === 0) autoPhantomFiringRef.current = false;
 
       // Sync HubSpot per URL ambigue confermate manualmente (stato=linkedin_upd)
       // Attende la fine della pipeline prima di lanciare Make
@@ -966,6 +985,7 @@ function App() {
 
   // Mantieni ref stabile (usato da fetchCounters per evitare deps circolari)
   useEffect(() => { rilanciClassificatoreRef.current = rilanciClassificatore; }, [rilanciClassificatore]);
+  useEffect(() => { fetchAzSenzaSitoRef.current = fetchAzSenzaSito; }, [fetchAzSenzaSito]);
 
   // ── Rilancia smart: controlla cosa c'è da fare e sceglie il percorso ────────────────────────
   // Se ci sono solo aziende linkedin_ok (URL verificati) → salta Phantom, vai diretto a HubSpot
@@ -1612,6 +1632,7 @@ function App() {
     hubspotAutoFiredRef.current = false;
     classificaAutoRef.current = false;
     autoNuovoFiringRef.current = false;
+    autoPhantomFiringRef.current = false;
 
     pendingAutoClassificaRef.current = false;
     pendingAutoHubspotRef.current = false;
