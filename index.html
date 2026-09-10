@@ -528,6 +528,8 @@ function App() {
   const pendingAutoClassificaRef = React.useRef(false);  // pending: classifica da lanciare dopo fine pipeline
   const pendingAutoHubspotRef    = React.useRef(false);  // pending: hubspot da lanciare dopo fine pipeline
   const rilanciClassificatoreRef = React.useRef(null);   // ref stabile a rilanciClassificatore
+  const fetchAzSenzaSitoRef     = React.useRef(null);   // ref stabile a fetchAzSenzaSito (trigger Phantom)
+  const autoPhantomFiringRef    = React.useRef(false);  // guard anti-doppio per auto-avvio Phantom
   const rilancioCompanyIdsRef = React.useRef([]); // IDs aziende oggetto dell'ultimo rilancio pipeline
   const lemlistHadContactsRef   = React.useRef(false); // evita auto-complete prima che l'extension carichi i contatti
   const lemlistAutoFiredRef     = React.useRef(false); // guard anti-doppio-lancio avviaLemlist automatico
@@ -764,6 +766,20 @@ function App() {
       // Reset guard quando non ci sono più aziende nuovo (classificazione completata)
       if (nuovo === 0) autoNuovoFiringRef.current = false;
 
+      // Auto-avvio Phantom: se ci sono aziende classificate in attesa e pipeline idle
+      if (classificata > 0 && !autoPhantomFiringRef.current) {
+        const companyFase = fasiRef.current.find(f => f.id === "company");
+        const companyIdle = !["in_corso","completato","attesa_utente"].includes(companyFase?.stato);
+        if (!pipelineInCorso && companyIdle) {
+          autoPhantomFiringRef.current = true;
+          companyCeckFiredRef.current = false; // reset guard per permettere il lancio
+          pushLog("info", `↺ Auto-avvio Phantom (${classificata} aziend${classificata===1?"a":"e"} classificat${classificata===1?"a":"e"} in attesa)`);
+          fetchAzSenzaSitoRef.current?.();
+        }
+      }
+      // Reset guard quando non ci sono più aziende classificate in attesa
+      if (classificata === 0) autoPhantomFiringRef.current = false;
+
       // Sync HubSpot per URL ambigue confermate manualmente (stato=linkedin_upd)
       // Attende la fine della pipeline prima di lanciare Make
       if (liUpdRows.length > 0 && MAKE.hubspot && !hubspotLinkedinUpdFiringRef.current) {
@@ -910,6 +926,7 @@ function App() {
 
   // Mantieni ref stabile (usato da fetchCounters per evitare deps circolari)
   useEffect(() => { rilanciClassificatoreRef.current = rilanciClassificatore; }, [rilanciClassificatore]);
+  useEffect(() => { fetchAzSenzaSitoRef.current = fetchAzSenzaSito; }, [fetchAzSenzaSito]);
 
   // ── Rilancia smart: controlla cosa c'è da fare e sceglie il percorso ────────────────────────
   // Se ci sono solo aziende linkedin_ok (URL verificati) → salta Phantom, vai diretto a HubSpot
@@ -1556,6 +1573,7 @@ function App() {
     hubspotAutoFiredRef.current = false;
     classificaAutoRef.current = false;
     autoNuovoFiringRef.current = false;
+    autoPhantomFiringRef.current = false;
     pendingAutoClassificaRef.current = false;
     pendingAutoHubspotRef.current = false;
     rilancioCompanyIdsRef.current = [];
@@ -3335,7 +3353,7 @@ function App() {
 
               {/* CLASSIFICAZIONI TABLE */}
               {sbReady&&classifFilterAll==='classificazioni'&&(
-                classifReview.loading
+                classifReview.loading&&classifReview.rows.length===0
                   ? <div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>Caricamento...</div>
                   : <div style={{flex:1,minHeight:0,overflowY:"auto"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,tableLayout:"fixed"}}>
@@ -3885,7 +3903,7 @@ function App() {
                         style={{padding:"3px 8px",fontSize:11,background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,color:C.muted,cursor:"pointer"}}>↺</button>
                     </div>
                     {!sbReady&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>⚡ Configura Supabase in Impostazioni</div>}
-                    {sbReady&&classifReview.loading&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>Caricamento...</div>}
+                    {sbReady&&classifReview.loading&&classifReview.rows.length===0&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>Caricamento...</div>}
 
                     {/* ── TAB APPROVATI ── */}
                     {sbReady&&classifFilter==='approvati'&&(
@@ -4036,7 +4054,7 @@ function App() {
                               <div style={{flex:1}}/>
                               {/* action bar */}
                               <div style={{display:"flex",gap:8,padding:"10px 14px",borderTop:`1px solid ${C.border}`,background:C.bg,flexShrink:0}}>
-                                <Btn color={C.green} bg={C.greenDim} border="rgba(34,197,94,.35)" style={{flex:1}} onClick={()=>approvaClassif(row.id)}>✓ Salva e vai a Phantom</Btn>
+                                <Btn color={C.green} bg={C.greenDim} border="rgba(34,197,94,.35)" style={{flex:1}} onClick={()=>approvaClassif(row.id)}>✓ Salva</Btn>
                               </div>
                             </div>
                           </div>
