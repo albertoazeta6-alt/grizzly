@@ -471,6 +471,7 @@ function App() {
   const [classifSelected,  setClassifSelected]  = useState(0);  // indice nell'array filtrato
   const [classifApprovati, setClassifApprovati] = useState({rows:[], loading:false, loaded:false});
   const [classifViewMode,  setClassifViewMode]  = useState('split'); // 'split' | 'tabella'
+  const [classifEdit,     setClassifEdit]     = useState({id:null, settore:''}); // correzione inline
   const [counters, setCounters] = useState({az_input:null, az_output:null, exec:null, scartati:null, mail_ok:null, mail_no:null});
   const azOutputRef = React.useRef(0); // ref stabile per evitare loop in fetchUrlSheet
   const fasiRef = React.useRef([]);
@@ -2933,7 +2934,6 @@ function App() {
                           <button onClick={fetchContattiRun} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>↻ Aggiorna</button>
                           <button onClick={deleteSelected} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>🗑 {contattiSelected.size>0?`Elimina (${contattiSelected.size})`:"Elimina"}</button>
                           <button onClick={richiestaEnrichment} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#7c3aed,#8b5cf6)",border:"none",borderRadius:5,cursor:"pointer"}}>✉ Cerca email{contattiSelected.size>0?` (${contattiSelected.size})`:""}</button>
-                          <button disabled={rilanciaDisabled} onClick={rilanciaSmartPipeline} style={{padding:"7px 12px",fontSize:11,fontWeight:700,color:rilanciaDisabled?"#4b5563":"#fff",background:rilanciaDisabled?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:5,cursor:rilanciaDisabled?"not-allowed":"pointer",whiteSpace:"nowrap"}}>{rilanciaIsBusy?"⏳ In corso...":"▶ Rilancia Pipeline"}</button>
                           <button onClick={()=>setLeadsFullscreen(f=>!f)} style={{padding:"7px 10px",fontSize:13,fontWeight:700,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,cursor:"pointer"}} title={leadsFullscreen?"Esci da schermo intero":"Schermo intero"}>{leadsFullscreen?"⤡":"⤢"}</button>
                         </div>
                       </div>
@@ -3074,7 +3074,6 @@ function App() {
                           })}
                         </div>
                         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                          <button disabled={rilanciaDisabled} onClick={rilanciaSmartPipeline} style={{fontSize:10,fontWeight:700,color:rilanciaDisabled?"#4b5563":"#fff",background:rilanciaDisabled?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:3,padding:"3px 10px",cursor:rilanciaDisabled?"not-allowed":"pointer",whiteSpace:"nowrap"}}>{rilanciaIsBusy?"⏳ In corso...":"▶ Rilancia Pipeline"}</button>
                           <button onClick={deleteImportSelected} style={{fontSize:10,fontWeight:700,color:"#fff",color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🗑 {importSelected.size>0?`Elimina (${importSelected.size})`:"Elimina"}</button>
                           <button onClick={()=>openImportDati(runStart)} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>⟳ Aggiorna</button>
                           <button onClick={()=>setImportFullscreen(f=>!f)} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}} title={importFullscreen?"Esci da schermo intero":"Schermo intero"}>{importFullscreen?"⤡":"⤢"}</button>
@@ -3281,6 +3280,27 @@ function App() {
             setSavedModelliNomi(s=>{const n=new Set(s);n.add(r.nome);return n;});
             showToast("✓ Modello salvato");
           };
+          const correggiSettore=async(r, nuovoSettore)=>{
+            if(!nuovoSettore||nuovoSettore===r.settore){setClassifEdit({id:null,settore:''});return;}
+            const {url,key}=getSbCreds();if(!url||!key)return;
+            try{
+              // 1. Aggiorna settore + stato=settore_aggiornato in Supabase
+              await fetch(`${url}/rest/v1/companies?id=eq.${r.id}`,{
+                method:"PATCH",headers:{apikey:key,Authorization:`Bearer ${key}`,"Content-Type":"application/json",Prefer:"return=minimal"},
+                body:JSON.stringify({settore:nuovoSettore,stato:"settore_aggiornato",settore_confidenza:"alta",aggiornato_il:new Date().toISOString()})
+              });
+              // 2. Salva in esempi_approvati per insegnare al classificatore
+              await fetch(`${url}/rest/v1/esempi_approvati`,{
+                method:"POST",headers:{apikey:key,Authorization:`Bearer ${key}`,"Content-Type":"application/json",Prefer:"return=minimal"},
+                body:JSON.stringify({nome:r.nome,settore:nuovoSettore,motivazione:`Correzione manuale: era classificato come ${r.settore||'?'}`})
+              });
+              // 3. Aggiorna stato locale
+              setClassifReview(s=>({...s,rows:s.rows.map(x=>x.id===r.id?{...x,settore:nuovoSettore,settore_confidenza:"alta",stato:"settore_aggiornato"}:x)}));
+              setSavedModelliNomi(s=>{const n=new Set(s);n.add(r.nome);return n;});
+              setClassifEdit({id:null,settore:''});
+              showToast(`✓ Settore corretto → ${nuovoSettore} — HubSpot verrà aggiornato automaticamente`);
+            }catch(e){showToast("Errore durante la correzione");setClassifEdit({id:null,settore:''});}
+          };
           const rimuoviApprovato=async(r)=>{
             const {url,key}=getSbCreds();if(!url||!key)return;
             await fetch(`${url}/rest/v1/esempi_approvati?id=eq.${r.id}`,{method:"DELETE",headers:{apikey:key,Authorization:`Bearer ${key}`,Prefer:"return=minimal"}});
@@ -3326,7 +3346,7 @@ function App() {
                         </colgroup>
                         <thead style={{position:"sticky",top:0,zIndex:2}}>
                           <tr style={{background:"rgba(59,130,246,0.10)"}}>
-                            {["Azienda","Sito web","Settore","Conf.","Sem.","Motivazione AI","Note verifica","Icebreaker",""].map(h=>(
+                            {["Azienda","Sito web","Settore","Conf.","Sem.","Motivazione AI","Note verifica","Icebreaker","Azioni"].map(h=>(
                               <th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:9,letterSpacing:"0.07em",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h}</th>
                             ))}
                           </tr>
@@ -3344,12 +3364,32 @@ function App() {
                               <td style={{padding:"6px 10px",color:C.muted,fontSize:9,lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.settore_motivazione||""}>{r.settore_motivazione||"—"}</td>
                               <td style={{padding:"6px 10px",color:"#fbbf24",fontSize:9,lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.note_verifica||""}>{r.note_verifica||"—"}</td>
                               <td style={{padding:"6px 10px",color:C.muted,fontSize:9,lineHeight:1.5}}>{r.icebreaker||"—"}</td>
-                              <td style={{padding:"4px 14px 4px 6px",textAlign:"center"}}>
-                                {(savedModelliNomi.has(r.nome)||(classifApprovati.loaded&&classifApprovati.rows.some(x=>x.nome===r.nome)))
-                                  ? <span style={{fontSize:10,color:C.green}}>✓ Salvato</span>
-                                  : <button onClick={()=>salvaModello(r)}
-                                      style={{fontSize:9,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:4,padding:"3px 7px",cursor:"pointer",whiteSpace:"nowrap"}}>Salva Modello</button>
-                                }
+                              <td style={{padding:"4px 10px 4px 6px"}}>
+                                {classifEdit.id===r.id ? (
+                                  <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                                    <select value={classifEdit.settore} onChange={e=>setClassifEdit(s=>({...s,settore:e.target.value}))}
+                                      style={{fontSize:9,padding:"2px 4px",background:C.card,color:C.text,border:`1px solid ${C.border}`,borderRadius:3,maxWidth:110}}>
+                                      <option value="">— settore —</option>
+                                      {["Facility management","Ascensori","Gru","Carrelli","Fotovoltaico","Antincendio","Automazione industriale","Impianti","Costruttore","Componentistica","Produzione","Manutenzione","Wholesale","Altro"].map(s=>(
+                                        <option key={s} value={s}>{s}</option>
+                                      ))}
+                                    </select>
+                                    <button onClick={()=>correggiSettore(r,classifEdit.settore)}
+                                      style={{fontSize:9,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:3,padding:"2px 6px",cursor:"pointer",whiteSpace:"nowrap"}}>✓</button>
+                                    <button onClick={()=>setClassifEdit({id:null,settore:''})}
+                                      style={{fontSize:9,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 5px",cursor:"pointer"}}>✕</button>
+                                  </div>
+                                ) : (
+                                  <div style={{display:"flex",gap:4,alignItems:"center",justifyContent:"flex-end"}}>
+                                    {(savedModelliNomi.has(r.nome)||(classifApprovati.loaded&&classifApprovati.rows.some(x=>x.nome===r.nome)))
+                                      ? <span style={{fontSize:9,color:C.green}}>✓</span>
+                                      : <button onClick={()=>salvaModello(r)}
+                                          style={{fontSize:9,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 5px",cursor:"pointer",whiteSpace:"nowrap"}}>Salva</button>
+                                    }
+                                    <button onClick={()=>setClassifEdit({id:r.id,settore:r.settore||''})}
+                                      style={{fontSize:9,fontWeight:700,color:"#a78bfa",background:"rgba(167,139,250,0.1)",border:"1px solid rgba(167,139,250,0.3)",borderRadius:3,padding:"2px 6px",cursor:"pointer",whiteSpace:"nowrap"}}>✏ Correggi</button>
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           ))}
