@@ -3670,28 +3670,17 @@ function App() {
           };
 
           const approvaClassif = async (id) => {
-            const {url,key}=getSbCreds(); if(!url||!key) return;
             const row=classifReview.rows.find(r=>r.id===id); if(!row) return;
             const e=classifEdit[id]||{};
             const settoreFin = e.settore||row.settore;
             const iceFin    = e.icebreaker!==undefined?e.icebreaker:row.icebreaker;
             const sitoFin   = e.sito_web!==undefined?e.sito_web:row.sito_web;
-            const motFin    = row.settore_motivazione||'';
-            // 1. Aggiorna company
-            const ok=await _classifPatch(id,{settore:settoreFin,icebreaker:iceFin,sito_web:sitoFin,settore_confidenza:'alta',semaforo_verifica:'✓',settore_suggerito:null});
-            if(!ok){showToast('Errore salvataggio',C.red);return;}
-            // 2. Inserisci/aggiorna esempi_approvati (upsert su nome)
-            try{
-              await fetch(`${url}/rest/v1/esempi_approvati`,{
-                method:'POST',
-                headers:{apikey:key,Authorization:`Bearer ${key}`,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},
-                body:JSON.stringify({nome:row.nome,settore:settoreFin,motivazione:motFin,aggiornato_il:new Date().toISOString()})
-              });
-            }catch(err){}
-            // 3. Rimuovi dalla lista
+            // Salva + promuove a classificata → Phantom la prenderà al prossimo giro
+            const ok=await _classifPatch(id,{settore:settoreFin,icebreaker:iceFin,sito_web:sitoFin,settore_confidenza:'alta',semaforo_verifica:'✓',settore_suggerito:null,stato:'classificata'});
+            if(!ok){showToast('Errore salvataggio');return;}
             setClassifReview(s=>({...s,rows:s.rows.filter(r=>r.id!==id)}));
             setClassifEdit(s=>{const n={...s};delete n[id];return n;});
-            showToast('✓ Approvato — aggiunto agli esempi');
+            showToast('✓ Salvato — Phantom la processerà al prossimo giro');
             fetchQueueCounts();
           };
 
@@ -4047,8 +4036,7 @@ function App() {
                               <div style={{flex:1}}/>
                               {/* action bar */}
                               <div style={{display:"flex",gap:8,padding:"10px 14px",borderTop:`1px solid ${C.border}`,background:C.bg,flexShrink:0}}>
-                                {dirty&&<Btn color="#60a5fa" bg="rgba(37,99,235,0.12)" border="rgba(37,99,235,0.35)" onClick={()=>salvaClassif(row.id)}>Salva</Btn>}
-                                <Btn color={C.green} bg={C.greenDim} border="rgba(34,197,94,.35)" style={{flex:1}} onClick={()=>approvaClassif(row.id)}>✓ Approva →</Btn>
+                                <Btn color={C.green} bg={C.greenDim} border="rgba(34,197,94,.35)" style={{flex:1}} onClick={()=>approvaClassif(row.id)}>✓ Salva e vai a Phantom</Btn>
                               </div>
                             </div>
                           </div>
