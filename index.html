@@ -492,6 +492,7 @@ function App() {
   const [reviewDebugMode, setReviewDebugMode] = useState(false);
   const [reviewBlobUrl, setReviewBlobUrl] = useState(null);
   const [codeSubTab, setCodeSubTab] = useState('siti_mancanti');
+  const [pipelineCorso, setPipelineCorso] = useState(false); // true mentre import/classifica/company/hubspot è in_corso
   // ── Classificazione review ────────────────────────────────────────────────
   const [classifReview,    setClassifReview]    = useState({rows:[], loading:false, loaded:false});
   const [classifEdit,      setClassifEdit]      = useState({}); // {id:{settore,icebreaker}}
@@ -807,6 +808,7 @@ function App() {
       const pipelineInCorso = fasiRef.current.some(f =>
         ['import','classifica','company','hubspot'].includes(f.id) && f.stato === 'in_corso'
       );
+      setPipelineCorso(pipelineInCorso);
 
       // Auto-classificatore per aziende stato=nuovo (es. aggiunte manualmente o da run precedente)
       if (nuovo > 0 && !autoNuovoFiringRef.current) {
@@ -3792,7 +3794,16 @@ function App() {
           const classificaBusy = fasi.find(f=>f.id==='classifica')?.stato==='in_corso';
 
           return (
-            <div style={{display:"flex",flexDirection:"column",height:"100%",animation:"fadeIn .2s ease"}}>
+            <div style={{display:"flex",flexDirection:"column",height:"100%",animation:"fadeIn .2s ease",position:"relative"}}>
+
+              {/* ── OVERLAY PIPELINE IN CORSO ── */}
+              {pipelineCorso&&(
+                <div style={{position:"absolute",inset:0,zIndex:20,background:"rgba(5,15,30,0.72)",backdropFilter:"blur(2px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,borderRadius:4}}>
+                  <div style={{fontSize:28}}>⏳</div>
+                  <div style={{fontSize:14,fontWeight:700,color:"#93c5fd",letterSpacing:"0.02em"}}>Pipeline in corso</div>
+                  <div style={{fontSize:11,color:"#64748b",textAlign:"center",lineHeight:1.6}}>Le azioni manuali sono disabilitate<br/>fino al completamento della pipeline</div>
+                </div>
+              )}
 
               {/* ── BARRA SUB-TAB + RILANCIA ── */}
               <div style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
