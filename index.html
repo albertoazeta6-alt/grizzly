@@ -769,7 +769,7 @@ function App() {
         fetch(`${url}/rest/v1/companies?select=id&fonte=eq.Automazione%20Bancadati&linkedin_url_eb=not.is.null&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.nuovo&limit=1`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.hubspot_sync&limit=1${ts}`, {headers: h}),
-        fetch(`${url}/rest/v1/companies?select=id,nome&stato=eq.classificata&limit=500${ts}`, {headers: h}),
+        fetch(`${url}/rest/v1/companies?select=id,nome&stato=eq.classificata&limit=500`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id,nome&stato=eq.linkedin_upd&limit=500${ts}`, {headers: h}),
       ]);
       const count = r => parseInt(r.headers.get("content-range")?.split("/")?.[1] ?? "0");
