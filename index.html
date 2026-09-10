@@ -471,7 +471,7 @@ function App() {
   const [classifSelected,  setClassifSelected]  = useState(0);  // indice nell'array filtrato
   const [classifApprovati, setClassifApprovati] = useState({rows:[], loading:false, loaded:false});
   const [classifViewMode,  setClassifViewMode]  = useState('split'); // 'split' | 'tabella'
-  const [classifEdit,     setClassifEdit]     = useState({id:null, settore:''}); // correzione inline
+  const [classifCorreggi, setClassifCorreggi] = useState({id:null, settore:''}); // correzione inline settore
   const [counters, setCounters] = useState({az_input:null, az_output:null, exec:null, scartati:null, mail_ok:null, mail_no:null});
   const azOutputRef = React.useRef(0); // ref stabile per evitare loop in fetchUrlSheet
   const fasiRef = React.useRef([]);
@@ -3281,7 +3281,7 @@ function App() {
             showToast("✓ Modello salvato");
           };
           const correggiSettore=async(r, nuovoSettore)=>{
-            if(!nuovoSettore||nuovoSettore===r.settore){setClassifEdit({id:null,settore:''});return;}
+            if(!nuovoSettore||nuovoSettore===r.settore){setClassifCorreggi({id:null,settore:''});return;}
             const {url,key}=getSbCreds();if(!url||!key)return;
             try{
               // 1. Aggiorna settore + stato=settore_aggiornato in Supabase
@@ -3297,9 +3297,9 @@ function App() {
               // 3. Aggiorna stato locale
               setClassifReview(s=>({...s,rows:s.rows.map(x=>x.id===r.id?{...x,settore:nuovoSettore,settore_confidenza:"alta",stato:"settore_aggiornato"}:x)}));
               setSavedModelliNomi(s=>{const n=new Set(s);n.add(r.nome);return n;});
-              setClassifEdit({id:null,settore:''});
+              setClassifCorreggi({id:null,settore:''});
               showToast(`✓ Settore corretto → ${nuovoSettore} — HubSpot verrà aggiornato automaticamente`);
-            }catch(e){showToast("Errore durante la correzione");setClassifEdit({id:null,settore:''});}
+            }catch(e){showToast("Errore durante la correzione");setClassifCorreggi({id:null,settore:''});}
           };
           const rimuoviApprovato=async(r)=>{
             const {url,key}=getSbCreds();if(!url||!key)return;
@@ -3365,18 +3365,18 @@ function App() {
                               <td style={{padding:"6px 10px",color:"#fbbf24",fontSize:9,lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.note_verifica||""}>{r.note_verifica||"—"}</td>
                               <td style={{padding:"6px 10px",color:C.muted,fontSize:9,lineHeight:1.5}}>{r.icebreaker||"—"}</td>
                               <td style={{padding:"4px 10px 4px 6px"}}>
-                                {classifEdit.id===r.id ? (
+                                {classifCorreggi.id===r.id ? (
                                   <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                                    <select value={classifEdit.settore} onChange={e=>setClassifEdit(s=>({...s,settore:e.target.value}))}
+                                    <select value={classifCorreggi.settore} onChange={e=>setClassifCorreggi(s=>({...s,settore:e.target.value}))}
                                       style={{fontSize:9,padding:"2px 4px",background:C.card,color:C.text,border:`1px solid ${C.border}`,borderRadius:3,maxWidth:110}}>
                                       <option value="">— settore —</option>
                                       {["Facility management","Ascensori","Gru","Carrelli","Fotovoltaico","Antincendio","Automazione industriale","Impianti","Costruttore","Componentistica","Produzione","Manutenzione","Wholesale","Altro"].map(s=>(
                                         <option key={s} value={s}>{s}</option>
                                       ))}
                                     </select>
-                                    <button onClick={()=>correggiSettore(r,classifEdit.settore)}
+                                    <button onClick={()=>correggiSettore(r,classifCorreggi.settore)}
                                       style={{fontSize:9,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:3,padding:"2px 6px",cursor:"pointer",whiteSpace:"nowrap"}}>✓</button>
-                                    <button onClick={()=>setClassifEdit({id:null,settore:''})}
+                                    <button onClick={()=>setClassifCorreggi({id:null,settore:''})}
                                       style={{fontSize:9,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 5px",cursor:"pointer"}}>✕</button>
                                   </div>
                                 ) : (
@@ -3386,7 +3386,7 @@ function App() {
                                       : <button onClick={()=>salvaModello(r)}
                                           style={{fontSize:9,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 5px",cursor:"pointer",whiteSpace:"nowrap"}}>Salva</button>
                                     }
-                                    <button onClick={()=>setClassifEdit({id:r.id,settore:r.settore||''})}
+                                    <button onClick={()=>setClassifCorreggi({id:r.id,settore:r.settore||''})}
                                       style={{fontSize:9,fontWeight:700,color:"#a78bfa",background:"rgba(167,139,250,0.1)",border:"1px solid rgba(167,139,250,0.3)",borderRadius:3,padding:"2px 6px",cursor:"pointer",whiteSpace:"nowrap"}}>✏ Correggi</button>
                                   </div>
                                 )}
