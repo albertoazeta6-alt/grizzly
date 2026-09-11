@@ -811,7 +811,9 @@ function App() {
       setPipelineCorso(pipelineInCorso);
 
       // Auto-classificatore per aziende stato=nuovo (es. aggiunte manualmente o da run precedente)
-      if (nuovo > 0 && !autoNuovoFiringRef.current) {
+      // Non lanciare nulla mentre l'utente lavora nel tab Code (revisione)
+      const utenteSuCode = tab === 'revisione';
+      if (nuovo > 0 && !autoNuovoFiringRef.current && !utenteSuCode) {
         if (!pipelineInCorso) {
           autoNuovoFiringRef.current = true;
           pendingAutoClassificaRef.current = false;
@@ -835,7 +837,7 @@ function App() {
       const useEffectGestiraPhantom = classifFaseStato === 'completato'
         && !['in_corso','completato'].includes(companyFaseStato)
         && !companyCeckFiredRef.current;
-      if (classificataRows.length > 0 && !autoPhantomFiringRef.current && !pipelineInCorso && !useEffectGestiraPhantom) {
+      if (classificataRows.length > 0 && !autoPhantomFiringRef.current && !pipelineInCorso && !useEffectGestiraPhantom && !utenteSuCode) {
         if (!pipelineInCorso) {
           autoPhantomFiringRef.current = true;
           const ids  = classificataRows.map(r => r.id);
@@ -852,7 +854,7 @@ function App() {
 
       // Sync HubSpot per URL ambigue confermate manualmente (stato=linkedin_upd)
       // Attende la fine della pipeline prima di lanciare Make
-      if (liUpdRows.length > 0 && MAKE.hubspot && !hubspotLinkedinUpdFiringRef.current) {
+      if (liUpdRows.length > 0 && MAKE.hubspot && !hubspotLinkedinUpdFiringRef.current && !utenteSuCode) {
         if (!pipelineInCorso) {
           hubspotLinkedinUpdFiringRef.current = true;
           pendingAutoHubspotRef.current = false;
@@ -2871,7 +2873,7 @@ function App() {
                         <div style={{fontSize:10,color:C.muted}}>Apri lo sheet, verifica gli URL, poi avvia la ricerca dipendenti</div>
                       </div>
                       <div style={{display:"flex",gap:8,flexShrink:0}}>
-                        <button onClick={()=>{setTab('code');setCodeSubTab('url_ambigui');}} style={{padding:"7px 12px",fontSize:11,fontWeight:600,color:"#fb923c",background:"rgba(249,115,22,0.1)",border:"1px solid rgba(249,115,22,0.3)",borderRadius:5,cursor:"pointer",width:150,textAlign:"center"}}>🔍 URL LN Review</button>
+                        <button onClick={()=>{setTab('revisione');setCodeSubTab('url_ambigui');}} style={{padding:"7px 12px",fontSize:11,fontWeight:600,color:"#fb923c",background:"rgba(249,115,22,0.1)",border:"1px solid rgba(249,115,22,0.3)",borderRadius:5,cursor:"pointer",width:150,textAlign:"center"}}>🔍 URL LN Review</button>
                         <button onClick={()=>openSheet(FASE_LINKS["url_check"].sheet,"Prospecting output")} style={{padding:"7px 12px",fontSize:11,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,0.3)`,borderRadius:5,cursor:"pointer",width:130,textAlign:"center"}}>📊 Apri Dati</button>
                         <button onClick={()=>continuaDopoUrl()} disabled={loading.continua} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:loading.continua?"#1e2a3a":"linear-gradient(135deg,#ea580c,#f97316)",border:"none",borderRadius:5,cursor:loading.continua?"not-allowed":"pointer",width:120,textAlign:"center"}}>
                           {loading.continua?"...":"▶ Continua"}
