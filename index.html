@@ -564,6 +564,8 @@ function App() {
   const fetchAzSenzaSitoRef      = React.useRef(null);   // ref stabile a fetchAzSenzaSito
   const rilancioCompanyIdsRef = React.useRef([]); // IDs aziende oggetto dell'ultimo rilancio pipeline
   const classificaAutoRef        = React.useRef(false); // guard anti-doppio per async call Azure (attesa_utente → in_corso)
+  const fetchCountersRunningRef  = React.useRef(false); // mutex — evita esecuzioni concorrenti di fetchCounters
+  const pendingPhantomHubspotRef = React.useRef([]); // IDs aziende Code-path in attesa di sync HubSpot dopo Phantom
   const lemlistHadContactsRef   = React.useRef(false); // evita auto-complete prima che l'extension carichi i contatti
   const lemlistAutoFiredRef     = React.useRef(false); // guard anti-doppio-lancio avviaLemlist automatico
   const [prospectingTab, setProspectingTab]   = useState("tabella"); // "tabella" | "sheets"
@@ -759,8 +761,10 @@ function App() {
 
     // ── Contatori fogli ──────────────────────────────────────────────────────────
   const fetchCounters = useCallback(async () => {
+    if (fetchCountersRunningRef.current) return; // mutex — previene esecuzioni concorrenti
+    fetchCountersRunningRef.current = true;
     const {url, key} = getSbCreds();
-    if (!url || !key) return;
+    if (!url || !key) { fetchCountersRunningRef.current = false; return; }
     try {
       const h = {apikey: key, Authorization: `Bearer ${key}`, Prefer: "count=exact"};
       const ts = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
@@ -847,7 +851,17 @@ function App() {
       if (autoPhantomFiringRef.current && Date.now() - autoPhantomFiredAtRef.current > TRIGGER_TIMEOUT) {
         autoPhantomFiringRef.current = false;
       }
-      if (classificataRows.length === 0) { autoPhantomFiringRef.current = false; }
+      if (classificataRows.length === 0) {
+        // Se Phantom era in corso per aziende Code-path, ora è completato → sync HubSpot per queste aziende
+        if (autoPhantomFiringRef.current && pendingPhantomHubspotRef.current.length > 0 && MAKE.hubspot && !utenteSuCode) {
+          const idsHs = pendingPhantomHubspotRef.current;
+          pendingPhantomHubspotRef.current = [];
+          pushLog("info", `↗ Sync HubSpot post-Phantom (${idsHs.length} aziend${idsHs.length===1?"a":"e"})`);
+          callMake(MAKE.hubspot, {secret:"grizzly2026", runId:runId||"", runStart:runStart||"", companyIds:idsHs, source:"auto_phantom"}, "Aggiornamento HubSpot — Aziende classificate da Code")
+            .catch(()=>{});
+        }
+        autoPhantomFiringRef.current = false;
+      }
       else if (!autoPhantomFiringRef.current && !pipelineInCorso && !useEffectGestiraPhantom && !utenteSuCode) {
         autoPhantomFiringRef.current = true;
         autoPhantomFiredAtRef.current = Date.now();
@@ -855,6 +869,7 @@ function App() {
         const nomi = classificataRows.map(r => r.nome).join(", ");
         pushLog("info", `↺ Auto-avvio Phantom (${ids.length} aziend${ids.length===1?"a":"e"} classificat${ids.length===1?"a":"e"}): ${nomi}`);
         rilancioCompanyIdsRef.current = ids;
+        pendingPhantomHubspotRef.current = ids; // salva per sync HubSpot post-Phantom
         fetchAzSenzaSitoRef.current?.();
       } else if (classificataRows.length > 0 && pipelineInCorso && !pendingAutoClassificaRef.current) {
         pushLog("info", `⏳ Pipeline in corso — Phantom auto per classificate in attesa`);
@@ -917,6 +932,7 @@ function App() {
         }
       }
     } catch(e) {}
+    finally { fetchCountersRunningRef.current = false; }
 
     // Auto-refresh tab Classificatore e Classificazioni (Code): refresh silenzioso senza flash
     if (tab === "classificatore" || (tab === "revisione" && codeSubTab === "classificazione")) {
@@ -1637,6 +1653,7 @@ function App() {
     pendingAutoClassificaRef.current = false;
     pendingAutoHubspotRef.current = false;
     rilancioCompanyIdsRef.current = [];
+    pendingPhantomHubspotRef.current = [];
     setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
     setErrori(DEFAULT_ERRORI.map(e=>({...e,stato:"aperto"})));
     pushLog("info",`Run ${id} avviato`);
@@ -2337,7 +2354,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.3</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.4</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -4063,7 +4080,7 @@ function App() {
                                 {curSito&&<a href={curSito} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:"#3b82f6",textDecoration:"none",flexShrink:0}}>↗ Apri</a>}
                               </div>
                               {curSito
-                                ? <iframe key={curSito} src={curSito} style={{flex:1,border:"none",width:"100%"}} title={row.nome} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"/>
+                                ? <iframe key={(row.sito_web||row.id)} src={row.sito_web||''} style={{flex:1,border:"none",width:"100%"}} title={row.nome} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"/>
                                 : <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:12,flexDirection:"column",gap:8}}>
                                     <div style={{fontSize:24,opacity:.3}}>🌐</div>
                                     <div>Nessun sito disponibile</div>
