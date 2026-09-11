@@ -563,6 +563,7 @@ function App() {
   const rilanciClassificatoreRef = React.useRef(null);   // ref stabile a rilanciClassificatore
   const fetchAzSenzaSitoRef      = React.useRef(null);   // ref stabile a fetchAzSenzaSito
   const rilancioCompanyIdsRef = React.useRef([]); // IDs aziende oggetto dell'ultimo rilancio pipeline
+  const classificaAutoRef        = React.useRef(false); // guard anti-doppio per async call Azure (attesa_utente → in_corso)
   const lemlistHadContactsRef   = React.useRef(false); // evita auto-complete prima che l'extension carichi i contatti
   const lemlistAutoFiredRef     = React.useRef(false); // guard anti-doppio-lancio avviaLemlist automatico
   const [prospectingTab, setProspectingTab]   = useState("tabella"); // "tabella" | "sheets"
@@ -956,9 +957,10 @@ function App() {
     if (!base) { showToast("⚠ URL Agente Azure non configurato"); return; }
     const openaiKey = sbSettings["openai_api_key"]||"";
     if (!openaiKey) { showToast("⚠ OpenAI API Key mancante"); return; }
-    // Reset guard fetchCounters auto-trigger (per permettere nuovo ciclo dopo rilancio)
+    // Reset guard per permettere nuovo ciclo dopo rilancio
     autoPhantomFiringRef.current = false;
     autoNuovoFiringRef.current = false;
+    classificaAutoRef.current = false;
     // Salva gli ID delle aziende oggetto di questo rilancio e le resetta a 'nuovo'
     // così l'Edge Function phantom-input le restituisce correttamente a Phantom (non-blocking)
     {
@@ -1334,10 +1336,13 @@ function App() {
   }, [fasi, fetchClassificaCount, runId]);
 
   // Auto-avvio classificazione quando passa ad attesa_utente
-  // Guard: stato classifica — se non è più attesa_utente (es. già in_corso dopo setFaseS) non riparte
+  // Guard ref: necessario perché la fetch a Azure è asincrona — tra il trigger e il setFaseS("in_corso")
+  // possono arrivare altri render con stato ancora "attesa_utente" che ri-sparerebbero la call
   useEffect(() => {
     const classificaFase = fasi.find(f => f.id === "classifica");
-    if (classificaFase?.stato !== "attesa_utente") return;
+    if (classificaFase?.stato !== "attesa_utente") { classificaAutoRef.current = false; return; }
+    if (classificaAutoRef.current) return;
+    classificaAutoRef.current = true;
     // Prima controlla se ci sono aziende da classificare
     fetchClassificaCount().then(n => {
       if (n === 0) {
@@ -1624,6 +1629,7 @@ function App() {
     setDropzoneMode(false); setRunId(id); setRunStart(runStartLocal); setRunAttivo(true);
     setLog([]); setFasi(FASI_INIT); setExecs([]); lemlistHadContactsRef.current = false; lemlistAutoFiredRef.current = false;
     // Reset ref auto-trigger per nuova run
+    classificaAutoRef.current = false;
     autoNuovoFiringRef.current = false;
     autoPhantomFiringRef.current = false;
     hubspotLinkedinUpdFiringRef.current = false;
