@@ -769,7 +769,7 @@ function App() {
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.linkedin_ok&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.url_ambigua&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&fonte=eq.Automazione%20Bancadati&linkedin_url_eb=not.is.null&limit=1${ts}`, {headers: h}),
-        fetch(`${url}/rest/v1/companies?select=id&stato=eq.nuovo&limit=1`, {headers: h}),
+        fetch(`${url}/rest/v1/companies?select=id&stato=eq.nuovo&settore=is.null&limit=1`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.hubspot_sync&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id,nome&stato=eq.classificata&limit=500`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id,nome&stato=eq.linkedin_upd&limit=500${ts}`, {headers: h}),
@@ -2337,7 +2337,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.2</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.3</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -3716,7 +3716,8 @@ function App() {
           const salvaSito = async (companyId) => {
             const sito = normalizeSitoWeb((codeSitoEdit[companyId]||"").trim());
             if(!sito) return;
-            const ok = await sbUpdate("companies",{id:companyId},{sito_web:sito, stato:"nuovo", aggiornato_il:new Date().toISOString()});
+            // Reset settore=null per forzare riclassificazione con il nuovo sito
+            const ok = await sbUpdate("companies",{id:companyId},{sito_web:sito, stato:"nuovo", settore:null, settore_confidenza:null, settore_motivazione:null, semaforo_verifica:null, aggiornato_il:new Date().toISOString()});
             if(ok){
               setCodeQueue(q=>({...q, siti:q.siti.filter(c=>c.id!==companyId)}));
               setCodeSitoEdit(e=>{const n={...e};delete n[companyId];return n;});
