@@ -861,6 +861,7 @@ function App() {
             .catch(()=>{});
         }
         autoPhantomFiringRef.current = false;
+        pendingAutoHubspotRef.current = false; // permette al sync URL ambigue di loggare "in attesa" dopo Phantom
       }
       else if (!autoPhantomFiringRef.current && !pipelineInCorso && !useEffectGestiraPhantom && !utenteSuCode) {
         autoPhantomFiringRef.current = true;
@@ -876,22 +877,26 @@ function App() {
       }
 
       // Sync HubSpot per URL ambigue confermate manualmente (stato=linkedin_upd)
+      // Aspetta anche se auto-Phantom è in volo (altrimenti gira in parallelo a Phantom)
+      const phantomInVolo = autoPhantomFiringRef.current;
       if (hubspotLinkedinUpdFiringRef.current && Date.now() - hubspotLinkedinUpdFiredAtRef.current > TRIGGER_TIMEOUT) {
-        hubspotLinkedinUpdFiringRef.current = false;
+        hubspotLinkedinUpdFiringRef.current = false; // timeout reset → retry
       }
-      if (liUpdRows.length > 0 && MAKE.hubspot && !hubspotLinkedinUpdFiringRef.current && !utenteSuCode) {
-        if (!pipelineInCorso) {
+      if (liUpdRows.length === 0) { hubspotLinkedinUpdFiringRef.current = false; } // rows esaurite → reset guard
+      else if (!hubspotLinkedinUpdFiringRef.current && MAKE.hubspot && !utenteSuCode) {
+        if (!pipelineInCorso && !phantomInVolo) {
           hubspotLinkedinUpdFiringRef.current = true;
           hubspotLinkedinUpdFiredAtRef.current = Date.now();
           pendingAutoHubspotRef.current = false;
           const ids = liUpdRows.map(r => r.id);
           const nomi = liUpdRows.map(r => r.nome).join(", ");
           pushLog("info", `↗ Sync HubSpot per ${ids.length} URL confermat${ids.length===1?"a":"e"}: ${nomi}`);
-          callMake(MAKE.hubspot, {secret:"grizzly2026", runId:runId||"", runStart:runStart||"", companyIds:ids, source:"linkedin_upd"}, "Aggiornamento HubSpot — URL ambigue risolte")
-            .finally(() => { hubspotLinkedinUpdFiringRef.current = false; });
+          callMake(MAKE.hubspot, {secret:"grizzly2026", runId:runId||"", runStart:runStart||"", companyIds:ids, source:"linkedin_upd"}, "Aggiornamento HubSpot — URL ambigue risolte");
+          // NON resettare il ref su .finally() — si resetta solo quando liUpdRows torna a 0 (Make ha processato le aziende)
         } else if (!pendingAutoHubspotRef.current) {
           pendingAutoHubspotRef.current = true;
-          pushLog("info", `⏳ Pipeline in corso — sync HubSpot URL ambigue in attesa`);
+          const motivo = phantomInVolo ? "Phantom in corso" : "Pipeline in corso";
+          pushLog("info", `⏳ ${motivo} — sync HubSpot URL ambigue in attesa`);
         }
       }
 
@@ -2354,7 +2359,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.4</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.6</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
