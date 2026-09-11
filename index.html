@@ -452,7 +452,7 @@ function App() {
   const [runAttivo, setRunAttivo]   = useState(_savedRun?.runAttivo||false);
   const [dropzoneMode, setDropzoneMode] = useState(_savedRun ? false : false);
   const [autoProceedUrl, setAutoProceedUrl] = useState(false);
-  const [waitHubspot, setWaitHubspot] = useState(false);
+
   const [urlCheckReady, setUrlCheckReady]   = useState(false); // true dopo fetchUrlSheet
   const urlSheetFetchedRef = React.useRef(false); // evita chiamate multiple per stesso attesa_utente
   const ignoredRunIdRef = React.useRef(null);
@@ -552,12 +552,12 @@ function App() {
   const [prospectingRows, setProspectingRows] = useState([]);
   const [azSenzaSito, setAzSenzaSito] = useState([]);
   const [classificaCount, setClassificaCount] = useState(null); // null=unknown, 0=done, N=pending
-  const classificaFiredRef  = React.useRef(false);
-  const companyCeckFiredRef = React.useRef(false);
-  const hubspotAutoFiredRef = React.useRef(false);
   const hubspotLinkedinUpdFiringRef = React.useRef(false); // guard anti-doppio per sync linkedin_upd
   const autoNuovoFiringRef       = React.useRef(false);  // guard anti-doppio per auto-classifica stato=nuovo
+  const autoNuovoFiredAtRef      = React.useRef(0);      // timestamp trigger auto-classifica (per timeout-retry)
   const autoPhantomFiringRef     = React.useRef(false);  // guard anti-doppio per auto-Phantom da Salva classificazioni
+  const autoPhantomFiredAtRef    = React.useRef(0);      // timestamp trigger auto-Phantom (per timeout-retry)
+  const hubspotLinkedinUpdFiredAtRef = React.useRef(0);  // timestamp trigger sync linkedin_upd (per timeout-retry)
   const pendingAutoClassificaRef = React.useRef(false);  // pending: classifica da lanciare dopo fine pipeline
   const pendingAutoHubspotRef    = React.useRef(false);  // pending: hubspot da lanciare dopo fine pipeline
   const rilanciClassificatoreRef = React.useRef(null);   // ref stabile a rilanciClassificatore
@@ -810,12 +810,21 @@ function App() {
       );
       setPipelineCorso(pipelineInCorso);
 
-      // Auto-classificatore per aziende stato=nuovo (es. aggiunte manualmente o da run precedente)
-      // Non lanciare nulla mentre l'utente lavora nel tab Code (revisione)
+      // ── Auto-trigger di fetchCounters ────────────────────────────────────────
+      // Regola comune: nessun lancio automatico mentre l'utente è nel tab Code (revisione)
+      // Timeout-retry: se il ref è true da più di 5 min senza che le righe si azzerino → retry
       const utenteSuCode = tab === 'revisione';
-      if (nuovo > 0 && !autoNuovoFiringRef.current && !utenteSuCode) {
+      const TRIGGER_TIMEOUT = 5 * 60 * 1000;
+
+      // Auto-classificatore per aziende stato=nuovo
+      if (autoNuovoFiringRef.current && Date.now() - autoNuovoFiredAtRef.current > TRIGGER_TIMEOUT) {
+        autoNuovoFiringRef.current = false; // timeout reset → retry al prossimo ciclo
+      }
+      if (nuovo === 0) { autoNuovoFiringRef.current = false; }
+      else if (!autoNuovoFiringRef.current && !utenteSuCode) {
         if (!pipelineInCorso) {
           autoNuovoFiringRef.current = true;
+          autoNuovoFiredAtRef.current = Date.now();
           pendingAutoClassificaRef.current = false;
           pushLog("info", `↺ Auto-avvio classificatore (${nuovo} aziend${nuovo===1?"a":"e"} in attesa)`);
           rilanciClassificatoreRef.current?.();
@@ -824,39 +833,40 @@ function App() {
           pushLog("info", `⏳ Pipeline in corso — classificatore auto in attesa (${nuovo} aziend${nuovo===1?"a":"e"})`);
         }
       }
-      // Reset guard quando non ci sono più aziende nuovo (classificazione completata)
-      if (nuovo === 0) autoNuovoFiringRef.current = false;
 
       // Auto-Phantom per aziende classificate manualmente da Code→Classificazioni (stato=classificata)
-      // Stesso pattern di linkedin_upd: query rows espliciti, passa IDs a fetchAzSenzaSito
-      // GUARD: blocca solo se il pipeline useEffect sta PER gestire Phantom
-      // (classifica appena completata + company non ancora partita + useEffect non ancora girato)
-      // In tutti gli altri casi (company=completato, o useEffect già girato) il trigger è libero
+      // Il guard useEffectGestiraPhantom blocca fetchCounters quando l'useEffect del pipeline
+      // sta per gestire Phantom (classifica appena completata, company ancora bloccato, localStorage non scritto)
       const classifFaseStato = fasiRef.current.find(f => f.id === 'classifica')?.stato;
       const companyFaseStato = fasiRef.current.find(f => f.id === 'company')?.stato;
+      const lsKeyCompany = runId ? `grizzly_company_fired_${runId}` : null;
       const useEffectGestiraPhantom = classifFaseStato === 'completato'
         && !['in_corso','completato'].includes(companyFaseStato)
-        && !companyCeckFiredRef.current;
-      if (classificataRows.length > 0 && !autoPhantomFiringRef.current && !pipelineInCorso && !useEffectGestiraPhantom && !utenteSuCode) {
-        if (!pipelineInCorso) {
-          autoPhantomFiringRef.current = true;
-          const ids  = classificataRows.map(r => r.id);
-          const nomi = classificataRows.map(r => r.nome).join(", ");
-          pushLog("info", `↺ Auto-avvio Phantom (${ids.length} aziend${ids.length===1?"a":"e"} classificat${ids.length===1?"a":"e"}): ${nomi}`);
-          rilancioCompanyIdsRef.current = ids;
-          fetchAzSenzaSitoRef.current?.();
-          // Il guard viene resettato automaticamente quando classificataRows torna a 0
-        } else {
-          pushLog("info", `⏳ Pipeline in corso — Phantom auto per classificate in attesa`);
-        }
+        && lsKeyCompany && !localStorage.getItem(lsKeyCompany);
+      if (autoPhantomFiringRef.current && Date.now() - autoPhantomFiredAtRef.current > TRIGGER_TIMEOUT) {
+        autoPhantomFiringRef.current = false;
       }
-      if (classificataRows.length === 0) autoPhantomFiringRef.current = false;
+      if (classificataRows.length === 0) { autoPhantomFiringRef.current = false; }
+      else if (!autoPhantomFiringRef.current && !pipelineInCorso && !useEffectGestiraPhantom && !utenteSuCode) {
+        autoPhantomFiringRef.current = true;
+        autoPhantomFiredAtRef.current = Date.now();
+        const ids  = classificataRows.map(r => r.id);
+        const nomi = classificataRows.map(r => r.nome).join(", ");
+        pushLog("info", `↺ Auto-avvio Phantom (${ids.length} aziend${ids.length===1?"a":"e"} classificat${ids.length===1?"a":"e"}): ${nomi}`);
+        rilancioCompanyIdsRef.current = ids;
+        fetchAzSenzaSitoRef.current?.();
+      } else if (classificataRows.length > 0 && pipelineInCorso && !pendingAutoClassificaRef.current) {
+        pushLog("info", `⏳ Pipeline in corso — Phantom auto per classificate in attesa`);
+      }
 
       // Sync HubSpot per URL ambigue confermate manualmente (stato=linkedin_upd)
-      // Attende la fine della pipeline prima di lanciare Make
+      if (hubspotLinkedinUpdFiringRef.current && Date.now() - hubspotLinkedinUpdFiredAtRef.current > TRIGGER_TIMEOUT) {
+        hubspotLinkedinUpdFiringRef.current = false;
+      }
       if (liUpdRows.length > 0 && MAKE.hubspot && !hubspotLinkedinUpdFiringRef.current && !utenteSuCode) {
         if (!pipelineInCorso) {
           hubspotLinkedinUpdFiringRef.current = true;
+          hubspotLinkedinUpdFiredAtRef.current = Date.now();
           pendingAutoHubspotRef.current = false;
           const ids = liUpdRows.map(r => r.id);
           const nomi = liUpdRows.map(r => r.nome).join(", ");
@@ -946,10 +956,9 @@ function App() {
     if (!base) { showToast("⚠ URL Agente Azure non configurato"); return; }
     const openaiKey = sbSettings["openai_api_key"]||"";
     if (!openaiKey) { showToast("⚠ OpenAI API Key mancante"); return; }
-    // Reset guard anti-doppio-lancio (PRIMA del fetch, per non bloccare Phantom)
-    hubspotAutoFiredRef.current = false;
-    classificaAutoRef.current = false;
-    companyCeckFiredRef.current = false;
+    // Reset guard fetchCounters auto-trigger (per permettere nuovo ciclo dopo rilancio)
+    autoPhantomFiringRef.current = false;
+    autoNuovoFiringRef.current = false;
     // Salva gli ID delle aziende oggetto di questo rilancio e le resetta a 'nuovo'
     // così l'Edge Function phantom-input le restituisce correttamente a Phantom (non-blocking)
     {
@@ -991,8 +1000,7 @@ function App() {
     setRunView(savedView); // ripristina la view (Leads o Ricerca Aziende)
     pushLog("ok","▶ Pipeline rilancita da Classificatore");
     showToast("✓ Pipeline rilancita da Classificatore");
-    // classificaAutoRef useEffect rilancia /classifica/avvia
-    // poi: classifica→completato → company (Phantom) se ci sono stato=nuovo → hubspot → lemlist
+    // flusso: classifica (stato=attesa_utente→in_corso→completato) → company (Phantom) → hubspot → lemlist
   }, [sbSettings, runId]);
 
   // Mantieni ref stabile (usato da fetchCounters per evitare deps circolari)
@@ -1257,33 +1265,16 @@ function App() {
     }
   }, [autoProceedUrl, continuaDopoUrl, runId]);
 
-  // Quando classificazione completa e url_check era già done → avvia HubSpot
-  useEffect(() => {
-    if (!waitHubspot) return;
-    const classificaFase = fasi.find(f => f.id === "classifica");
-    if (classificaFase?.stato !== "completato") return;
-    setWaitHubspot(false);
-    if (runId && localStorage.getItem(`grizzly_hubspot_fired_${runId}`)) return;
-    if (runId) localStorage.setItem(`grizzly_hubspot_fired_${runId}`, '1');
-    pushLog("ok", "✓ Classificazione completata — avvio HubSpot");
-    callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId || "", runStart: runStart || "", companyIds: rilancioCompanyIdsRef.current.length ? rilancioCompanyIdsRef.current : null }, "Aggiornamento Hubspot")
-      .then(() => {
-        setFaseS("hubspot", "in_corso", {iniziato: new Date().toISOString(), dettaglio: "Aggiornamento aziende su HubSpot..."});
-        pushLog("ok", "▶ Aggiornamento Hubspot avviato");
-      });
-  }, [fasi, waitHubspot, runId]);
-
   // Quando classifica E company sono entrambi completati → avvia HubSpot automaticamente
+  // Guard unico: stato hubspot (se non è bloccato, qualcuno ha già sparato) + localStorage cross-session
   useEffect(() => {
     const classificaFase = fasi.find(f => f.id === "classifica");
     const companyFase    = fasi.find(f => f.id === "company");
     const hubspotFase    = fasi.find(f => f.id === "hubspot");
     if (classificaFase?.stato !== "completato") return;
     if (companyFase?.stato !== "completato") return;
-    if (!["bloccato","in_attesa"].includes(hubspotFase?.stato)) return;
-    if (hubspotAutoFiredRef.current) return;
-    if (runId && localStorage.getItem(`grizzly_hubspot_fired_${runId}`)) return;
-    hubspotAutoFiredRef.current = true;
+    if (!["bloccato","in_attesa"].includes(hubspotFase?.stato)) return; // guard stato — previene doppio lancio
+    if (runId && localStorage.getItem(`grizzly_hubspot_fired_${runId}`)) return; // guard cross-session
     continuaDopoUrl();
   }, [fasi, runId, continuaDopoUrl]);
 
@@ -1327,31 +1318,26 @@ function App() {
   }, []);
 
   // Quando import è completato → avvia Classificazione
+  // Guard: stato classifica === 'bloccato' — se è già oltre, non rilanciare
   useEffect(() => {
     const importFase     = fasi.find(f => f.id === "import");
     const classificaFase = fasi.find(f => f.id === "classifica");
     if (importFase?.stato === "completato" && runId) {
-      // Avvia classificazione
-      if (!classificaFiredRef.current && classificaFase?.stato === "bloccato") {
-        classificaFiredRef.current = true;
+      if (classificaFase?.stato === "bloccato") {
         setFaseS("classifica", "attesa_utente", {dettaglio:"Azure classificatore in avvio..."});
         fetchClassificaCount();
       }
     }
     if (importFase?.stato !== "completato") {
-      classificaFiredRef.current = false;
-      hubspotAutoFiredRef.current = false;
       setClassificaCount(null);
     }
-  }, [fasi, fetchClassificaCount, fetchAzSenzaSito, runId]);
+  }, [fasi, fetchClassificaCount, runId]);
 
   // Auto-avvio classificazione quando passa ad attesa_utente
-  const classificaAutoRef = useRef(false);
+  // Guard: stato classifica — se non è più attesa_utente (es. già in_corso dopo setFaseS) non riparte
   useEffect(() => {
     const classificaFase = fasi.find(f => f.id === "classifica");
-    if (classificaFase?.stato !== "attesa_utente") { classificaAutoRef.current = false; return; }
-    if (classificaAutoRef.current) return;
-    classificaAutoRef.current = true;
+    if (classificaFase?.stato !== "attesa_utente") return;
     // Prima controlla se ci sono aziende da classificare
     fetchClassificaCount().then(n => {
       if (n === 0) {
@@ -1464,20 +1450,19 @@ function App() {
   }, [fasi]);
 
   // Avvia Company Page (Phantom) quando classificazione è completata
+  // Guard 1: stato company — se non è bloccato, qualcuno ha già sparato (cross-render)
+  // Guard 2: localStorage per runId — protegge da reload browser mid-run
   useEffect(() => {
     const classificaFase = fasi.find(f => f.id === "classifica");
     const companyFase    = fasi.find(f => f.id === "company");
     if (classificaFase?.stato !== "completato" || !runId) return;
-    if (companyCeckFiredRef.current) return;
-    const companyGiaAvviata = ["in_corso","completato","attesa_utente"].includes(companyFase?.stato);
-    if (companyGiaAvviata) return;
+    if (["in_corso","completato","attesa_utente"].includes(companyFase?.stato)) return;
     const lsKey = `grizzly_company_fired_${runId}`;
     if (localStorage.getItem(lsKey)) {
       pushLog("warn","⚠ Phantom già avviato per questo runId (localStorage)");
       return;
     }
     localStorage.setItem(lsKey, '1');
-    companyCeckFiredRef.current = true;
     fetchAzSenzaSito();
   }, [fasi, runId, fetchAzSenzaSito]);
 
@@ -1638,13 +1623,10 @@ function App() {
     const runStartLocal = new Date().toISOString();
     setDropzoneMode(false); setRunId(id); setRunStart(runStartLocal); setRunAttivo(true);
     setLog([]); setFasi(FASI_INIT); setExecs([]); lemlistHadContactsRef.current = false; lemlistAutoFiredRef.current = false;
-    // Reset ref anti-doppio-lancio per nuova run
-    companyCeckFiredRef.current = false;
-    classificaFiredRef.current = false;
-    hubspotAutoFiredRef.current = false;
-    classificaAutoRef.current = false;
+    // Reset ref auto-trigger per nuova run
     autoNuovoFiringRef.current = false;
     autoPhantomFiringRef.current = false;
+    hubspotLinkedinUpdFiringRef.current = false;
 
     pendingAutoClassificaRef.current = false;
     pendingAutoHubspotRef.current = false;
@@ -2854,7 +2836,7 @@ function App() {
                           <a href="https://docs.google.com/spreadsheets/d/1Xk8CuYjriLbsxqafpTkPKSIGyApUAnX7vj7TaRlLHEc/edit?gid=0" target="_blank" style={{textDecoration:"none"}}>
                             <button style={{padding:"6px 14px",fontSize:11,fontWeight:600,color:"#fbbf24",background:"rgba(245,158,11,0.1)",border:"1px solid rgba(245,158,11,0.3)",borderRadius:5,cursor:"pointer"}}>📊 Apri Foglio</button>
                           </a>
-                          <button onClick={()=>{companyCeckFiredRef.current=false; fetchAzSenzaSito();}} style={{padding:"6px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#d97706,#f59e0b)",border:"none",borderRadius:5,cursor:"pointer"}}>▶ Continua</button>
+                          <button onClick={()=>{ if(runId) localStorage.removeItem(`grizzly_company_fired_${runId}`); fetchAzSenzaSito();}} style={{padding:"6px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#d97706,#f59e0b)",border:"none",borderRadius:5,cursor:"pointer"}}>▶ Continua</button>
                         </div>
                       </div>
                       <div style={{display:"flex",flexDirection:"column",gap:3,maxHeight:120,overflowY:"auto"}}>
