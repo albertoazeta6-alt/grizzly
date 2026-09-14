@@ -2721,8 +2721,8 @@ function App() {
               </div>
             ):(
               <div style={{display:"flex",flexDirection:"column",gap:16,height:"calc(100vh - 78px)",overflow:"hidden",position:"relative"}}>
-              <div style={{display:"flex",gap:0,alignItems:"flex-start",position:"relative"}}>
-                <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",position:"relative",paddingRight:328}}>
+              <div style={{display:"flex",gap:0,alignItems:"flex-start",position:"relative",flexShrink:0}}>
+                <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",position:"relative",paddingRight:328,maxHeight:"calc(100vh - 300px)",overflowY:"auto"}}>
                 {/* ── TOP AREA: Run corrente | Da gestire ── */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1px 1fr",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",marginBottom:16,flexShrink:0}}>
                   {/* Pannello sinistro — Run corrente */}
