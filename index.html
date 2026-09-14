@@ -860,6 +860,8 @@ function App() {
       }
       // Sync HubSpot post-Phantom per aziende Code-path — separato dal reset del ref
       // Si attiva quando: Phantom completato (ref=false), IDs pendenti, utente su Pipeline
+      // phantomInVolo calcolato QUI, prima del blocco auto-Phantom che potrebbe settare il ref
+      const phantomInVolo = autoPhantomFiringRef.current;
       if (pendingPhantomHubspotRef.current.length > 0 && !autoPhantomFiringRef.current && MAKE.hubspot && !utenteSuCode) {
         const idsHs = pendingPhantomHubspotRef.current;
         pendingPhantomHubspotRef.current = [];
@@ -891,7 +893,7 @@ function App() {
 
       // Sync HubSpot per URL ambigue confermate manualmente (stato=linkedin_upd)
       // Aspetta anche se auto-Phantom è in volo (altrimenti gira in parallelo a Phantom)
-      const phantomInVolo = autoPhantomFiringRef.current;
+      // phantomInVolo è già calcolato sopra (prima del blocco auto-Phantom)
       if (hubspotLinkedinUpdFiringRef.current && Date.now() - hubspotLinkedinUpdFiredAtRef.current > TRIGGER_TIMEOUT) {
         hubspotLinkedinUpdFiringRef.current = false; // timeout reset → retry
       }
