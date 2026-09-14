@@ -1061,6 +1061,21 @@ function App() {
     rilanciClassificatore();
   }, [runId, runStart, sbWritePipelineState, setFaseS, pushLog, rilanciClassificatore]);
 
+  // ── Stop forzato Classificatore (via flag Supabase) ──────────────────────────
+  const stopClassificatoreForzato = useCallback(async () => {
+    const {url, key} = getSbCreds();
+    if (!url || !key) { showToast("⚠ Credenziali Supabase mancanti"); return; }
+    pushLog("warn", "⏹ Stop classificatore richiesto — si fermerà entro 10 aziende...");
+    try {
+      await fetch(`${url}/rest/v1/settings?on_conflict=chiave`, {
+        method: "POST",
+        headers: {apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal"},
+        body: JSON.stringify({chiave: "stop_classificatore", valore: "true", aggiornato_il: new Date().toISOString()})
+      });
+      showToast("⏹ Stop classificatore inviato");
+    } catch(e) { pushLog("error", "✕ Errore invio stop classificatore: " + e.message); }
+  }, [pushLog, showToast]);
+
   // ── Forza riavvio Company Page (Phantom) ─────────────────────────────────────
   const forzaCompanyPage = useCallback(() => {
     if (!runId) { showToast("⚠ Nessuna run attiva"); return; }
@@ -1278,17 +1293,18 @@ function App() {
       }
       if (e.data?.type === 'approveUrl' && e.data.id) {
         // linkedin_upd = URL confermata manualmente, HubSpot verrà aggiornato al ritorno in Pipeline
-        const nuovoStato = e.data.linkedin_url && e.data.linkedin_url !== 'NESSUNA' ? 'linkedin_upd' : 'linkedin_ko';
-        const ok = await sbUpdate("companies", {id: e.data.id}, {
-          linkedin_url: e.data.linkedin_url,
-          stato: nuovoStato,
-          aggiornato_il: new Date().toISOString()
-        });
+        const urlValida = e.data.linkedin_url && e.data.linkedin_url !== 'NESSUNA';
+        const nuovoStato = urlValida ? 'linkedin_upd' : 'linkedin_ko';
+        // Se nessuna URL, non toccare linkedin_url (evita NOT NULL constraint violation)
+        const updates = {stato: nuovoStato, aggiornato_il: new Date().toISOString()};
+        if (urlValida) updates.linkedin_url = e.data.linkedin_url;
+        const ok = await sbUpdate("companies", {id: e.data.id}, updates);
         if (ok) {
-          pushLog("ok", `✓ URL confermata (in attesa sync HubSpot): ${e.data.ragione}`);
+          if (urlValida) pushLog("ok", `✓ URL confermata (in attesa sync HubSpot): ${e.data.ragione}`);
+          else pushLog("ok", `✓ Marcata senza LinkedIn: ${e.data.ragione}`);
           setCodeQueue(q=>({...q, urlAmbigue:q.urlAmbigue.filter(c=>c.id!==e.data.id)}));
           // aggiorna riga in importDati.rows se presente
-          setImportDati(p=>({...p, rows: p.rows.map(r=>r.id===e.data.id ? {...r, linkedin_url:e.data.linkedin_url, stato:nuovoStato} : r)}));
+          setImportDati(p=>({...p, rows: p.rows.map(r=>r.id===e.data.id ? {...r, linkedin_url:urlValida?e.data.linkedin_url:r.linkedin_url, stato:nuovoStato} : r)}));
         } else pushLog("error", `✕ Errore salvataggio URL: ${e.data.ragione}`);
       }
     };
@@ -2469,6 +2485,8 @@ function App() {
               const {url: sbUrl, key: sbKey} = getSbCreds();
               if (sbUrl && sbKey) {
                 try { await fetch(`${sbUrl}/rest/v1/pipeline_state?fase=neq.null`, {method:"DELETE", headers:{apikey:sbKey, Authorization:`Bearer ${sbKey}`}}); } catch(e){}
+                // Segnala stop al classificatore in corso (se presente)
+                try { await fetch(`${sbUrl}/rest/v1/settings?on_conflict=chiave`, {method:"POST", headers:{apikey:sbKey, Authorization:`Bearer ${sbKey}`,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=minimal"}, body:JSON.stringify({chiave:"stop_classificatore",valore:"true",aggiornato_il:new Date().toISOString()})}); } catch(e){}
               }
               try { await fetch(MAKE.pulizia,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({secret:"grizzly2026"})}); } catch(e){}
               pushLog("ok","✓ Pulizia fogli avviata");
@@ -2874,14 +2892,6 @@ function App() {
                                 <button style={{fontSize:8,fontWeight:600,color:"#a78bfa",background:"rgba(139,92,246,0.15)",border:"1px solid rgba(139,92,246,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Make</button>
                               </a>
                             )}
-                            {/* Forza riavvio Company Page */}
-                            {fase.id==="company"&&runAttivo&&fase.stato!=="in_corso"&&(
-                              <button onClick={e=>{e.stopPropagation();forzaCompanyPage();}} style={{fontSize:8,fontWeight:600,color:"#fb923c",background:"rgba(251,146,60,0.12)",border:"1px solid rgba(251,146,60,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>⟳ Riavvia</button>
-                            )}
-                            {/* Forza riavvio HubSpot */}
-                            {fase.id==="hubspot"&&runAttivo&&fase.stato!=="in_corso"&&(
-                              <button onClick={e=>{e.stopPropagation();forzaHubspot();}} style={{fontSize:8,fontWeight:600,color:"#fb923c",background:"rgba(251,146,60,0.12)",border:"1px solid rgba(251,146,60,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>⟳ Forza</button>
-                            )}
                           </div>
                           {/* Stop Phantom — in basso a destra, solo quando company in_corso */}
                           {fase.id==="company"&&fase.stato==="in_corso"&&(
@@ -2890,6 +2900,10 @@ function App() {
                           {/* Stop HubSpot — in basso a destra, solo quando hubspot in_corso */}
                           {fase.id==="hubspot"&&fase.stato==="in_corso"&&(
                             <button onClick={stopHubspotForzato} style={{position:"absolute",bottom:8,right:8,fontSize:8,fontWeight:600,color:"#fca5a5",background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer"}}>⏹ Stop</button>
+                          )}
+                          {/* Stop Classificatore — in basso a destra, solo quando classifica in_corso */}
+                          {fase.id==="classifica"&&fase.stato==="in_corso"&&(
+                            <button onClick={stopClassificatoreForzato} style={{position:"absolute",bottom:8,right:8,fontSize:8,fontWeight:600,color:"#fca5a5",background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer"}}>⏹ Stop</button>
                           )}
                           {/* Dot attivo */}
                           {isActive&&<div style={{position:"absolute",top:8,right:8,width:6,height:6,borderRadius:"50%",background:cfg.color,boxShadow:`0 0 7px ${cfg.color}`}}/>}
@@ -3134,7 +3148,7 @@ function App() {
                           );
                         };
                         return (
-                          <div style={{overflowY:"auto",maxHeight:leadsFullscreen?"calc(100vh - 260px)":300,borderRadius:5,border:`1px solid rgba(59,130,246,0.2)`,flex:leadsFullscreen?1:undefined}}>
+                          <div style={{overflowY:"auto",flex:1,minHeight:0,borderRadius:5,border:`1px solid rgba(59,130,246,0.2)`}}>
                             {contattiSelected.size>0&&(()=>{
                               const tuttiInCoda = [...contattiSelected].every(id=>contattiRun.rows.find(r=>r.id===id)?.stato==="enrichment_richiesto");
                               return (
