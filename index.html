@@ -911,7 +911,7 @@ function App() {
         } else if (!pendingAutoHubspotRef.current) {
           pendingAutoHubspotRef.current = true;
           const motivo = phantomInVolo ? "Phantom in corso" : "Pipeline in corso";
-          pushLog("info", `⏳ ${motivo} — sync HubSpot URL ambigue in attesa`);
+          pushLog("info", `⏳ ${motivo} — sync HubSpot URL ambigue in attesa [DBG: autoPhantom=${autoPhantomFiringRef.current} pipelineInCorso=${pipelineInCorso} phantomInVolo=${phantomInVolo}]`);
         }
       }
 
