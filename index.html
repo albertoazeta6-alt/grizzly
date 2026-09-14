@@ -857,7 +857,13 @@ function App() {
           const idsHs = pendingPhantomHubspotRef.current;
           pendingPhantomHubspotRef.current = [];
           pushLog("info", `↗ Sync HubSpot post-Phantom (${idsHs.length} aziend${idsHs.length===1?"a":"e"})`);
-          callMake(MAKE.hubspot, {secret:"grizzly2026", runId:runId||"", runStart:runStart||"", companyIds:idsHs, source:"auto_phantom"}, "Aggiornamento HubSpot — Aziende classificate da Code")
+          // Imposta stato=linkedin_upd → Make-linkedin_upd le trova nel suo filtro normale
+          fetch(`${url}/rest/v1/companies?id=in.(${idsHs.join(',')})`, {
+            method:'PATCH',
+            headers:{apikey:key, Authorization:`Bearer ${key}`, 'Content-Type':'application/json', Prefer:'return=minimal'},
+            body: JSON.stringify({stato:'linkedin_upd'})
+          }).catch(()=>{});
+          callMake(MAKE.hubspot, {secret:"grizzly2026", runId:runId||"", runStart:runStart||"", companyIds:idsHs, source:"linkedin_upd"}, "Aggiornamento HubSpot — Aziende classificate da Code")
             .catch(()=>{});
         }
         autoPhantomFiringRef.current = false;
