@@ -878,15 +878,16 @@ function App() {
       else if (!autoPhantomFiringRef.current && !pipelineInCorso && !useEffectGestiraPhantom && !utenteSuCode) {
         const ids  = classificataRows.map(r => r.id);
         const nomi = classificataRows.map(r => r.nome).join(", ");
-        pushLog("info", `↺ Auto-avvio Phantom (${ids.length} aziend${ids.length===1?"a":"e"} classificat${ids.length===1?"a":"e"}): ${nomi}`);
         if (ids.length > 0) {
+          pushLog("info", `↺ Auto-avvio Phantom (${ids.length} aziend${ids.length===1?"a":"e"} classificat${ids.length===1?"a":"e"}): ${nomi}`);
           // Imposta guard solo se ci sono aziende reali — evita di bloccare trigger successivi
           autoPhantomFiringRef.current = true;
           autoPhantomFiredAtRef.current = Date.now();
           rilancioCompanyIdsRef.current = ids;
           pendingPhantomHubspotRef.current = ids; // salva per sync HubSpot post-Phantom
+          fetchAzSenzaSitoRef.current?.();
         }
-        fetchAzSenzaSitoRef.current?.();
+        // ids.length === 0: trigger spurio (nessuna azienda classificata da Code) — nessun log, nessun Phantom
       } else if (classificataRows.length > 0 && pipelineInCorso && !pendingAutoClassificaRef.current) {
         pushLog("info", `⏳ Pipeline in corso — Phantom auto per classificate in attesa`);
       }
@@ -1059,6 +1060,31 @@ function App() {
     // Rilancia fa sempre il percorso classificatore (nuovo/sito_updated → Phantom → HubSpot)
     rilanciClassificatore();
   }, [runId, runStart, sbWritePipelineState, setFaseS, pushLog, rilanciClassificatore]);
+
+  // ── Forza riavvio Company Page (Phantom) ─────────────────────────────────────
+  const forzaCompanyPage = useCallback(() => {
+    if (!runId) { showToast("⚠ Nessuna run attiva"); return; }
+    pushLog("warn", "⟳ Forza riavvio Phantom Company Page...");
+    localStorage.removeItem(`grizzly_company_fired_${runId}`);
+    autoPhantomFiringRef.current = false;
+    setFaseS("company", "in_corso", {iniziato: new Date().toISOString(), dettaglio: "Forza riavvio Company Page..."});
+    sbWritePipelineState("company", "in_corso", "Forza riavvio Company Page...");
+    showToast("⟳ Phantom riavviato...");
+    fetchAzSenzaSitoRef.current?.();
+  }, [runId, setFaseS, sbWritePipelineState, pushLog, showToast]);
+
+  // ── Forza riavvio HubSpot ─────────────────────────────────────────────────────
+  const forzaHubspot = useCallback(async () => {
+    if (!runId) { showToast("⚠ Nessuna run attiva"); return; }
+    if (!MAKE.hubspot) { showToast("⚠ Webhook HubSpot non configurato"); pushLog("warn","⚠ Webhook HubSpot non configurato nelle Impostazioni"); return; }
+    pushLog("warn", "⟳ Forza riavvio HubSpot...");
+    if (runId) localStorage.setItem(`grizzly_hubspot_fired_${runId}`, '1');
+    setFaseS("hubspot", "in_corso", {iniziato: new Date().toISOString(), dettaglio: "Forza aggiornamento HubSpot..."});
+    sbWritePipelineState("hubspot", "in_corso", "Forza aggiornamento HubSpot...");
+    showToast("⟳ HubSpot in avvio...");
+    await callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId || "", runStart: runStart || "", companyIds: null }, "Forza Aggiornamento HubSpot");
+    pushLog("ok", "▶ HubSpot avviato (forza manuale)");
+  }, [runId, runStart, setFaseS, sbWritePipelineState, pushLog, showToast]);
 
   // ── Stop forzato HubSpot (segna completato → triggera Lemlist) ──────────────
   const stopHubspotForzato = useCallback(() => {
@@ -2847,6 +2873,14 @@ function App() {
                               <a href={FASE_LINKS["hubspot"].monitor} target="_blank" style={{textDecoration:"none"}}>
                                 <button style={{fontSize:8,fontWeight:600,color:"#a78bfa",background:"rgba(139,92,246,0.15)",border:"1px solid rgba(139,92,246,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Make</button>
                               </a>
+                            )}
+                            {/* Forza riavvio Company Page */}
+                            {fase.id==="company"&&runAttivo&&fase.stato!=="in_corso"&&(
+                              <button onClick={e=>{e.stopPropagation();forzaCompanyPage();}} style={{fontSize:8,fontWeight:600,color:"#fb923c",background:"rgba(251,146,60,0.12)",border:"1px solid rgba(251,146,60,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>⟳ Riavvia</button>
+                            )}
+                            {/* Forza riavvio HubSpot */}
+                            {fase.id==="hubspot"&&runAttivo&&fase.stato!=="in_corso"&&(
+                              <button onClick={e=>{e.stopPropagation();forzaHubspot();}} style={{fontSize:8,fontWeight:600,color:"#fb923c",background:"rgba(251,146,60,0.12)",border:"1px solid rgba(251,146,60,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>⟳ Forza</button>
                             )}
                           </div>
                           {/* Stop Phantom — in basso a destra, solo quando company in_corso */}
