@@ -873,7 +873,7 @@ function App() {
         callMake(MAKE.hubspot, {secret:"grizzly2026", runId:runId||"", runStart:runStart||"", companyIds:idsHs, source:"linkedin_upd"}, "Aggiornamento HubSpot — Aziende classificate da Code")
           .catch(()=>{});
       }
-      else if (classificataRows.length > 0 && !autoPhantomFiringRef.current && !pipelineInCorso && !useEffectGestiraPhantom && !utenteSuCode) {
+      else if (!autoPhantomFiringRef.current && !pipelineInCorso && !useEffectGestiraPhantom && !utenteSuCode) {
         autoPhantomFiringRef.current = true;
         autoPhantomFiredAtRef.current = Date.now();
         const ids  = classificataRows.map(r => r.id);
