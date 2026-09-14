@@ -134,8 +134,13 @@ async function sbUpdate(table, matchObj, updates) {
       headers:{apikey:key,Authorization:`Bearer ${key}`,"Content-Type":"application/json",Prefer:"return=minimal"},
       body:JSON.stringify(updates)
     });
+    if(!r.ok) {
+      let detail = "";
+      try { const j = await r.json(); detail = j?.message || j?.hint || JSON.stringify(j); } catch{}
+      console.error(`sbUpdate FAILED ${r.status} ${table}?${qs}`, detail, updates);
+    }
     return r.ok;
-  } catch { return false; }
+  } catch(e) { console.error("sbUpdate exception", e); return false; }
 }
 
 async function loadSettings() {
@@ -605,7 +610,7 @@ function App() {
     setClassifReview(s=>({...s,loading:true}));
     const {url,key}=getSbCreds(); if(!url||!key){setClassifReview(s=>({...s,loading:false}));return;}
     const h={apikey:key,Authorization:`Bearer ${key}`};
-    fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&settore=not.is.null&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h})
+    fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,citta,regione,fatturato,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&settore=not.is.null&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h})
       .then(r=>r.ok?r.json():[])
       .then(rows=>setClassifReview({rows,loading:false,loaded:true}))
       .catch(()=>setClassifReview(s=>({...s,loading:false,loaded:true})));
@@ -623,7 +628,7 @@ function App() {
       const {url,key}=getSbCreds(); if(!url||!key) return;
       const h={apikey:key,Authorization:`Bearer ${key}`};
       try {
-        const r = await fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&settore=not.is.null&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h});
+        const r = await fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,citta,regione,fatturato,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&settore=not.is.null&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h});
         if(r.ok) {
           const rows=await r.json();
           // Aggiorna solo se i dati sono effettivamente cambiati (evita re-render inutili)
@@ -3993,6 +3998,17 @@ function App() {
 
               {/* ── CLASSIFICAZIONE REVIEW ── */}
               {codeSubTab==='classificazione'&&(()=>{
+                const normUrl=(u)=>{
+                  if(!u)return u;
+                  // Formato markdown: http:[testo](url) oppure [testo](url)
+                  const mdMatch=u.match(/\[.*?\]\((https?:\/\/[^)]+)\)/);
+                  if(mdMatch)return mdMatch[1];
+                  // https:foo.com → https://foo.com
+                  if(/^https?:/i.test(u)&&!u.startsWith('http://') && !u.startsWith('https://'))return u.replace(/^(https?:)/i,'$1//');
+                  // No protocol
+                  if(!/^https?:\/\//i.test(u))return 'https://'+u;
+                  return u;
+                };
                 const semBadge=(sem,conf)=>{
                   if(sem==='✗') return {icon:'✗',color:'#f87171',label:'Settore diverso'};
                   if(sem==='⚠') return {icon:'⚠',color:'#fbbf24',label:'Incerto'};
@@ -4112,7 +4128,7 @@ function App() {
                             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                               <thead>
                                 <tr style={{background:C.bg,position:"sticky",top:0,zIndex:1}}>
-                                  {["Nome","Sito","Settore","Conf.","Sem.","Motivazione","Icebreaker"].map(h=>(
+                                  {["Nome","Città","Fatturato","Sito","Settore","Conf.","Sem.","Motivazione","Icebreaker"].map(h=>(
                                     <th key={h} style={{padding:"6px 10px",textAlign:"left",fontWeight:600,fontSize:9,textTransform:"uppercase",letterSpacing:".05em",color:C.muted,borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{h}</th>
                                   ))}
                                 </tr>
@@ -4127,6 +4143,8 @@ function App() {
                                     <tr key={r.id} onClick={()=>{setClassifSelected(i);setClassifViewMode('split');}}
                                       style={{borderBottom:`1px solid ${C.border}`,cursor:"pointer",background:i%2===0?C.surface:"transparent"}}>
                                       <td style={{padding:"6px 10px",fontWeight:600,color:C.textHi,whiteSpace:"nowrap",maxWidth:140,overflow:"hidden",textOverflow:"ellipsis"}}>{r.nome}</td>
+                                      <td style={{padding:"6px 10px",color:C.muted,fontSize:10,whiteSpace:"nowrap"}}>{r.citta||'—'}</td>
+                                      <td style={{padding:"6px 10px",color:C.muted,fontSize:10,whiteSpace:"nowrap"}}>{r.fatturato||'—'}</td>
                                       <td style={{padding:"6px 10px",color:"#3b82f6",fontSize:10,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.sito_web||'—'}</td>
                                       <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}>{r.settore}</td>
                                       <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}><span style={{fontSize:9,fontWeight:700,color:cc,textTransform:"uppercase"}}>{conf||'—'}</span></td>
@@ -4148,10 +4166,10 @@ function App() {
                             <div style={{flex:2,minWidth:0,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column"}}>
                               <div style={{display:"flex",alignItems:"center",gap:8,padding:"5px 10px",background:C.bg,borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
                                 <span style={{fontSize:10,color:"#3b82f6",flex:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{curSito||'—'}</span>
-                                {curSito&&<a href={curSito} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:"#3b82f6",textDecoration:"none",flexShrink:0}}>↗ Apri</a>}
+                                {curSito&&<a href={normUrl(curSito)} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:"#3b82f6",textDecoration:"none",flexShrink:0}}>↗ Apri</a>}
                               </div>
                               {curSito
-                                ? <iframe key={(row.sito_web||row.id)} src={row.sito_web||''} style={{flex:1,border:"none",width:"100%"}} title={row.nome} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"/>
+                                ? <iframe key={(normUrl(row.sito_web)||row.id)} src={normUrl(row.sito_web)||''} style={{flex:1,border:"none",width:"100%"}} title={row.nome} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"/>
                                 : <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:12,flexDirection:"column",gap:8}}>
                                     <div style={{fontSize:24,opacity:.3}}>🌐</div>
                                     <div>Nessun sito disponibile</div>
@@ -4162,7 +4180,11 @@ function App() {
                             <div style={{flex:1,minWidth:260,maxWidth:380,display:"flex",flexDirection:"column",overflowY:"auto"}}>
                               {/* nome + sito */}
                               <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
-                                <div style={{fontSize:13,fontWeight:700,color:C.textHi,lineHeight:1.3,marginBottom:4}}>{row.nome}</div>
+                                <div style={{fontSize:13,fontWeight:700,color:C.textHi,lineHeight:1.3,marginBottom:2}}>{row.nome}</div>
+                                <div style={{fontSize:10,color:C.muted,marginBottom:4,display:"flex",gap:8,flexWrap:"wrap"}}>
+                                  {row.citta&&<span>📍 {row.citta}{row.regione?` (${row.regione})`:''}</span>}
+                                  {row.fatturato&&<span>💰 {row.fatturato}</span>}
+                                </div>
                                 <input value={curSito} onChange={e=>setField(row.id,'sito_web',e.target.value)} placeholder="nessun sito"
                                   style={{background:"transparent",border:"none",borderBottom:`1px solid ${curSito!==row.sito_web?C.accent:"#1a2535"}`,padding:"2px 0",fontSize:10,color:"#3b82f6",fontFamily:"inherit",outline:"none",width:"100%"}}/>
                                 {hasSug&&(
@@ -4210,6 +4232,7 @@ function App() {
                               {/* action bar */}
                               <div style={{display:"flex",gap:8,padding:"10px 14px",borderTop:`1px solid ${C.border}`,background:C.bg,flexShrink:0}}>
                                 <Btn color={C.green} bg={C.greenDim} border="rgba(34,197,94,.35)" style={{flex:1}} onClick={()=>approvaClassif(row.id)}>✓ Salva</Btn>
+                                <Btn color={C.accent} bg={C.accentDim} border="rgba(59,130,246,.35)" style={{flex:1}} onClick={()=>setClassifSelected(i=>(i+1)%filtered.length)}>→ Successivo</Btn>
                               </div>
                             </div>
                           </div>
