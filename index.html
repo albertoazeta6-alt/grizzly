@@ -2700,7 +2700,10 @@ function App() {
                       const a=document.createElement("a");
                       a.href=URL.createObjectURL(new Blob([arr],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
                       a.download="modello_easybusiness.xlsx";
+                      document.body.appendChild(a);
                       a.click();
+                      document.body.removeChild(a);
+                      URL.revokeObjectURL(a.href);
                     }} style={{width:"100%",marginBottom:10,padding:"7px 0",fontSize:11,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:5,cursor:"pointer"}}>
                       ⬇ Scarica modello Excel
                     </button>
