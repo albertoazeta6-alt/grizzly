@@ -1505,7 +1505,7 @@ function App() {
               setFaseS("classifica","bloccato",{dettaglio:"Classificazione interrotta manualmente"});
               sbWritePipelineState("classifica","bloccato","Classificazione interrotta manualmente");
               pushLog("warn","⏹ Classificatore fermato — riprendi manualmente quando vuoi");
-              autoNuovoFiringRef.current = false; // permetti nuovo auto-avvio al prossimo ciclo
+              // NON resettare autoNuovoFiringRef: la guardia rimane attiva e blocca il re-trigger automatico
               return;
             }
             // Log progresso dettagliato
@@ -2452,7 +2452,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.12</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.13</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -2937,6 +2937,10 @@ function App() {
                           {/* Stop Classificatore — in basso a destra, solo quando classifica in_corso */}
                           {fase.id==="classifica"&&fase.stato==="in_corso"&&(
                             <button onClick={stopClassificatoreForzato} style={{position:"absolute",bottom:8,right:8,fontSize:8,fontWeight:600,color:"#fca5a5",background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer"}}>⏹ Stop</button>
+                          )}
+                          {/* Riavvia Classificatore — in basso a destra, solo dopo stop manuale */}
+                          {fase.id==="classifica"&&fase.stato==="bloccato"&&fase.dettaglio==="Classificazione interrotta manualmente"&&(
+                            <button onClick={()=>{autoNuovoFiringRef.current=false; rilanciClassificatore();}} style={{position:"absolute",bottom:8,right:8,fontSize:8,fontWeight:600,color:"#86efac",background:"rgba(34,197,94,0.12)",border:"1px solid rgba(34,197,94,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer"}}>▶ Riavvia</button>
                           )}
                           {/* Dot attivo */}
                           {isActive&&<div style={{position:"absolute",top:8,right:8,width:6,height:6,borderRadius:"50%",background:cfg.color,boxShadow:`0 0 7px ${cfg.color}`}}/>}
