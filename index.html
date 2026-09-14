@@ -206,7 +206,16 @@ async function sbInsert(table, records) {
 
 // Dedup: controlla quali siti/pive sono già in Supabase
 // Ritorna {sitiFnd: Set<string normalizzato>, piveFnd: Set<string>}
-function normSito(s){ return (s||"").toLowerCase().trim().replace(/^https?:\/\/(www\.)?/,"").replace(/\/+$/,"").split("/")[0]; }
+function normSito(s){
+  if(!s)return "";
+  let v=s.trim();
+  // Formato markdown: [testo](url) oppure http:[testo](url)
+  const md=v.match(/\[.*?\]\((https?:\/\/[^)]+)\)/);
+  if(md)v=md[1];
+  // https:foo.com → https://foo.com
+  else if(/^https?:[^/]/i.test(v))v=v.replace(/^(https?:)/i,"$1//");
+  return v.toLowerCase().replace(/^https?:\/\/(www\.)?/,"").replace(/\/+$/,"").split("/")[0];
+}
 
 async function checkDedup(sitiArr, pivaArr) {
   const {url,key} = getSbCreds();
@@ -1731,7 +1740,17 @@ function App() {
 
     // ── MODALITÀ MANUALE ────────────────────────────────────────────────────
     if(mode==="manual") {
-      const normSitoM = v => { if(!v)return null; let s=v.trim(); if(!/^https?:\/\//i.test(s))s="https://"+s; try{return new URL(s).hostname.replace(/^www\./,"");}catch(e){return s;} };
+      const normSitoM = v => {
+        if(!v)return null;
+        let s=v.trim();
+        // Formato markdown: [testo](url)
+        const md=s.match(/\[.*?\]\((https?:\/\/[^)]+)\)/);
+        if(md)s=md[1];
+        // https:foo.com → https://foo.com
+        else if(/^https?:[^/]/i.test(s))s=s.replace(/^(https?:)/i,"$1//");
+        if(!/^https?:\/\//i.test(s))s="https://"+s;
+        try{return new URL(s).hostname.replace(/^www\./,"");}catch(e){return s;}
+      };
       const liM = v => { const t=(v||"").trim(); return t.toLowerCase().includes("linkedin.com/company/")?t:null; };
       const validRows = manualRows.filter(r=>r.ragioneSociale.trim());
       const records = validRows.map(r=>({
