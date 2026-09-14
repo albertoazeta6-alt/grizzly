@@ -852,22 +852,26 @@ function App() {
         autoPhantomFiringRef.current = false;
       }
       if (classificataRows.length === 0) {
-        // Se Phantom era in corso per aziende Code-path, ora è completato → sync HubSpot per queste aziende
-        if (autoPhantomFiringRef.current && pendingPhantomHubspotRef.current.length > 0 && MAKE.hubspot && !utenteSuCode) {
-          const idsHs = pendingPhantomHubspotRef.current;
-          pendingPhantomHubspotRef.current = [];
-          pushLog("info", `↗ Sync HubSpot post-Phantom (${idsHs.length} aziend${idsHs.length===1?"a":"e"})`);
-          // Imposta stato=linkedin_upd → Make-linkedin_upd le trova nel suo filtro normale
-          fetch(`${url}/rest/v1/companies?id=in.(${idsHs.join(',')})`, {
-            method:'PATCH',
-            headers:{apikey:key, Authorization:`Bearer ${key}`, 'Content-Type':'application/json', Prefer:'return=minimal'},
-            body: JSON.stringify({stato:'linkedin_upd'})
-          }).catch(()=>{});
-          callMake(MAKE.hubspot, {secret:"grizzly2026", runId:runId||"", runStart:runStart||"", companyIds:idsHs, source:"linkedin_upd"}, "Aggiornamento HubSpot — Aziende classificate da Code")
-            .catch(()=>{});
+        // Phantom completato → reset ref (incondizionato)
+        if (autoPhantomFiringRef.current) {
+          autoPhantomFiringRef.current = false;
+          pendingAutoHubspotRef.current = false; // permette al sync URL ambigue di riprendere
         }
-        autoPhantomFiringRef.current = false;
-        pendingAutoHubspotRef.current = false; // permette al sync URL ambigue di loggare "in attesa" dopo Phantom
+      }
+      // Sync HubSpot post-Phantom per aziende Code-path — separato dal reset del ref
+      // Si attiva quando: Phantom completato (ref=false), IDs pendenti, utente su Pipeline
+      if (pendingPhantomHubspotRef.current.length > 0 && !autoPhantomFiringRef.current && MAKE.hubspot && !utenteSuCode) {
+        const idsHs = pendingPhantomHubspotRef.current;
+        pendingPhantomHubspotRef.current = [];
+        pushLog("info", `↗ Sync HubSpot post-Phantom (${idsHs.length} aziend${idsHs.length===1?"a":"e"})`);
+        // Imposta stato=linkedin_upd → Make-linkedin_upd le trova nel suo filtro normale
+        fetch(`${url}/rest/v1/companies?id=in.(${idsHs.join(',')})`, {
+          method:'PATCH',
+          headers:{apikey:key, Authorization:`Bearer ${key}`, 'Content-Type':'application/json', Prefer:'return=minimal'},
+          body: JSON.stringify({stato:'linkedin_upd'})
+        }).catch(()=>{});
+        callMake(MAKE.hubspot, {secret:"grizzly2026", runId:runId||"", runStart:runStart||"", companyIds:idsHs, source:"linkedin_upd"}, "Aggiornamento HubSpot — Aziende classificate da Code")
+          .catch(()=>{});
       }
       else if (!autoPhantomFiringRef.current && !pipelineInCorso && !useEffectGestiraPhantom && !utenteSuCode) {
         autoPhantomFiringRef.current = true;
@@ -1490,11 +1494,9 @@ function App() {
     if (classificaFase?.stato !== "completato" || !runId) return;
     if (["in_corso","completato","attesa_utente"].includes(companyFase?.stato)) return;
     const lsKey = `grizzly_company_fired_${runId}`;
-    if (localStorage.getItem(lsKey)) {
-      pushLog("warn","⚠ Phantom già avviato per questo runId (localStorage)");
-      return;
-    }
+    if (localStorage.getItem(lsKey)) return; // guard silenzioso — Phantom già avviato
     localStorage.setItem(lsKey, '1');
+    setFaseS("company", "in_corso", {iniziato: new Date().toISOString(), dettaglio: "Ricerca Company Page LinkedIn..."});
     fetchAzSenzaSito();
   }, [fasi, runId, fetchAzSenzaSito]);
 
@@ -1665,6 +1667,8 @@ function App() {
     pendingAutoHubspotRef.current = false;
     rilancioCompanyIdsRef.current = [];
     pendingPhantomHubspotRef.current = [];
+    // Pulisci tutti i flag localStorage di run precedenti (evita strascichi se Supabase è stato resettato)
+    Object.keys(localStorage).filter(k => k.startsWith('grizzly_company_fired_') || k.startsWith('grizzly_hubspot_fired_')).forEach(k => localStorage.removeItem(k));
     setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
     setErrori(DEFAULT_ERRORI.map(e=>({...e,stato:"aperto"})));
     pushLog("info",`Run ${id} avviato`);
@@ -2365,7 +2369,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.6</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.8</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
