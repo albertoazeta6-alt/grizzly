@@ -1499,6 +1499,15 @@ function App() {
               pushLog("ok","✓ Classificazione completata");
               return;
             }
+            // Stop manuale: agente segnala fase=interrotto
+            if (sj?.ultimo_run?.fase === "interrotto") {
+              clearInterval(poll);
+              setFaseS("classifica","bloccato",{dettaglio:"Classificazione interrotta manualmente"});
+              sbWritePipelineState("classifica","bloccato","Classificazione interrotta manualmente");
+              pushLog("warn","⏹ Classificatore fermato — riprendi manualmente quando vuoi");
+              autoNuovoFiringRef.current = false; // permetti nuovo auto-avvio al prossimo ciclo
+              return;
+            }
             // Log progresso dettagliato
             const tot     = sj?.ultimo_run?.totale        ?? "?";
             const cl      = sj?.ultimo_run?.classificate  ?? "?";
