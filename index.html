@@ -1114,14 +1114,14 @@ function App() {
       if (!r.ok) { const t = await r.text(); throw new Error(t); }
       const data = await r.json();
       if (data.icebreaker) {
-        setField(rowId, 'icebreaker', data.icebreaker);
+        setClassifEdit(s=>({...s,[rowId]:{...s[rowId],icebreaker:data.icebreaker}}));
         pushLog("ok", `✨ Icebreaker generato: ${nome}`);
       } else {
         showToast("⚠ Icebreaker vuoto — controlla sito web");
       }
     } catch(e) { showToast("✕ Errore generazione icebreaker: " + e.message); }
     finally { setGenIceId(null); }
-  }, [sbSettings, getSbCreds, setField, pushLog, showToast]);
+  }, [sbSettings, getSbCreds, setClassifEdit, pushLog, showToast]);
 
   // ── Forza riavvio Company Page (Phantom) ─────────────────────────────────────
   const forzaCompanyPage = useCallback(() => {
