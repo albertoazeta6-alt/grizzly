@@ -2569,7 +2569,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.20</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.21</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -3407,7 +3407,6 @@ function App() {
                           {k:"url_ambigua",      label:"URL ambigua",        col:"#f59e0b"},
                           {k:"linkedin_ok",      label:"LinkedIn ok",        col:"#10b981"},
                           {k:"contatti_trovati", label:"Contatti trovati",   col:"#10b981"},
-                          {k:"hubspot_sync",     label:"HubSpot sync",       col:"#a78bfa"},
                         ];
                         return (
                           <div style={{display:"flex",flexWrap:"wrap",gap:5,padding:"6px 14px",borderBottom:`1px solid rgba(59,130,246,0.15)`,background:"rgba(59,130,246,0.03)"}}>
@@ -3477,7 +3476,6 @@ function App() {
                                     const sito = ed.sito_web!==undefined ? ed.sito_web : (row.sito_web||"");
                                     const statiColor = {
                                       contatti_trovati: C.green,
-                                      hubspot_sync: C.green,
                                       linkedin_ok: C.green,
 
                                       sito_updated: "#f59e0b",
@@ -3552,13 +3550,13 @@ function App() {
                       }
                       <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:"3px 14px",padding:"8px 14px",borderTop:`1px solid ${C.border}`,fontSize:9,marginTop:"auto",flexShrink:0}}>
                         {[
+                          {stato:"NUOVO",           color:C.muted,   desc:"da classificare"},
                           {stato:"CLASSIFICATA",     color:C.yellow,  desc:"in attesa Phantom"},
                           {stato:"SITO_MANCANTE",   color:C.yellow,  desc:"verifica manuale"},
                           {stato:"URL_AMBIGUA",     color:C.yellow,  desc:"verifica manuale"},
-                
+
                           {stato:"LINKEDIN_OK",     color:C.green,   desc:"URL verificata"},
                           {stato:"CONTATTI_TROVATI",color:C.green,   desc:"contatti trovati"},
-                          {stato:"HUBSPOT_SYNC",    color:C.green,   desc:"su HubSpot"},
                         ].map(({stato,color,desc})=>(
                           <span key={stato} style={{display:"flex",alignItems:"center",gap:4,whiteSpace:"nowrap"}}>
                             <span style={{fontWeight:700,color,letterSpacing:"0.03em"}}>{stato}</span>
