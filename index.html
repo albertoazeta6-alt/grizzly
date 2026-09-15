@@ -532,6 +532,8 @@ function App() {
   const [importStatoFilter, setImportStatoFilter] = useState(new Set()); // filtro stati Ricerca Aziende — vuoto = mostra tutto
   const [importColWidths, setImportColWidths] = useState({0:220,1:110,2:140,3:110,4:100,5:100,6:140,7:52,8:200}); // larghezze colonne Ricerca Aziende (px)
   const importResizingRef = React.useRef(null); // {colIdx, startX, startWidth}
+  const [leadsColWidths, setLeadsColWidths] = useState({0:160,1:140,2:140,3:130,4:120,5:90,6:160,7:90}); // larghezze colonne Leads (px)
+  const leadsResizingRef = React.useRef(null);
   const [manualRows, setManualRows] = useState([{ragioneSociale:"", sitoWeb:"", linkedin:""}]);
   // ── AUTH ──────────────────────────────────────────────────────────────────
   const [authSession, setAuthSession] = useState(()=>{try{const s=localStorage.getItem('grizzly_auth');return s?JSON.parse(s):null;}catch(e){return null;}});
@@ -1662,16 +1664,25 @@ function App() {
     const onMove = (e) => {
       if (!importResizingRef.current) return;
       const {colIdx, startX, startWidth} = importResizingRef.current;
-      const newW = Math.max(40, startWidth + e.clientX - startX);
-      setImportColWidths(prev => ({...prev, [colIdx]: newW}));
+      setImportColWidths(prev => ({...prev, [colIdx]: Math.max(40, startWidth + e.clientX - startX)}));
     };
     const onUp = () => { importResizingRef.current = null; };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
-    return () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+  }, []);
+
+  // Resize colonne Leads — listener globali
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!leadsResizingRef.current) return;
+      const {colIdx, startX, startWidth} = leadsResizingRef.current;
+      setLeadsColWidths(prev => ({...prev, [colIdx]: Math.max(40, startWidth + e.clientX - startX)}));
     };
+    const onUp = () => { leadsResizingRef.current = null; };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
   }, []);
   useEffect(() => {
     if (!importDatiOpenRef.current) return;
@@ -2601,7 +2612,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.32</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.34</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -3242,6 +3253,18 @@ function App() {
                         </div>
                         <div style={{display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
                           <button onClick={fetchContattiRun} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>↻ Aggiorna</button>
+                          {(()=>{
+                            const filteredCt = contattiRun.rows.filter(r=>contattiStatoFilter.size===0||contattiStatoFilter.has(r.stato));
+                            const allSel = filteredCt.length>0 && filteredCt.every(r=>contattiSelected.has(r.id));
+                            return (
+                              <button onClick={()=>{
+                                if(allSel) setContattiSelected(new Set());
+                                else setContattiSelected(new Set(filteredCt.map(r=>r.id)));
+                              }} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:allSel?"#fff":C.muted,background:allSel?"rgba(59,130,246,0.3)":"transparent",border:`1px solid ${allSel?"rgba(59,130,246,0.5)":C.border}`,borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>
+                                {allSel ? `☑ Deseleziona (${filteredCt.length})` : `☐ Seleziona tutti (${filteredCt.length})`}
+                              </button>
+                            );
+                          })()}
                           <button onClick={deleteSelected} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>🗑 {contattiSelected.size>0?`Elimina (${contattiSelected.size})`:"Elimina"}</button>
                           <button onClick={richiestaEnrichment} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#7c3aed,#8b5cf6)",border:"none",borderRadius:5,cursor:"pointer"}}>✉ Cerca email{contattiSelected.size>0?` (${contattiSelected.size})`:""}</button>
                           <button onClick={()=>setLeadsFullscreen(f=>!f)} style={{padding:"7px 10px",fontSize:13,fontWeight:700,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,cursor:"pointer"}} title={leadsFullscreen?"Esci da schermo intero":"Schermo intero"}>{leadsFullscreen?"⤡":"⤢"}</button>
@@ -3308,17 +3331,30 @@ function App() {
                                 </div>
                               );
                             })()}
-                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,fontFamily:"'JetBrains Mono',monospace"}}>
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,fontFamily:"'JetBrains Mono',monospace",tableLayout:"fixed"}}>
                               <thead>
                                 <tr style={{background:"rgba(59,130,246,0.15)"}}>
-                                  <th style={{padding:"6px 8px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Nome</th>
-                                  <th style={{padding:"6px 8px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Ruolo</th>
-                                  <SortTh label="Azienda" k="azienda"/>
-                                  <th style={{padding:"6px 8px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Sito</th>
-                                  <th style={{padding:"6px 8px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Settore</th>
-                                  <th style={{padding:"6px 8px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Fatturato</th>
-                                  <th style={{padding:"6px 8px",textAlign:"left",color:"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,position:"sticky",top:0,background:"rgba(30,42,74,0.95)"}}>Email</th>
-                                  <SortTh label="Stato" k="stato"/>
+                                  {[
+                                    {label:"Nome",k:null},
+                                    {label:"Ruolo",k:null},
+                                    {label:"Azienda",k:"azienda"},
+                                    {label:"Sito",k:null},
+                                    {label:"Settore",k:"settore"},
+                                    {label:"Fatturato",k:null},
+                                    {label:"Email",k:null},
+                                    {label:"Stato",k:"stato"},
+                                  ].map(({label,k},colIdx)=>{
+                                    const active = contattiSort.key===k && k;
+                                    const arrow = active ? (contattiSort.dir==="asc"?" ↑":" ↓") : (k?" ↕":"");
+                                    return (
+                                      <th key={label} onClick={k?()=>setContattiSort(s=>s.key===k?{key:k,dir:s.dir==="asc"?"desc":"asc"}:{key:k,dir:"asc"}):undefined}
+                                        style={{position:"relative",padding:"6px 8px",textAlign:"left",color:active?"#fff":"#93c5fd",fontWeight:700,borderBottom:`1px solid rgba(59,130,246,0.2)`,top:0,background:"rgba(30,42,74,0.95)",cursor:k?"pointer":"default",userSelect:"none",whiteSpace:"nowrap",width:leadsColWidths[colIdx]||120,overflow:"hidden"}}>
+                                        {label}{arrow}
+                                        <div onMouseDown={e=>{e.preventDefault();e.stopPropagation();leadsResizingRef.current={colIdx,startX:e.clientX,startWidth:leadsColWidths[colIdx]||120};}}
+                                          style={{position:"absolute",right:0,top:0,bottom:0,width:5,cursor:"col-resize",zIndex:1}}/>
+                                      </th>
+                                    );
+                                  })}
                                 </tr>
                               </thead>
                               <tbody>
@@ -3386,6 +3422,18 @@ function App() {
                           })}
                         </div>
                         <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                          {(()=>{
+                            const filteredRows = importStatoFilter.size>0 ? importDati.rows.filter(r=>importStatoFilter.has(r.stato)) : importDati.rows;
+                            const allSel = filteredRows.length>0 && filteredRows.every(r=>importSelected.has(r.id));
+                            return (
+                              <button onClick={()=>{
+                                if(allSel) { setImportSelected(new Set()); }
+                                else { setImportSelected(new Set(filteredRows.map(r=>r.id))); }
+                              }} style={{fontSize:10,fontWeight:700,color:allSel?"#fff":C.muted,background:allSel?"rgba(59,130,246,0.3)":"transparent",border:`1px solid ${allSel?"rgba(59,130,246,0.5)":C.border}`,borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>
+                                {allSel ? `☑ Deseleziona (${filteredRows.length})` : `☐ Seleziona tutti${filteredRows.length<importDati.rows.length?` (${filteredRows.length})`:`(${filteredRows.length})`}`}
+                              </button>
+                            );
+                          })()}
                           {importSelected.size>0&&<button onClick={rilanciClassificatoreSelezionate} style={{fontSize:10,fontWeight:700,color:"#93c5fd",background:"rgba(59,130,246,0.12)",border:"1px solid rgba(59,130,246,0.3)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🏷 Classifica ({importSelected.size})</button>}
                           {importSelected.size>0&&<button onClick={rilanciPhantomSelezionate} style={{fontSize:10,fontWeight:700,color:"#86efac",background:"rgba(34,197,94,0.12)",border:"1px solid rgba(34,197,94,0.3)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🔄 Phantom ({importSelected.size})</button>}
                           <button onClick={deleteImportSelected} style={{fontSize:10,fontWeight:700,color:"#fff",color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🗑 {importSelected.size>0?`Elimina (${importSelected.size})`:"Elimina"}</button>
