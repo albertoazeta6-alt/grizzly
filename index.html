@@ -530,6 +530,8 @@ function App() {
   const [importDati, setImportDati] = useState({open:false, rows:[], loading:false, edits:{}, sortCol:null, sortDir:"asc"});
   const [importSelected, setImportSelected] = useState(new Set());
   const [importStatoFilter, setImportStatoFilter] = useState(new Set()); // filtro stati Ricerca Aziende — vuoto = mostra tutto
+  const [importColWidths, setImportColWidths] = useState({0:220,1:110,2:140,3:110,4:100,5:100,6:140,7:52,8:200}); // larghezze colonne Ricerca Aziende (px)
+  const importResizingRef = React.useRef(null); // {colIdx, startX, startWidth}
   const [manualRows, setManualRows] = useState([{ragioneSociale:"", sitoWeb:"", linkedin:""}]);
   // ── AUTH ──────────────────────────────────────────────────────────────────
   const [authSession, setAuthSession] = useState(()=>{try{const s=localStorage.getItem('grizzly_auth');return s?JSON.parse(s):null;}catch(e){return null;}});
@@ -1654,6 +1656,23 @@ function App() {
   // Auto-refresh tabella aziende importate quando i contatori cambiano (Phantom sta lavorando)
   const importDatiOpenRef = React.useRef(false);
   useEffect(() => { importDatiOpenRef.current = importDati.open; }, [importDati.open]);
+
+  // Resize colonne Ricerca Aziende — listener globali
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!importResizingRef.current) return;
+      const {colIdx, startX, startWidth} = importResizingRef.current;
+      const newW = Math.max(40, startWidth + e.clientX - startX);
+      setImportColWidths(prev => ({...prev, [colIdx]: newW}));
+    };
+    const onUp = () => { importResizingRef.current = null; };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+  }, []);
   useEffect(() => {
     if (!importDatiOpenRef.current) return;
     if (!runStart) return;
@@ -1661,7 +1680,7 @@ function App() {
     const {url:sbUrl, key:sbKey} = getSbCreds();
     if (!sbUrl || !sbKey) return;
     const ts = `&creato_il=gte.${encodeURIComponent(runStart)}`;
-    fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,icebreaker${ts}&order=nome.asc&limit=500`, {
+    fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,fatturato,icebreaker${ts}&order=nome.asc&limit=500`, {
       headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`}
     }).then(r=>r.ok?r.json():[]).then(rows=>{
       if (rows.length > 0) setImportDati(p=>({...p, rows}));
@@ -1974,7 +1993,7 @@ function App() {
       const BATCH = 1000;
       let allRows = [], offset = 0, done = false;
       while (!done) {
-        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,settore_confidenza,icebreaker${filter}&order=creato_il.desc&limit=${BATCH}&offset=${offset}`, {
+        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,settore_confidenza,fatturato,icebreaker${filter}&order=creato_il.desc&limit=${BATCH}&offset=${offset}`, {
           headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`, Prefer:"count=none"}
         });
         const batch = r.ok ? await r.json() : [];
@@ -2582,7 +2601,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.29</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.31</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -3414,20 +3433,23 @@ function App() {
                                 <thead>
                                   <tr style={{background:"rgba(59,130,246,0.07)"}}>
                                     {[
-                                      {label:"Azienda",key:"nome",w:220},
-                                      {label:"Sito web",key:null,w:110},
-                                      {label:"LinkedIn URL",key:null,w:140},
-                                      {label:"Città",key:null,w:110},
-                                      {label:"Stato",key:"stato",w:100},
-                                      {label:"Settore",key:"settore",w:140},
-                                      {label:"Conf.",key:"settore_confidenza",w:52},
+                                      {label:"Azienda",key:"nome"},
+                                      {label:"Sito web",key:null},
+                                      {label:"LinkedIn URL",key:null},
+                                      {label:"Città",key:null},
+                                      {label:"Fatturato",key:"fatturato"},
+                                      {label:"Stato",key:"stato"},
+                                      {label:"Settore",key:"settore"},
+                                      {label:"Conf.",key:"settore_confidenza"},
                                       {label:"Icebreaker",key:null},
-                                    ].map(({label,key,w})=>{
+                                    ].map(({label,key},colIdx)=>{
                                       const active = importDati.sortCol===key && key;
                                       return (
                                         <th key={label} onClick={key?()=>setImportDati(p=>({...p,sortCol:key,sortDir:p.sortCol===key&&p.sortDir==="asc"?"desc":"asc"})):undefined}
-                                          style={{padding:"6px 14px",textAlign:"left",color:active?C.accent:C.muted,fontWeight:600,fontSize:9,letterSpacing:"0.08em",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",cursor:key?"pointer":"default",userSelect:"none",...(w?{width:w}:{})}}>
+                                          style={{position:"relative",padding:"6px 14px",textAlign:"left",color:active?C.accent:C.muted,fontWeight:600,fontSize:9,letterSpacing:"0.08em",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",cursor:key?"pointer":"default",userSelect:"none",width:importColWidths[colIdx]||120,overflow:"hidden"}}>
                                           {label}{active?(importDati.sortDir==="asc"?" ↑":" ↓"):(key?" ·":"")}
+                                          <div onMouseDown={e=>{e.preventDefault();e.stopPropagation();importResizingRef.current={colIdx,startX:e.clientX,startWidth:importColWidths[colIdx]||120};}}
+                                            style={{position:"absolute",right:0,top:0,bottom:0,width:5,cursor:"col-resize",zIndex:1}}/>
                                         </th>
                                       );
                                     })}
@@ -3486,6 +3508,7 @@ function App() {
                                           )}
                                         </td>
                                         <td style={{padding:"5px 10px",color:C.muted,fontSize:9,whiteSpace:"nowrap"}}>{row.citta||"—"}</td>
+                                        <td style={{padding:"5px 10px",color:C.muted,fontSize:9,whiteSpace:"nowrap"}}>{row.fatturato||"—"}</td>
                                         <td style={{padding:"5px 10px",whiteSpace:"nowrap"}}>
                                           <span style={{fontSize:8,fontWeight:700,color:statiColor,textTransform:"uppercase",letterSpacing:"0.05em"}}>{row.stato||"—"}</span>
                                         </td>
