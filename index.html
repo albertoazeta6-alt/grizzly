@@ -110,9 +110,14 @@ const SETTORI_CLASS = ["Facility management","Ascensori","Gru","Carrelli","Fotov
 // ── SUPABASE ──────────────────────────────────────────────────────────────────
 const SB_URL_LS = "grizzly_sb_url";
 const SB_KEY_LS = "grizzly_sb_anon";
+const DEFAULT_SB_URL = "https://coitoiobgmocjqkzgkvk.supabase.co";
+const DEFAULT_SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvaXRvaW9iZ21vY2pxa3pna3ZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0MTg3MjQsImV4cCI6MjEwMDk5NDcyNH0.J2sY1LZIMOqnKP_ypwsrPZUHK8zgJJ-m0DbVp0KwAn8";
 
 function getSbCreds() {
-  return { url: localStorage.getItem(SB_URL_LS)||"", key: localStorage.getItem(SB_KEY_LS)||"" };
+  return {
+    url: localStorage.getItem(SB_URL_LS) || DEFAULT_SB_URL,
+    key: localStorage.getItem(SB_KEY_LS) || DEFAULT_SB_KEY
+  };
 }
 
 async function sbGet(table, params={}) {
@@ -488,7 +493,7 @@ function App() {
   const [splash, setSplash] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   // Supabase
-  const [sbReady, setSbReady]       = useState(()=>!!(localStorage.getItem(SB_URL_LS)&&localStorage.getItem(SB_KEY_LS)));
+  const [sbReady, setSbReady]       = useState(true); // credenziali hardcodate — sempre pronte
   const [confirmModal, setConfirmModal] = useState(null); // {msg, resolve}
   const [settori, setSettori]         = useState([]); // caricati da DB
   const [sbSettings, setSbSettings] = useState({});  // mappa chiave→valore dalla tabella settings
@@ -530,6 +535,7 @@ function App() {
   const [authSession, setAuthSession] = useState(()=>{try{const s=localStorage.getItem('grizzly_auth');return s?JSON.parse(s):null;}catch(e){return null;}});
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
+  const [showAuthPwd, setShowAuthPwd]   = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const [loginShowCreds, setLoginShowCreds] = useState(()=>!(localStorage.getItem('sb_url')&&localStorage.getItem('sb_key')));
@@ -1281,7 +1287,7 @@ function App() {
     setAuthLoading(true); setAuthError('');
     // Legge le credenziali dalla stessa sorgente di getSbCreds() (Impostazioni)
     const {url: sbUrl, key: sbKey} = getSbCreds();
-    if (!sbUrl || !sbKey) { setAuthError('Configura prima Project URL e Anon Key in Impostazioni → Supabase'); setAuthLoading(false); return; }
+    if (!sbUrl || !sbKey) { setAuthError('Errore configurazione Supabase'); setAuthLoading(false); return; }
     try {
       const r = await fetch(`${sbUrl}/auth/v1/token?grant_type=password`, {
         method:'POST', headers:{'Content-Type':'application/json', apikey:sbKey},
@@ -2445,7 +2451,12 @@ function App() {
           {/* Login form */}
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
             <input type="email" placeholder="Email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSignIn()} style={inputStyle} />
-            <input type="password" placeholder="Password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSignIn()} style={inputStyle} />
+            <div style={{position:"relative"}}>
+              <input type={showAuthPwd?"text":"password"} placeholder="Password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSignIn()} style={{...inputStyle,paddingRight:38,width:"100%",boxSizing:"border-box"}} />
+              <button onClick={()=>setShowAuthPwd(v=>!v)} tabIndex={-1} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,0.35)",fontSize:14,padding:0,lineHeight:1}}>
+                {showAuthPwd?"🙈":"👁"}
+              </button>
+            </div>
             {authError && <div style={{fontSize:12,color:"#f87171",textAlign:"center"}}>{authError}</div>}
             <button onClick={handleSignIn} disabled={authLoading} style={{background:authLoading?"rgba(224,90,43,0.4)":"#e05a2b",color:"#fff",border:"none",borderRadius:8,padding:"12px",fontSize:14,fontWeight:700,cursor:authLoading?"not-allowed":"pointer",marginTop:4,transition:"background 0.2s"}}>
               {authLoading ? "Accesso in corso…" : "Accedi"}
@@ -2571,7 +2582,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.25</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.29</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -2659,29 +2670,14 @@ function App() {
         {/* ══ AVVIA RUN ══ */}
         {tab==="impostazioni"&&(()=>{
           const sr = {settingEdit,setSettingEdit,sbSettings,setSbSettings,sbSaving,setSbSaving,showToast};
-          const saveSbCreds = () => {
-            const u = (settingEdit.__sb_url||"").trim();
-            const k = (settingEdit.__sb_key||"").trim();
-            if(u) localStorage.setItem(SB_URL_LS,u);
-            if(k) localStorage.setItem(SB_KEY_LS,k);
-            setSbReady(!!(u||localStorage.getItem(SB_URL_LS))&&!!(k||localStorage.getItem(SB_KEY_LS)));
-            setSettingEdit(s=>{const n={...s};delete n.__sb_url;delete n.__sb_key;return n;});
-            if(u&&k) loadSettings().then(m=>{ if(m) setSbSettings(m); });
-          };
           return (
           <div style={{padding:"16px 20px",animation:"fadeIn .2s ease"}}>
             <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:4,flexWrap:"wrap"}}>
               <div style={{fontSize:18,fontWeight:700,color:C.textHi}}>Impostazioni</div>
-              {sbReady
-                ? <Tag color={C.green} bg={C.greenDim}>⬡ Supabase connesso</Tag>
-                : <Tag color={C.orange} bg={C.orangeDim}>⬡ Supabase non configurato</Tag>}
+              <Tag color={C.green} bg={C.greenDim}>⬡ Supabase connesso</Tag>
               <div style={{marginLeft:"auto",display:"flex",gap:8}}>
                 <Btn small color={C.accent} bg={C.accentDim} onClick={()=>{
-                  const data = {
-                    sb_url: localStorage.getItem(SB_URL_LS)||"",
-                    sb_key: localStorage.getItem(SB_KEY_LS)||"",
-                    settings: sbSettings,
-                  };
+                  const data = { settings: sbSettings };
                   const blob = new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
                   const a = document.createElement("a");
                   a.href = URL.createObjectURL(blob);
@@ -2698,8 +2694,6 @@ function App() {
                     try {
                       const txt = await f.text();
                       const data = JSON.parse(txt);
-                      if(data.sb_url) localStorage.setItem(SB_URL_LS, data.sb_url);
-                      if(data.sb_key) localStorage.setItem(SB_KEY_LS, data.sb_key);
                       if(data.settings && typeof data.settings==="object"){
                         const entries = Object.entries(data.settings);
                         for(const [chiave,valore] of entries){
@@ -2707,7 +2701,6 @@ function App() {
                         }
                         setSbSettings(s=>({...s,...data.settings}));
                       }
-                      setSbReady(!!(data.sb_url||localStorage.getItem(SB_URL_LS))&&!!(data.sb_key||localStorage.getItem(SB_KEY_LS)));
                       loadSettings().then(m=>{ if(m) setSbSettings(m); });
                       showToast("✓ Impostazioni importate");
                     } catch(err){ showToast("⚠ File non valido"); }
@@ -2719,27 +2712,6 @@ function App() {
             </div>
             <div style={{fontSize:12,color:C.muted,marginBottom:20}}>Le modifiche vengono salvate direttamente su Supabase.</div>
 
-            {/* SUPABASE */}
-            <div style={{background:C.surface,border:`1px solid ${sbReady?C.border:"#f59e0b44"}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
-              <SectionHead title="CONNESSIONE SUPABASE"/>
-              {[
-                {k:"__sb_url", label:"Project URL", ph:"https://xxxx.supabase.co"},
-                {k:"__sb_key", label:"Anon Key",    ph:"eyJhbGci...", tipo:"secret"},
-              ].map(({k,label,ph,tipo="text"})=>{
-                const val = settingEdit[k]!==undefined ? settingEdit[k] : (k==="__sb_url"?localStorage.getItem(SB_URL_LS)||"":localStorage.getItem(SB_KEY_LS)||"");
-                return (
-                  <div key={k} className="hovrow" style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",borderBottom:`1px solid ${C.border}`}}>
-                    <span style={{fontSize:11,color:C.text,width:200,flexShrink:0}}>{label}</span>
-                    <input type={tipo==="secret"?"password":"text"} value={val} placeholder={ph}
-                      onChange={e=>setSettingEdit(s=>({...s,[k]:e.target.value}))}
-                      style={{flex:1,background:"#07090f",border:`1px solid ${C.border}`,borderRadius:3,padding:"4px 8px",fontSize:10,color:C.text,fontFamily:"'JetBrains Mono',monospace"}}/>
-                  </div>
-                );
-              })}
-              <div style={{padding:"10px 16px"}}>
-                <Btn color={C.accent} bg={C.accentDim} onClick={saveSbCreds}>Salva connessione</Btn>
-              </div>
-            </div>
 
             {sbReady&&<>
             {/* AGENTE AZURE */}
