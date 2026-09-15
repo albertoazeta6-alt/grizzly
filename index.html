@@ -621,7 +621,7 @@ function App() {
     setClassifReview(s=>({...s,loading:true}));
     const {url,key}=getSbCreds(); if(!url||!key){setClassifReview(s=>({...s,loading:false}));return;}
     const h={apikey:key,Authorization:`Bearer ${key}`};
-    fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,citta,regione,fatturato,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&settore=not.is.null&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h})
+    fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,citta,regione,fatturato,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&settore=not.is.null&semaforo_verifica=not.eq.scartata&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h})
       .then(r=>r.ok?r.json():[])
       .then(rows=>setClassifReview({rows,loading:false,loaded:true}))
       .catch(()=>setClassifReview(s=>({...s,loading:false,loaded:true})));
@@ -639,7 +639,7 @@ function App() {
       const {url,key}=getSbCreds(); if(!url||!key) return;
       const h={apikey:key,Authorization:`Bearer ${key}`};
       try {
-        const r = await fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,citta,regione,fatturato,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&settore=not.is.null&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h});
+        const r = await fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,citta,regione,fatturato,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&settore=not.is.null&semaforo_verifica=not.eq.scartata&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h});
         if(r.ok) {
           const rows=await r.json();
           // Aggiorna solo se i dati sono effettivamente cambiati (evita re-render inutili)
@@ -2571,7 +2571,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.23</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.25</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -4024,6 +4024,14 @@ function App() {
             }
           };
 
+          const scartaClassif = async (id) => {
+            const ok = await _classifPatch(id, {semaforo_verifica:'scartata'});
+            if (!ok) { showToast('Errore'); return; }
+            setClassifReview(s=>({...s, rows:s.rows.filter(r=>r.id!==id)}));
+            setClassifEdit(s=>{const n={...s};delete n[id];return n;});
+            showToast('Scartata — non verrà più mostrata');
+          };
+
           const approvaClassif = async (id) => {
             const row=classifReview.rows.find(r=>r.id===id); if(!row) return;
             const e=classifEdit[id]||{};
@@ -4255,7 +4263,7 @@ function App() {
                         </button>
                       ))}
                       <button onClick={()=>setClassifViewMode(m=>m==='tabella'?'split':'tabella')}
-                        style={{marginLeft:"auto",padding:"3px 10px",fontSize:11,background:classifViewMode==='tabella'?"rgba(37,99,235,0.15)":"transparent",border:`1px solid ${classifViewMode==='tabella'?"#3b82f6":C.border}`,borderRadius:5,color:classifViewMode==='tabella'?"#93c5fd":C.muted,cursor:"pointer"}}>⊞ Tabella</button>
+                        style={{marginLeft:"auto",padding:"3px 10px",fontSize:11,background:classifViewMode==='tabella'?"rgba(37,99,235,0.15)":"transparent",border:`1px solid ${classifViewMode==='tabella'?"#3b82f6":C.border}`,borderRadius:5,color:classifViewMode==='tabella'?"#93c5fd":C.muted,cursor:"pointer"}}>⊞ Tabella/Sito</button>
                       <button onClick={()=>{setClassifReview({rows:[],loading:false,loaded:false});setClassifApprovati({rows:[],loading:false,loaded:false});}}
                         style={{padding:"3px 8px",fontSize:11,background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,color:C.muted,cursor:"pointer"}}>↺</button>
                     </div>
@@ -4426,6 +4434,7 @@ function App() {
                               {/* action bar */}
                               <div style={{display:"flex",gap:8,padding:"10px 14px",borderTop:`1px solid ${C.border}`,background:C.bg,flexShrink:0}}>
                                 <Btn color={C.green} bg={C.greenDim} border="rgba(34,197,94,.35)" style={{flex:1}} onClick={()=>approvaClassif(row.id)}>✓ Salva</Btn>
+                                <Btn color={C.muted} bg="transparent" border={C.border} style={{flex:1}} onClick={()=>scartaClassif(row.id)}>✕ Scarta</Btn>
                                 <Btn color={C.accent} bg={C.accentDim} border="rgba(59,130,246,.35)" style={{flex:1}} onClick={()=>setClassifSelected(i=>(i+1)%filtered.length)}>→ Successivo</Btn>
                               </div>
                             </div>
