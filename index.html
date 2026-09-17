@@ -192,12 +192,16 @@ async function sbWritePipelineState(fase, stato, dettaglio) {
   } catch(e) {}
 }
 
-async function sbInsert(table, records) {
+async function sbInsert(table, records, {onConflict=null}={}) {
   const {url,key} = getSbCreds(); if(!url||!key||!records.length) return false;
   try {
-    const r = await fetch(`${url}/rest/v1/${table}`,{
+    const qs = onConflict ? `?on_conflict=${encodeURIComponent(onConflict)}` : "";
+    const prefer = onConflict
+      ? "resolution=ignore-duplicates,return=minimal"
+      : "return=minimal";
+    const r = await fetch(`${url}/rest/v1/${table}${qs}`,{
       method:"POST",
-      headers:{apikey:key,Authorization:`Bearer ${key}`,"Content-Type":"application/json",Prefer:"return=minimal"},
+      headers:{apikey:key,Authorization:`Bearer ${key}`,"Content-Type":"application/json",Prefer:prefer},
       body:JSON.stringify(records)
     });
     if(!r.ok) {
@@ -1953,10 +1957,10 @@ function App() {
               fonte:             "Automazione Bancadati",
             })).filter(r=>r.nome);
 
-            // Inserisce in chunk da 100
+            // Inserisce in chunk da 100 — ignora duplicati per nome (unique constraint)
             const CHUNK = 100; let ok = true;
             for(let i=0; i<records.length && ok; i+=CHUNK) {
-              ok = await sbInsert("companies", records.slice(i, i+CHUNK));
+              ok = await sbInsert("companies", records.slice(i, i+CHUNK), {onConflict:"nome,partita_iva"});
             }
             if(ok) {
               pushLog("ok",`✓ ${nuove.length} aziende importate in Supabase`);
@@ -3037,7 +3041,7 @@ function App() {
                           {/* Tasti */}
                           <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
                             {fase.id==="import"&&fase.stato!=="bloccato"&&(
-                              <button onClick={openImportDati} style={{fontSize:8,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,0.3)`,borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Dati</button>
+                              <button onClick={()=>openImportDati(runStart)} style={{fontSize:8,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,0.3)`,borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Dati</button>
                             )}
                             {FASE_LINKS[fase.id]?.sheet&&fase.stato!=="bloccato"&&fase.id!=="company"&&fase.id!=="import"&&(
                               <button onClick={()=>openSheet(FASE_LINKS[fase.id].sheet,FASE_LINKS[fase.id].sheetLabel||fase.label)} style={{fontSize:8,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,0.3)`,borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Dati</button>
