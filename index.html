@@ -594,6 +594,7 @@ function App() {
   const pendingPhantomHubspotRef = React.useRef([]); // IDs aziende Code-path in attesa di sync HubSpot dopo Phantom
   const lemlistHadContactsRef   = React.useRef(false); // evita auto-complete prima che l'extension carichi i contatti
   const lemlistAutoFiredRef     = React.useRef(false); // guard anti-doppio-lancio avviaLemlist automatico
+  const runInitializingRef      = React.useRef(false); // blocca auto-starts durante inizializzazione Nuova Run
   const [prospectingTab, setProspectingTab]   = useState("tabella"); // "tabella" | "sheets"
   const [prospectingSelected, setProspectingSelected] = useState(()=>{
     try { const s=localStorage.getItem('grizzly_selected'); return s?new Set(JSON.parse(s)):new Set(); } catch(e){ return new Set(); }
@@ -852,7 +853,7 @@ function App() {
         autoNuovoFiringRef.current = false; // timeout reset → retry al prossimo ciclo
       }
       if (nuovo === 0) { autoNuovoFiringRef.current = false; }
-      else if (!autoNuovoFiringRef.current && !utenteSuCode) {
+      else if (!autoNuovoFiringRef.current && !utenteSuCode && !runInitializingRef.current) {
         if (!pipelineInCorso) {
           autoNuovoFiringRef.current = true;
           autoNuovoFiredAtRef.current = Date.now();
@@ -924,7 +925,7 @@ function App() {
           })
           .catch(()=>{}); // errore silenzioso — la pipeline continua
       }
-      else if (!autoPhantomFiringRef.current && !pipelineInCorso && !useEffectGestiraPhantom && !utenteSuCode) {
+      else if (!autoPhantomFiringRef.current && !pipelineInCorso && !useEffectGestiraPhantom && !utenteSuCode && !runInitializingRef.current) {
         const ids  = classificataRows.map(r => r.id);
         const nomi = classificataRows.map(r => r.nome).join(", ");
         if (ids.length > 0) {
@@ -2665,6 +2666,10 @@ function App() {
           {!dropzoneMode&&(
             <button onClick={async()=>{
               if(runAttivo&&runId&&!await customConfirm("Avviare una nuova run? Lo stato attuale verrà azzerato.")) return;
+              // Blocca subito tutti gli auto-start per evitare race condition durante l'init
+              runInitializingRef.current = true;
+              autoNuovoFiringRef.current = true;
+              autoPhantomFiringRef.current = true;
               setTab("run");
               ignoredRunIdRef.current = runId;
               setDropzoneMode(true);
@@ -2683,6 +2688,12 @@ function App() {
               }
               try { await fetch(MAKE.pulizia,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({secret:"grizzly2026"})}); } catch(e){}
               pushLog("ok","✓ Pulizia fogli avviata");
+              // Sblocca guard auto-start dopo 10s (abbondanti per il pulizia Make)
+              setTimeout(() => {
+                runInitializingRef.current = false;
+                autoNuovoFiringRef.current = false;
+                autoPhantomFiringRef.current = false;
+              }, 10000);
             }} style={{fontSize:11,fontWeight:600,padding:"4px 12px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>Nuova Run</button>
           )}
 
