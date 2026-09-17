@@ -1576,6 +1576,10 @@ function App() {
     const classificaFase = fasi.find(f => f.id === "classifica");
     if (classificaFase?.stato !== "attesa_utente") { classificaAutoRef.current = false; return; }
     if (classificaAutoRef.current) return;
+    // Seconda via d'avvio del classificatore, oltre a quella di fetchCounters:
+    // va rispettata anche qui la pausa, altrimenti premendo Stop la pipeline
+    // rilancia la classificazione un istante dopo averla fermata.
+    if (classifPausaRef.current) { pushLog("info","⏸ Classificazione non avviata — auto-avvio in pausa"); return; }
     classificaAutoRef.current = true;
     // Prima controlla se ci sono aziende da classificare
     fetchClassificaCount().then(n => {
@@ -2764,6 +2768,7 @@ function App() {
               runInitializingRef.current = true;
               autoNuovoFiringRef.current = true;
               autoPhantomFiringRef.current = true;
+              setPausaClassificatore(false); // nuova run = ripartenza esplicita, la pausa decade
               setTab("run");
               ignoredRunIdRef.current = runId;
               setDropzoneMode(true);
