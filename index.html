@@ -640,6 +640,8 @@ function App() {
     return Number.isFinite(v) && v >= LOG_W_MIN && v <= LOG_W_MAX ? v : LOG_W_DEFAULT;
   });
   const logResizeRef = React.useRef(null); // {startX, startWidth} durante il trascinamento
+  const continuaDopoUrlRef = React.useRef(false); // anti-rientro su continuaDopoUrl (lancio HubSpot)
+  const giriAVuotoRef = React.useRef({n:0, ts:0}); // conta i cicli classifica-chiusa-subito ravvicinati
   // Pausa classificatore automatico — PERSISTENTE.
   // Deve sopravvivere al reload della pagina e non deve essere azzerata dal
   // TRIGGER_TIMEOUT: altrimenti premi Stop, la pipeline riparte da sola e sembra
@@ -1253,7 +1255,8 @@ function App() {
     setFaseS("hubspot", "in_corso", {iniziato: new Date().toISOString(), dettaglio: "Forza aggiornamento HubSpot..."});
     sbWritePipelineState("hubspot", "in_corso", "Forza aggiornamento HubSpot...");
     showToast("⟳ HubSpot in avvio...");
-    await callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId || "", runStart: runStart || "", companyIds: null }, "Forza Aggiornamento HubSpot");
+    // Azione manuale esplicita: la deduplica non si applica, ripetere e' l'intento
+    await callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId || "", runStart: runStart || "", companyIds: null }, "Forza Aggiornamento HubSpot", {forza:true});
     pushLog("ok", "▶ HubSpot avviato (forza manuale)");
   }, [runId, runStart, setFaseS, sbWritePipelineState, pushLog, showToast]);
 
@@ -1584,20 +1587,42 @@ function App() {
     // Prima controlla se ci sono aziende da classificare
     fetchClassificaCount().then(n => {
       if (n === 0) {
+        // Interruttore di sicurezza: chiudere la fase innesca Phantom e HubSpot, e se
+        // qualcosa continua a segnalare aziende in coda si rientra qui subito dopo,
+        // all'infinito. Oltre 3 giri ravvicinati si mette in pausa l'auto-avvio:
+        // meglio una pipeline ferma e visibile che un ciclo che brucia crediti.
+        const ora = Date.now();
+        if (ora - giriAVuotoRef.current.ts > 60000) giriAVuotoRef.current = {n:0, ts:ora};
+        giriAVuotoRef.current.n += 1;
+        giriAVuotoRef.current.ts = ora;
+        if (giriAVuotoRef.current.n > 3) {
+          setPausaClassificatore(true);
+          pushLog("error","⛔ Ciclo a vuoto rilevato: la classificazione si chiude subito ma risultano ancora aziende in coda. Auto-avvio messo in pausa — premi Riprendi dopo aver verificato.");
+          showToast("⛔ Ciclo a vuoto — auto-avvio in pausa");
+          return;
+        }
         pushLog("info","ℹ Nessuna azienda da classificare — classificazione saltata");
         setFaseS("classifica","completato",{completato:new Date().toISOString(),dettaglio:"Nessuna azienda da classificare"});
         sbWritePipelineState("classifica","completato","Nessuna azienda da classificare");
         return;
       }
+      giriAVuotoRef.current = {n:0, ts:Date.now()}; // c'e' lavoro vero: contatore azzerato
       const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
       if (!base) { pushLog("warn","⚠ URL Agente Azure non configurato — classificazione non avviata"); return; }
       const {url:sbUrl, key:sbKey} = getSbCreds();
       const openaiKey = sbSettings["openai_api_key"]||"";
       if (!openaiKey) { pushLog("warn","⚠ OpenAI API Key mancante — classificazione non avviata"); return; }
       const openaiModel = sbSettings["openai_model"]||"gpt-4o-mini";
+      // run_start NON inviato di proposito. L'agente filtra per creato_il >= run_start,
+      // mentre il contatore della webapp conta per stato=nuovo AND settore IS NULL,
+      // senza vincolo di data. Con aziende storiche in coda i due numeri divergono:
+      // la webapp ne vede 106, l'agente zero, risponde "nessuna azienda da classificare",
+      // la fase viene chiusa, questo innesca Phantom e HubSpot, il ciclo finisce e
+      // fetchCounters ricomincia — loop infinito che brucia crediti Make a ogni giro.
+      // La coda e' definita da `settore IS NULL`: la data di creazione non c'entra.
       fetch(`${base}/classifica/avvia`, {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({supabase_url:sbUrl, supabase_key:sbKey, openai_api_key:openaiKey, openai_model:openaiModel, run_start:runStart})
+        body: JSON.stringify({supabase_url:sbUrl, supabase_key:sbKey, openai_api_key:openaiKey, openai_model:openaiModel})
       }).then(r=>r.json()).then(j=>{
         if (j.status==="avviato"||j.status==="già_in_corso") {
           pushLog("ok","▶ Classificazione avviata automaticamente");
@@ -1897,7 +1922,43 @@ function App() {
     }
   }, [runAttivo, runId, runStart, campagna]);
 
-  const callMake = async (url,payload={},label="") => {
+  // Firma di una chiamata Make: due chiamate con la stessa firma fanno lo stesso
+  // lavoro sugli stessi record, quindi la seconda e' solo credito bruciato.
+  // runId/runStart sono esclusi di proposito: cambiano fra una run e l'altra ma
+  // non cambiano l'effetto sulle aziende indicate.
+  const firmaMake = (url, p={}) => {
+    const ids = Array.isArray(p.companyIds) ? [...p.companyIds].sort((a,b)=>a-b).join(",") : String(p.companyIds ?? "");
+    return [url, p.source||"", ids, p.ragione_sociale||"", p.linkedin_url||""].join("|");
+  };
+  // Finestra entro cui una chiamata identica e' considerata un doppione.
+  // Larga di proposito: ogni esecuzione dello scenario HubSpot costa ~1382 crediti
+  // a prescindere da quante aziende contenga il payload, quindi conta solo quante
+  // volte lo si invoca. Rifare lo stesso identico aggiornamento entro mezz'ora non
+  // e' quasi mai voluto; quando lo e', c'e' "Forza Aggiornamento HubSpot" che e' esente.
+  const MAKE_DEDUP_MIN = 30;
+
+  // `forza:true` per le azioni manuali esplicite (es. "Forza Aggiornamento HubSpot"),
+  // dove ripetere e' proprio quello che l'utente sta chiedendo.
+  const callMake = async (url,payload={},label="",{forza=false,finestraMin=MAKE_DEDUP_MIN}={}) => {
+    // Deduplica al punto di uscita: i guard in memoria dei singoli chiamanti non
+    // bastano, perche' si azzerano al reload della pagina e dopo il loro timeout,
+    // e piu' percorsi diversi possono chiedere la stessa cosa sugli stessi ID.
+    // localStorage e' condiviso anche fra schede della stessa origine, quindi
+    // protegge pure dal caso "due tab aperte".
+    if (!forza) {
+      try {
+        const reg = JSON.parse(localStorage.getItem("grizzly_make_calls")||"{}");
+        const ora = Date.now(), ms = finestraMin*60000, k = firmaMake(url,payload);
+        for (const [kk,ts] of Object.entries(reg)) if (ora - ts > ms) delete reg[kk]; // pulizia
+        if (reg[k] && ora - reg[k] < ms) {
+          const min = Math.round((ora - reg[k])/60000);
+          pushLog("warn",`⏭ Make già chiamato ${min<1?"meno di un minuto":min+" minuti"} fa con gli stessi dati — salto per non bruciare crediti: ${label}`);
+          return true;
+        }
+        reg[k] = ora;
+        localStorage.setItem("grizzly_make_calls",JSON.stringify(reg));
+      } catch(e) {} // localStorage pieno o non disponibile: si procede comunque
+    }
     try {
       const res = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1920,6 +1981,7 @@ function App() {
     setLoad("avvia",true);
     const id = `RUN-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${String(Math.floor(Math.random()*900)+100)}`;
     const runStartLocal = new Date().toISOString();
+    continuaDopoUrlRef.current = false; // nuova run: HubSpot potrà ripartire
     setDropzoneMode(false); setRunId(id); setRunStart(runStartLocal); setRunAttivo(true);
     setLog([]); setFasi(FASI_INIT); setExecs([]); lemlistHadContactsRef.current = false; lemlistAutoFiredRef.current = false;
     // Reset ref auto-trigger per nuova run
@@ -2469,6 +2531,14 @@ function App() {
   const closeSheet = () => setEmbedSheet(null);
 
   const continuaDopoUrl = async () => {
+    // Anti-rientro sincrono, indipendente da runId. Serve perche' l'useEffect che
+    // lancia HubSpot ha `continuaDopoUrl` fra le dipendenze e la funzione viene
+    // ricreata a ogni render: l'effetto quindi si riesegue di continuo, e la sola
+    // guardia localStorage sparisce nei render in cui runId e' momentaneamente
+    // vuoto (fra il setRunId(null) di Nuova Run e il nuovo id).
+    // Si azzera all'avvio di una run — vedi avviaRun.
+    if (continuaDopoUrlRef.current) { return; }
+    continuaDopoUrlRef.current = true;
     setLoad("continua", true);
     if (runId) {
       const lsKey = `grizzly_hubspot_fired_${runId}`;
