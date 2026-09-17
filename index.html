@@ -3314,14 +3314,19 @@ function App() {
                           const openaiModel = sbSettings["openai_model"]||"gpt-4o-mini";
                           if (!openaiKey) { showToast("⚠ OpenAI API Key non configurata nelle Impostazioni"); return; }
                           try {
+                            // run_start deliberatamente NON inviato: l'agente filtra per
+                            // creato_il >= run_start, quindi con la run attiva le aziende
+                            // storiche rimesse in coda (settore azzerato a mano) resterebbero
+                            // invisibili per sempre. L'auto-avvio resta circoscritto alla run,
+                            // questo pulsante smaltisce l'intera coda.
                             const r = await fetch(`${base}/classifica/avvia`, {
                               method:"POST",
                               headers:{"Content-Type":"application/json"},
-                              body: JSON.stringify({supabase_url:sbUrl, supabase_key:sbKey, openai_api_key:openaiKey, openai_model:openaiModel, run_start:runStart})
+                              body: JSON.stringify({supabase_url:sbUrl, supabase_key:sbKey, openai_api_key:openaiKey, openai_model:openaiModel})
                             });
                             const j = await r.json();
                             if (j.status==="avviato") {
-                              pushLog("ok","▶ Classificazione avviata su Azure");
+                              pushLog("ok","▶ Classificazione avviata su Azure — tutte le aziende senza settore, non solo quelle della run");
                               showToast("✓ Classificazione avviata");
                               setFaseS("classifica","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Azure classificatore in esecuzione..."});
                               sbWritePipelineState("classifica","in_corso","Azure classificatore in esecuzione...");
@@ -3329,8 +3334,9 @@ function App() {
                               showToast(`ℹ ${j.status}`);
                             }
                           } catch(e) { showToast("✕ Errore avvio classificazione: "+e.message); }
-                        }} style={{padding:"8px 18px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#7c3aed,#a855f7)",border:"none",borderRadius:5,cursor:"pointer",alignSelf:"flex-start"}}>
-                          ▶ Avvia Classificazione
+                        }} title="Classifica TUTTE le aziende senza settore, comprese quelle di run precedenti rimesse in coda"
+                        style={{padding:"8px 18px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#7c3aed,#a855f7)",border:"none",borderRadius:5,cursor:"pointer",alignSelf:"flex-start"}}>
+                          ▶ Avvia Classificazione (tutta la coda)
                         </button>
                       )}
                       <div style={{fontSize:9,color:C.muted}}>Polling automatico ogni 15s — la fase si completa da sola quando tutte le aziende sono classificate.</div>
@@ -3582,6 +3588,8 @@ function App() {
                           {k:"sito_mancante",    label:"Sito mancante",      col:"#64748b"},
                           {k:"url_ambigua",      label:"URL ambigua",        col:"#f59e0b"},
                           {k:"linkedin_ok",      label:"LinkedIn ok",        col:"#10b981"},
+                          {k:"linkedin_upd",     label:"LinkedIn conf.",     col:"#38bdf8"},
+                          {k:"linkedin_ko",      label:"LinkedIn KO",        col:"#f87171"},
                           {k:"contatti_trovati", label:"Contatti trovati",   col:"#10b981"},
                         ];
                         return (
