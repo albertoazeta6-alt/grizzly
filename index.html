@@ -521,6 +521,30 @@ function App() {
   const [classifEdit,      setClassifEdit]      = useState({}); // {id:{settore,icebreaker}}
   const [classifFilter,    setClassifFilter]    = useState('tutti'); // errore|bassa|media|altro|tutti (solo manuale)
   const [classifFilterAll, setClassifFilterAll] = useState('classificazioni'); // classificazioni|approvati
+  // Tab Classificatore: ordinamento colonne + filtri (confidenza, settore, semaforo)
+  const [classifSort, setClassifSort]   = useState({col:null, dir:"asc"});
+  const [classifConfF, setClassifConfF] = useState(""); // "" = tutte, "__vuoto__" = non classificate
+  const [classifSettF, setClassifSettF] = useState("");
+  const [classifSemF,  setClassifSemF]  = useState("");
+  // Confidenza e semaforo non si ordinano alfabeticamente: "alta/bassa/media" darebbe
+  // un ordine senza senso. Si usa un rango esplicito, crescente = piu' problematico prima.
+  const CONF_RANK = {bassa:1, media:2, alta:3};
+  const SEM_RANK  = {"✗":1, "⚠":2, "✓":3};
+  const classifRighe = () => {
+    const f = (classifReview.rows||[]).filter(r =>
+      (!classifConfF || (classifConfF === "__vuoto__" ? !r.settore_confidenza : r.settore_confidenza === classifConfF)) &&
+      (!classifSettF || (classifSettF === "__vuoto__" ? !r.settore : r.settore === classifSettF)) &&
+      (!classifSemF  || (classifSemF  === "__vuoto__" ? !r.semaforo_verifica : r.semaforo_verifica === classifSemF))
+    );
+    const {col, dir} = classifSort;
+    if (!col) return f;
+    const seg = dir === "asc" ? 1 : -1;
+    return [...f].sort((a,b) => {
+      if (col === "settore_confidenza") return seg * ((CONF_RANK[a.settore_confidenza]||0) - (CONF_RANK[b.settore_confidenza]||0));
+      if (col === "semaforo_verifica")  return seg * ((SEM_RANK[a.semaforo_verifica]||0)  - (SEM_RANK[b.semaforo_verifica]||0));
+      return seg * (a[col]||"").toString().toLowerCase().localeCompare((b[col]||"").toString().toLowerCase());
+    });
+  };
   const [classifSelectedAll, setClassifSelectedAll] = useState(0);
   const [savedModelliNomi, setSavedModelliNomi] = useState(new Set());
   const [classifSelected,  setClassifSelected]  = useState(0);  // indice nell'array filtrato
@@ -534,6 +558,16 @@ function App() {
   const [importDati, setImportDati] = useState({open:false, rows:[], loading:false, edits:{}, sortCol:null, sortDir:"asc"});
   const [importSelected, setImportSelected] = useState(new Set());
   const [importStatoFilter, setImportStatoFilter] = useState(new Set()); // filtro stati Ricerca Aziende — vuoto = mostra tutto
+  const [importSettoreFilter, setImportSettoreFilter] = useState(""); // "" = tutti, "__vuoto__" = senza settore
+  const [importConfFilter, setImportConfFilter]       = useState(""); // "" = tutte, "__vuoto__" = senza confidenza
+  // Filtro unico di Ricerca Aziende: stato (chip, multi) + settore + confidenza (tendine).
+  // Centralizzato perche' serve in tre punti — conteggio, "seleziona tutti" e tabella —
+  // che devono per forza concordare, altrimenti "Seleziona tutti (12)" ne seleziona altre.
+  const applicaFiltriImport = rows => (rows||[]).filter(r =>
+    (importStatoFilter.size === 0 || importStatoFilter.has(r.stato)) &&
+    (!importSettoreFilter || (importSettoreFilter === "__vuoto__" ? !r.settore : r.settore === importSettoreFilter)) &&
+    (!importConfFilter    || (importConfFilter    === "__vuoto__" ? !r.settore_confidenza : r.settore_confidenza === importConfFilter))
+  );
   const [importColWidths, setImportColWidths] = useState({0:220,1:110,2:140,3:110,4:100,5:100,6:140,7:52,8:200}); // larghezze colonne Ricerca Aziende (px)
   const importResizingRef = React.useRef(null); // {colIdx, startX, startWidth}
   const [leadsColWidths, setLeadsColWidths] = useState({0:160,1:140,2:140,3:130,4:120,5:90,6:160,7:90}); // larghezze colonne Leads (px)
@@ -599,6 +633,28 @@ function App() {
   const lemlistHadContactsRef   = React.useRef(false); // evita auto-complete prima che l'extension carichi i contatti
   const lemlistAutoFiredRef     = React.useRef(false); // guard anti-doppio-lancio avviaLemlist automatico
   const runInitializingRef      = React.useRef(false); // blocca auto-starts durante inizializzazione Nuova Run
+  // Larghezza sidebar log — trascinabile, ricordata fra le sessioni
+  const LOG_W_MIN = 260, LOG_W_MAX = 900, LOG_W_DEFAULT = 420;
+  const [logWidth, setLogWidth] = useState(() => {
+    const v = parseInt(localStorage.getItem("grizzly_log_width") || "", 10);
+    return Number.isFinite(v) && v >= LOG_W_MIN && v <= LOG_W_MAX ? v : LOG_W_DEFAULT;
+  });
+  const logResizeRef = React.useRef(null); // {startX, startWidth} durante il trascinamento
+  // Pausa classificatore automatico — PERSISTENTE.
+  // Deve sopravvivere al reload della pagina e non deve essere azzerata dal
+  // TRIGGER_TIMEOUT: altrimenti premi Stop, la pipeline riparte da sola e sembra
+  // che Stop non funzioni. Si toglie solo esplicitamente (Riprendi / Nuova Run /
+  // lancio manuale del classificatore).
+  const [classifPausa, setClassifPausa] = useState(() => {
+    try { return localStorage.getItem("grizzly_classif_pausa") === "1"; } catch(e) { return false; }
+  });
+  const classifPausaRef = React.useRef(false);
+  useEffect(() => { classifPausaRef.current = classifPausa; }, [classifPausa]);
+  const setPausaClassificatore = React.useCallback((on) => {
+    classifPausaRef.current = on;         // immediato: fetchCounters legge il ref, non lo state
+    setClassifPausa(on);
+    try { on ? localStorage.setItem("grizzly_classif_pausa","1") : localStorage.removeItem("grizzly_classif_pausa"); } catch(e){}
+  }, []);
   const [prospectingTab, setProspectingTab]   = useState("tabella"); // "tabella" | "sheets"
   const [prospectingSelected, setProspectingSelected] = useState(()=>{
     try { const s=localStorage.getItem('grizzly_selected'); return s?new Set(JSON.parse(s)):new Set(); } catch(e){ return new Set(); }
@@ -857,6 +913,11 @@ function App() {
         autoNuovoFiringRef.current = false; // timeout reset → retry al prossimo ciclo
       }
       if (nuovo === 0) { autoNuovoFiringRef.current = false; }
+      else if (classifPausaRef.current) {
+        // Pausa esplicita dell'utente: nessun auto-avvio finche' non preme Riprendi.
+        // Si legge il ref e non lo state, perche' fetchCounters puo' girare prima
+        // che React abbia propagato il nuovo valore.
+      }
       else if (!autoNuovoFiringRef.current && !utenteSuCode && !runInitializingRef.current) {
         if (!pipelineInCorso) {
           autoNuovoFiringRef.current = true;
@@ -977,10 +1038,14 @@ function App() {
       if (rPipeline.ok) {
         const pipelineRows = await rPipeline.json();
         if (pipelineRows && pipelineRows.length > 0) {
-          // Applica solo righe più recenti del runStart (evita stati di run precedenti)
-          const validRows = runStart
-            ? pipelineRows.filter(r => r.aggiornato_il && new Date(r.aggiornato_il) >= new Date(runStart))
-            : [];
+          // Applica solo righe più recenti del runStart (evita stati di run precedenti).
+          // Senza runStart — es. classificatore lanciato a mano, o reload dopo che
+          // "Nuova Run" ha azzerato lo stato — NON si scarta tutto: lasciare le fasi
+          // vuote farebbe risultare pipelineInCorso=false e l'auto-avvio partirebbe
+          // anche con Phantom in esecuzione. Si ripiega su una finestra temporale.
+          const FINESTRA_SENZA_RUNSTART = 2 * 60 * 60 * 1000; // 2 ore
+          const limite = runStart ? new Date(runStart) : new Date(Date.now() - FINESTRA_SENZA_RUNSTART);
+          const validRows = pipelineRows.filter(r => r.aggiornato_il && new Date(r.aggiornato_il) >= limite);
           if (validRows.length > 0) {
             const pmap = Object.fromEntries(validRows.map(r => [r.fase, r]));
             // Log transizioni di stato
@@ -1051,6 +1116,7 @@ function App() {
     // Reset guard per permettere nuovo ciclo dopo rilancio
     autoPhantomFiringRef.current = false;
     autoNuovoFiringRef.current = false;
+    setPausaClassificatore(false); // lancio esplicito = l'utente vuole ripartire
     // classificaAutoRef NON va resettato qui: si resetta da solo quando stato esce da attesa_utente
     // Salva gli ID delle aziende oggetto di questo rilancio e le resetta a 'nuovo'
     // così l'Edge Function phantom-input le restituisce correttamente a Phantom (non-blocking)
@@ -1119,16 +1185,20 @@ function App() {
   const stopClassificatoreForzato = useCallback(async () => {
     const {url, key} = getSbCreds();
     if (!url || !key) { showToast("⚠ Credenziali Supabase mancanti"); return; }
-    pushLog("warn", "⏹ Stop classificatore richiesto — si fermerà entro 10 aziende...");
+    // Mette in pausa PRIMA di inviare lo stop: altrimenti l'auto-avvio del ciclo
+    // successivo di fetchCounters rilancerebbe subito il classificatore appena
+    // fermato, e Stop sembrerebbe non funzionare.
+    setPausaClassificatore(true);
+    pushLog("warn", "⏹ Stop classificatore richiesto — si ferma dopo l'azienda in corso (fino a ~1 minuto)");
     try {
       await fetch(`${url}/rest/v1/settings?on_conflict=chiave`, {
         method: "POST",
         headers: {apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal"},
         body: JSON.stringify({chiave: "stop_classificatore", valore: "true", aggiornato_il: new Date().toISOString()})
       });
-      showToast("⏹ Stop classificatore inviato");
+      showToast("⏹ Stop inviato — auto-avvio in pausa");
     } catch(e) { pushLog("error", "✕ Errore invio stop classificatore: " + e.message); }
-  }, [pushLog, showToast]);
+  }, [pushLog, showToast, setPausaClassificatore]);
 
   // ── Genera icebreaker singola azienda (chiama /classifica/icebreaker) ────────
   const handleGeneraIcebreaker = useCallback(async (rowId, nome, sitoWeb) => {
@@ -1672,6 +1742,26 @@ function App() {
       setImportColWidths(prev => ({...prev, [colIdx]: Math.max(40, startWidth + e.clientX - startX)}));
     };
     const onUp = () => { importResizingRef.current = null; };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+  }, []);
+
+  // Resize sidebar log — si trascina verso sinistra per allargare
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!logResizeRef.current) return;
+      const {startX, startWidth} = logResizeRef.current;
+      const w = Math.min(LOG_W_MAX, Math.max(LOG_W_MIN, startWidth - (e.clientX - startX)));
+      setLogWidth(w);
+    };
+    const onUp = () => {
+      if (!logResizeRef.current) return;
+      logResizeRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setLogWidth(w => { try { localStorage.setItem("grizzly_log_width", String(w)); } catch(e){} return w; });
+    };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
     return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
@@ -2701,6 +2791,15 @@ function App() {
             }} style={{fontSize:11,fontWeight:600,padding:"4px 12px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>Nuova Run</button>
           )}
 
+          {/* Avviso pausa — la pipeline e' automatica, quindi se l'automatismo e'
+              spento deve vedersi subito, altrimenti sembra che si sia impiantata */}
+          {classifPausa&&(
+            <button onClick={()=>{setPausaClassificatore(false);pushLog("ok","▶ Auto-avvio classificatore riattivato");showToast("▶ Classificatore riattivato");}}
+              title="Hai messo in pausa l'avvio automatico con Stop. Clicca per riattivarlo."
+              style={{display:"flex",alignItems:"center",gap:6,fontSize:10,fontWeight:700,padding:"4px 10px",background:"rgba(245,158,11,0.14)",border:"1px solid rgba(245,158,11,0.45)",color:"#fbbf24",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>
+              ⏸ Auto-avvio in pausa <span style={{color:"#86efac"}}>▶ Riprendi</span>
+            </button>
+          )}
           <LiveClock runStart={runStart} runAttivo={runAttivo} runId={runId} lastSync={lastSync} syncErr={syncErr} onRefresh={forceRefresh} C={C} />
           {/* User info + logout */}
           <div style={{display:"flex",alignItems:"center",gap:6,borderLeft:`1px solid ${C.border}`,paddingLeft:10,marginLeft:2}}>
@@ -2935,7 +3034,7 @@ function App() {
             ):(
               <div style={{display:"flex",flexDirection:"column",gap:16,height:"calc(100vh - 78px)",overflow:"hidden",position:"relative"}}>
               <div style={{display:"flex",gap:0,alignItems:"flex-start",position:"relative",flexShrink:0}}>
-                <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",position:"relative",paddingRight:328,maxHeight:"calc(100vh - 300px)",overflowY:"auto"}}>
+                <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",position:"relative",paddingRight:logWidth+16,maxHeight:"calc(100vh - 300px)",overflowY:"auto"}}>
                 {/* ── TOP AREA: Run corrente | Da gestire ── */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1px 1fr",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",marginBottom:16,flexShrink:0}}>
                   {/* Pannello sinistro — Run corrente */}
@@ -3070,8 +3169,15 @@ function App() {
                           {fase.id==="hubspot"&&fase.stato==="in_corso"&&(
                             <button onClick={stopHubspotForzato} style={{position:"absolute",bottom:8,right:8,fontSize:8,fontWeight:600,color:"#fca5a5",background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer"}}>⏹ Stop</button>
                           )}
-                          {/* Stop Classificatore — in basso a destra, solo quando classifica in_corso */}
-                          {fase.id==="classifica"&&fase.stato==="in_corso"&&(
+                          {/* Classificatore: Stop mentre gira, Riprendi quando e' in pausa.
+                              Senza il Riprendi la pausa persistente sarebbe una trappola:
+                              l'auto-avvio resterebbe spento senza un modo per riaccenderlo. */}
+                          {fase.id==="classifica"&&classifPausa&&(
+                            <button onClick={()=>{setPausaClassificatore(false);pushLog("ok","▶ Auto-avvio classificatore riattivato");showToast("▶ Classificatore riattivato");}}
+                              title="L'avvio automatico è in pausa: riattivalo per riprendere la classificazione"
+                              style={{position:"absolute",bottom:8,right:8,fontSize:8,fontWeight:700,color:"#86efac",background:"rgba(34,197,94,0.14)",border:"1px solid rgba(34,197,94,0.4)",borderRadius:3,padding:"3px 7px",cursor:"pointer"}}>▶ Riprendi</button>
+                          )}
+                          {fase.id==="classifica"&&!classifPausa&&fase.stato==="in_corso"&&(
                             <button onClick={stopClassificatoreForzato} style={{position:"absolute",bottom:8,right:8,fontSize:8,fontWeight:600,color:"#fca5a5",background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer"}}>⏹ Stop</button>
                           )}
                           {/* Riavvia Classificatore — in basso a destra, solo dopo stop manuale */}
@@ -3228,11 +3334,18 @@ function App() {
 
                 </div>
                 </div>
-                {/* ── LOG SIDEBAR ── */}
-                <div style={{position:"absolute",top:0,bottom:0,right:0,width:312,display:"flex",flexDirection:"column",background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+                {/* ── LOG SIDEBAR ── larghezza trascinabile dal bordo sinistro */}
+                <div style={{position:"absolute",top:0,bottom:0,right:0,width:logWidth,display:"flex",flexDirection:"column",background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden"}}>
+                  {/* maniglia di trascinamento */}
+                  <div
+                    onMouseDown={e=>{e.preventDefault();logResizeRef.current={startX:e.clientX,startWidth:logWidth};document.body.style.cursor="col-resize";document.body.style.userSelect="none";}}
+                    onDoubleClick={()=>{setLogWidth(LOG_W_DEFAULT);try{localStorage.setItem("grizzly_log_width",String(LOG_W_DEFAULT));}catch(e){}}}
+                    title="Trascina per ridimensionare · doppio clic per ripristinare"
+                    style={{position:"absolute",left:0,top:0,bottom:0,width:6,cursor:"col-resize",zIndex:3}}/>
+                  <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px 9px 18px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
                     <div style={{width:7,height:7,borderRadius:"50%",background:C.green,boxShadow:`0 0 6px ${C.green}`,animation:"pulse 2s infinite"}}/>
                     <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.12em",color:C.muted,textTransform:"uppercase"}}>Log Live</span>
+                    <span style={{marginLeft:"auto",fontSize:9,color:C.muted,fontFamily:"'JetBrains Mono',monospace"}}>{log.length}</span>
                   </div>
                   <div ref={logSidebarRef} style={{overflowY:"auto",flex:1,height:0}}>
                     {log.length===0
@@ -3438,7 +3551,7 @@ function App() {
                         </div>
                         <div style={{display:"flex",gap:6,alignItems:"center"}}>
                           {(()=>{
-                            const filteredRows = importStatoFilter.size>0 ? importDati.rows.filter(r=>importStatoFilter.has(r.stato)) : importDati.rows;
+                            const filteredRows = applicaFiltriImport(importDati.rows);
                             const allSel = filteredRows.length>0 && filteredRows.every(r=>importSelected.has(r.id));
                             return (
                               <button onClick={()=>{
@@ -3480,12 +3593,51 @@ function App() {
                                 </button>
                               );
                             })}
-                            {importStatoFilter.size>0&&(
-                              <button onClick={()=>setImportStatoFilter(new Set())}
-                                style={{padding:"3px 8px",borderRadius:5,border:"1px solid rgba(148,163,184,0.2)",background:"transparent",color:"#64748b",cursor:"pointer",fontSize:10}}>
-                                ✕ Tutti
-                              </button>
-                            )}
+                            {/* ── Tendine settore e confidenza ── */}
+                            {(()=>{
+                              const selStyle = {padding:"3px 7px",borderRadius:5,border:"1px solid rgba(148,163,184,0.25)",background:"#0d1117",color:C.text,fontSize:10,cursor:"pointer",maxWidth:170};
+                              const settori = [...new Set(importDati.rows.map(r=>r.settore).filter(Boolean))].sort();
+                              const senzaSettore = importDati.rows.filter(r=>!r.settore).length;
+                              const CONF = [{k:"alta",label:"Alta"},{k:"media",label:"Media"},{k:"bassa",label:"Bassa"}];
+                              const senzaConf = importDati.rows.filter(r=>!r.settore_confidenza).length;
+                              return (
+                                <>
+                                  <select value={importSettoreFilter} onChange={e=>setImportSettoreFilter(e.target.value)}
+                                    title="Filtra per settore"
+                                    style={{...selStyle,borderColor:importSettoreFilter?"#3b82f6":"rgba(148,163,184,0.25)",color:importSettoreFilter?"#93c5fd":C.text}}>
+                                    <option value="">Settore: tutti</option>
+                                    {settori.map(s=>{
+                                      const n = importDati.rows.filter(r=>r.settore===s).length;
+                                      return <option key={s} value={s}>{s} ({n})</option>;
+                                    })}
+                                    {senzaSettore>0&&<option value="__vuoto__">— senza settore ({senzaSettore})</option>}
+                                  </select>
+                                  <select value={importConfFilter} onChange={e=>setImportConfFilter(e.target.value)}
+                                    title="Filtra per confidenza"
+                                    style={{...selStyle,borderColor:importConfFilter?"#3b82f6":"rgba(148,163,184,0.25)",color:importConfFilter?"#93c5fd":C.text}}>
+                                    <option value="">Confidenza: tutte</option>
+                                    {CONF.map(({k,label})=>{
+                                      const n = importDati.rows.filter(r=>r.settore_confidenza===k).length;
+                                      if(n===0) return null;
+                                      return <option key={k} value={k}>{label} ({n})</option>;
+                                    })}
+                                    {senzaConf>0&&<option value="__vuoto__">— senza confidenza ({senzaConf})</option>}
+                                  </select>
+                                </>
+                              );
+                            })()}
+                            {(importStatoFilter.size>0||importSettoreFilter||importConfFilter)&&(()=>{
+                              const n = applicaFiltriImport(importDati.rows).length;
+                              return (
+                                <div style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto"}}>
+                                  <span style={{fontSize:10,color:"#93c5fd",fontWeight:600}}>{n} di {importDati.rows.length}</span>
+                                  <button onClick={()=>{setImportStatoFilter(new Set());setImportSettoreFilter("");setImportConfFilter("");}}
+                                    style={{padding:"3px 8px",borderRadius:5,border:"1px solid rgba(148,163,184,0.2)",background:"transparent",color:"#64748b",cursor:"pointer",fontSize:10}}>
+                                    ✕ Azzera filtri
+                                  </button>
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       })()}
@@ -3524,7 +3676,7 @@ function App() {
                                 <tbody>
                                   {(()=>{
                                     const {sortCol,sortDir,rows} = importDati;
-                                    const filtered = importStatoFilter.size>0 ? rows.filter(r=>importStatoFilter.has(r.stato)) : rows;
+                                    const filtered = applicaFiltriImport(rows);
                                     const sorted = sortCol ? [...filtered].sort((a,b)=>{
                                       const av=(a[sortCol]||"").toString().toLowerCase();
                                       const bv=(b[sortCol]||"").toString().toLowerCase();
@@ -3741,6 +3893,62 @@ function App() {
               </div>
               {!sbReady&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>⚡ Configura Supabase in Impostazioni</div>}
 
+              {/* ── BARRA FILTRI (solo vista Classificazioni) ── */}
+              {sbReady&&classifFilterAll==='classificazioni'&&classifReview.rows.length>0&&(()=>{
+                const righe = classifReview.rows;
+                const selStyle = attivo => ({padding:"3px 7px",borderRadius:5,border:`1px solid ${attivo?"#3b82f6":"rgba(148,163,184,0.25)"}`,background:"#0d1117",color:attivo?"#93c5fd":C.text,fontSize:10,cursor:"pointer",maxWidth:180});
+                const conta = (campo,val) => righe.filter(r=>val==="__vuoto__"?!r[campo]:r[campo]===val).length;
+                const settori = [...new Set(righe.map(r=>r.settore).filter(Boolean))].sort();
+                const visibili = classifRighe().length;
+                const attivi = classifConfF||classifSettF||classifSemF;
+                return (
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center",padding:"6px 12px",borderBottom:`1px solid rgba(59,130,246,0.15)`,background:"rgba(59,130,246,0.03)",flexShrink:0}}>
+                    <select value={classifConfF} onChange={e=>setClassifConfF(e.target.value)} title="Filtra per confidenza" style={selStyle(!!classifConfF)}>
+                      <option value="">Confidenza: tutte</option>
+                      {["alta","media","bassa"].map(k=>{
+                        const n=conta("settore_confidenza",k);
+                        return n?<option key={k} value={k}>{k[0].toUpperCase()+k.slice(1)} ({n})</option>:null;
+                      })}
+                      {conta("settore_confidenza","__vuoto__")>0&&<option value="__vuoto__">— non classificate ({conta("settore_confidenza","__vuoto__")})</option>}
+                    </select>
+                    <select value={classifSettF} onChange={e=>setClassifSettF(e.target.value)} title="Filtra per settore" style={selStyle(!!classifSettF)}>
+                      <option value="">Settore: tutti</option>
+                      {settori.map(s=><option key={s} value={s}>{s} ({conta("settore",s)})</option>)}
+                      {conta("settore","__vuoto__")>0&&<option value="__vuoto__">— senza settore ({conta("settore","__vuoto__")})</option>}
+                    </select>
+                    <select value={classifSemF} onChange={e=>setClassifSemF(e.target.value)} title="Filtra per semaforo di verifica" style={selStyle(!!classifSemF)}>
+                      <option value="">Semaforo: tutti</option>
+                      {[{k:"✓",l:"✓ confermato"},{k:"⚠",l:"⚠ da controllare"},{k:"✗",l:"✗ discordante"}].map(({k,l})=>{
+                        const n=conta("semaforo_verifica",k);
+                        return n?<option key={k} value={k}>{l} ({n})</option>:null;
+                      })}
+                      {conta("semaforo_verifica","__vuoto__")>0&&<option value="__vuoto__">— non verificate ({conta("semaforo_verifica","__vuoto__")})</option>}
+                    </select>
+                    {/* scorciatoia: i casi che meritano davvero uno sguardo */}
+                    <button onClick={()=>{setClassifConfF("alta");setClassifSemF("✗");setClassifSettF("");}}
+                      title="Confidenza alta ma verifica discordante: il classificatore era sicuro e il revisore non e' d'accordo"
+                      style={{padding:"3px 9px",borderRadius:5,border:"1px solid rgba(248,113,113,0.35)",background:"rgba(248,113,113,0.10)",color:"#f87171",cursor:"pointer",fontSize:10,fontWeight:600}}>
+                      ⚠ Alta ma discordanti
+                    </button>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto"}}>
+                      <span style={{fontSize:10,color:attivi?"#93c5fd":C.muted,fontWeight:600}}>{visibili} di {righe.length}</span>
+                      {attivi&&(
+                        <button onClick={()=>{setClassifConfF("");setClassifSettF("");setClassifSemF("");}}
+                          style={{padding:"3px 8px",borderRadius:5,border:"1px solid rgba(148,163,184,0.2)",background:"transparent",color:"#64748b",cursor:"pointer",fontSize:10}}>
+                          ✕ Azzera filtri
+                        </button>
+                      )}
+                      {classifSort.col&&(
+                        <button onClick={()=>setClassifSort({col:null,dir:"asc"})}
+                          style={{padding:"3px 8px",borderRadius:5,border:"1px solid rgba(148,163,184,0.2)",background:"transparent",color:"#64748b",cursor:"pointer",fontSize:10}}>
+                          ✕ Ordinamento
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* CLASSIFICAZIONI TABLE */}
               {sbReady&&classifFilterAll==='classificazioni'&&(
                 classifReview.loading&&classifReview.rows.length===0
@@ -3760,13 +3968,31 @@ function App() {
                         </colgroup>
                         <thead style={{position:"sticky",top:0,zIndex:2}}>
                           <tr style={{background:"rgba(59,130,246,0.10)"}}>
-                            {["Azienda","Sito web","Settore","Conf.","Sem.","Motivazione AI","Note verifica","Icebreaker","Azioni"].map(h=>(
-                              <th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:9,letterSpacing:"0.07em",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h}</th>
-                            ))}
+                            {[
+                              {h:"Azienda",        k:"nome"},
+                              {h:"Sito web",       k:"sito_web"},
+                              {h:"Settore",        k:"settore"},
+                              {h:"Conf.",          k:"settore_confidenza"},
+                              {h:"Sem.",           k:"semaforo_verifica"},
+                              {h:"Motivazione AI", k:"settore_motivazione"},
+                              {h:"Note verifica",  k:"note_verifica"},
+                              {h:"Icebreaker",     k:"icebreaker"},
+                              {h:"Azioni",         k:null},
+                            ].map(({h,k})=>{
+                              const active = k && classifSort.col===k;
+                              return (
+                                <th key={h}
+                                  onClick={k?()=>setClassifSort(s=>({col:k, dir:s.col===k&&s.dir==="asc"?"desc":"asc"})):undefined}
+                                  title={k?"Ordina per "+h:undefined}
+                                  style={{padding:"6px 10px",textAlign:"left",color:active?C.accent:C.muted,fontWeight:700,fontSize:9,letterSpacing:"0.07em",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:k?"pointer":"default",userSelect:"none"}}>
+                                  {h}{active?(classifSort.dir==="asc"?" ↑":" ↓"):(k?" ·":"")}
+                                </th>
+                              );
+                            })}
                           </tr>
                         </thead>
                         <tbody>
-                          {classifReview.rows.map((r,i)=>(
+                          {classifRighe().map((r,i)=>(
                             <tr key={r.id} style={{borderBottom:`1px solid rgba(59,130,246,0.06)`,background:i%2===0?"transparent":"rgba(59,130,246,0.02)"}}>
                               <td style={{padding:"6px 10px",fontWeight:600,color:C.textHi,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.nome}</td>
                               <td style={{padding:"6px 10px",overflow:"hidden",maxWidth:0}}>
@@ -3809,7 +4035,17 @@ function App() {
                           ))}
                         </tbody>
                       </table>
-                      {classifReview.rows.length===0&&<div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>Nessuna classificazione disponibile</div>}
+                      {classifReview.rows.length===0
+                        ? <div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>Nessuna classificazione disponibile</div>
+                        : classifRighe().length===0&&(
+                            <div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>
+                              Nessuna riga corrisponde ai filtri attivi.{" "}
+                              <button onClick={()=>{setClassifConfF("");setClassifSettF("");setClassifSemF("");}}
+                                style={{background:"transparent",border:"none",color:C.accent,cursor:"pointer",fontSize:12,textDecoration:"underline",padding:0}}>
+                                Azzera i filtri
+                              </button>
+                            </div>
+                          )}
                     </div>
               )}
 
