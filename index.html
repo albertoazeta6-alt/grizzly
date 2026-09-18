@@ -1113,8 +1113,6 @@ function App() {
     const savedView = runViewRef.current; // preserva la view corrente
     const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
     if (!base) { showToast("⚠ URL Agente Azure non configurato"); return; }
-    const openaiKey = sbSettings["openai_api_key"]||"";
-    if (!openaiKey) { showToast("⚠ OpenAI API Key mancante"); return; }
     // Reset guard per permettere nuovo ciclo dopo rilancio
     autoPhantomFiringRef.current = false;
     autoNuovoFiringRef.current = false;
@@ -1206,18 +1204,15 @@ function App() {
   const handleGeneraIcebreaker = useCallback(async (rowId, nome, sitoWeb) => {
     const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
     if (!base) { showToast("⚠ URL agente Azure mancante nelle Impostazioni"); return; }
-    const aiKey = sbSettings["openai_api_key"] || "";
-    if (!aiKey) { showToast("⚠ API key OpenAI mancante nelle Impostazioni"); return; }
-    const {url, key} = getSbCreds();
-    if (!url || !key) { showToast("⚠ Credenziali Supabase mancanti"); return; }
+    // Credenziali NON inviate: l'agente Azure legge Supabase e OpenAI dalle
+    // proprie variabili d'ambiente. Una chiave che vale soldi non deve mai
+    // passare dal browser, dove chiunque puo' leggerla.
     setGenIceId(rowId);
     try {
       const r = await fetch(`${base}/classifica/icebreaker`, {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({
-          supabase_url: url, supabase_key: key,
-          openai_api_key: aiKey,
           openai_model: sbSettings["openai_model"] || "gpt-4o-mini",
           nome: nome, sito_web: sitoWeb || ""
         })
@@ -1609,10 +1604,8 @@ function App() {
       giriAVuotoRef.current = {n:0, ts:Date.now()}; // c'e' lavoro vero: contatore azzerato
       const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
       if (!base) { pushLog("warn","⚠ URL Agente Azure non configurato — classificazione non avviata"); return; }
-      const {url:sbUrl, key:sbKey} = getSbCreds();
-      const openaiKey = sbSettings["openai_api_key"]||"";
-      if (!openaiKey) { pushLog("warn","⚠ OpenAI API Key mancante — classificazione non avviata"); return; }
       const openaiModel = sbSettings["openai_model"]||"gpt-4o-mini";
+      // Credenziali NON inviate: l'agente le legge dalle proprie variabili d'ambiente.
       // run_start NON inviato di proposito. L'agente filtra per creato_il >= run_start,
       // mentre il contatore della webapp conta per stato=nuovo AND settore IS NULL,
       // senza vincolo di data. Con aziende storiche in coda i due numeri divergono:
@@ -1622,7 +1615,7 @@ function App() {
       // La coda e' definita da `settore IS NULL`: la data di creazione non c'entra.
       fetch(`${base}/classifica/avvia`, {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({supabase_url:sbUrl, supabase_key:sbKey, openai_api_key:openaiKey, openai_model:openaiModel})
+        body: JSON.stringify({openai_model:openaiModel})
       }).then(r=>r.json()).then(j=>{
         if (j.status==="avviato"||j.status==="già_in_corso") {
           pushLog("ok","▶ Classificazione avviata automaticamente");
@@ -1649,9 +1642,10 @@ function App() {
       // quindi n può essere 0 mentre la verifica è ancora in corso.
       try {
         const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
-        const {url:sbUrl, key:sbKey} = getSbCreds();
-        if (base && sbUrl && sbKey) {
-          const sr = await fetch(`${base}/classifica/stato?supabase_url=${encodeURIComponent(sbUrl)}&supabase_key=${encodeURIComponent(sbKey)}`);
+        if (base) {
+          // Nessuna credenziale nella query string: finirebbe nei log del server,
+          // nella cronologia del browser e nell'intestazione Referer.
+          const sr = await fetch(`${base}/classifica/stato`);
           if (sr.ok) {
             const sj = await sr.json();
             // Errore fatale nell'agente → blocca polling e segnala
@@ -2269,8 +2263,6 @@ function App() {
     const ids = [...importSelected];
     const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
     if (!base) { showToast("⚠ URL Agente Azure non configurato"); return; }
-    const openaiKey = sbSettings["openai_api_key"]||"";
-    if (!openaiKey) { showToast("⚠ OpenAI API Key mancante"); return; }
     if (!await customConfirm(`Riclassificare ${ids.length} aziend${ids.length===1?"a":"e"} selezionat${ids.length===1?"a":"e"}?`)) return;
     const {url:sbUrl, key:sbKey} = getSbCreds();
     if (!sbUrl || !sbKey) { showToast("⚠ Credenziali Supabase mancanti"); return; }
@@ -2287,8 +2279,7 @@ function App() {
       const r = await fetch(`${base}/classifica/avvia`, {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({
-          supabase_url: sbUrl, supabase_key: sbKey,
-          openai_api_key: openaiKey,
+          // credenziali lette dall'agente dalle proprie variabili d'ambiente
           openai_model: sbSettings["openai_model"]||"gpt-4o-mini",
           companyIds: ids
         })
@@ -2823,7 +2814,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.37</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.38</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -2996,7 +2987,6 @@ function App() {
             {/* API KEYS */}
             <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
               <SectionHead title="API KEYS"/>
-              <SettingRow chiave="openai_api_key"      label="OpenAI"        tipo="secret" {...sr}/>
               <SettingRow chiave="phantom_api_key"     label="Phantombuster" tipo="secret" {...sr}/>
               <SettingRow chiave="dropcontact_api_key" label="Dropcontact"   tipo="secret" {...sr}/>
               <SettingRow chiave="apollo_api_key"      label="Apollo.io"     tipo="secret" {...sr}/>
@@ -3421,10 +3411,7 @@ function App() {
                         <button onClick={async ()=>{
                           const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
                           if (!base) { showToast("⚠ Configura URL Agente Azure nelle Impostazioni"); return; }
-                          const {url:sbUrl, key:sbKey} = getSbCreds();
-                          const openaiKey = sbSettings["openai_api_key"]||"";
                           const openaiModel = sbSettings["openai_model"]||"gpt-4o-mini";
-                          if (!openaiKey) { showToast("⚠ OpenAI API Key non configurata nelle Impostazioni"); return; }
                           try {
                             // run_start deliberatamente NON inviato: l'agente filtra per
                             // creato_il >= run_start, quindi con la run attiva le aziende
@@ -3434,7 +3421,7 @@ function App() {
                             const r = await fetch(`${base}/classifica/avvia`, {
                               method:"POST",
                               headers:{"Content-Type":"application/json"},
-                              body: JSON.stringify({supabase_url:sbUrl, supabase_key:sbKey, openai_api_key:openaiKey, openai_model:openaiModel})
+                              body: JSON.stringify({openai_model:openaiModel})
                             });
                             const j = await r.json();
                             if (j.status==="avviato") {
