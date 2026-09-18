@@ -2552,9 +2552,44 @@ function App() {
     if (runId) localStorage.setItem(`grizzly_hubspot_fired_${runId}`, '1');
     try { localStorage.removeItem('grizzly_selected'); setProspectingSelected(new Set()); } catch(e) {}
     if (!MAKE.hubspot) { pushLog("warn","⚠ Webhook HubSpot non configurato nelle Impostazioni"); setLoad("continua",false); return; }
-    await callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId || "", runStart: runStart || "", companyIds: rilancioCompanyIdsRef.current.length ? rilancioCompanyIdsRef.current : null }, "Aggiornamento Hubspot");
-    setFaseS("hubspot", "in_corso", {iniziato: new Date().toISOString(), dettaglio: "Aggiornamento aziende su HubSpot..."});
-    pushLog("ok", "▶ Aggiornamento Hubspot avviato");
+
+    // Determina QUALI aziende sincronizzare, invece di affidarsi a
+    // rilancioCompanyIdsRef — che è popolato solo dal percorso Code e nel flusso
+    // automatico resta vuoto, facendo partire Make con companyIds=null.
+    // Con null Make ricade sulla lettura per stato (fino a 500 righe): costosa, e
+    // per giunta cieca alle aziende di questa run.
+    let idsDaSincronizzare = rilancioCompanyIdsRef.current.length ? rilancioCompanyIdsRef.current : null;
+    if (!idsDaSincronizzare) {
+      const {url: sbU, key: sbK} = getSbCreds();
+      if (sbU && sbK) {
+        try {
+          const filtroRun = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
+          const r = await fetch(
+            `${sbU}/rest/v1/companies?select=id&stato=in.(linkedin_upd,settore_aggiornato,linkedin_ko)${filtroRun}&limit=500`,
+            {headers:{apikey:sbK, Authorization:`Bearer ${sbK}`}}
+          );
+          if (r.ok) {
+            const righe = await r.json();
+            if (righe.length) idsDaSincronizzare = righe.map(x => x.id);
+          }
+        } catch(e) { /* si prosegue: Make ricadrà sul filtro per stato */ }
+      }
+    }
+
+    // Nessuna azienda da sincronizzare: si salta la fase invece di chiamare Make
+    // a vuoto. Con risultato vuoto il feeder non produce bundle, quindi nemmeno
+    // il modulo che chiude la fase verrebbe eseguito e resterebbe in_corso.
+    if (!idsDaSincronizzare) {
+      pushLog("info", "ℹ Nessuna azienda da sincronizzare — fase HubSpot saltata");
+      setFaseS("hubspot", "completato", {completato: new Date().toISOString(), dettaglio: "Nessuna azienda da sincronizzare"});
+      sbWritePipelineState("hubspot", "completato", "Nessuna azienda da sincronizzare");
+      setLoad("continua", false);
+      return;
+    }
+
+    await callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId || "", runStart: runStart || "", companyIds: idsDaSincronizzare }, "Aggiornamento Hubspot");
+    setFaseS("hubspot", "in_corso", {iniziato: new Date().toISOString(), dettaglio: `Aggiornamento ${idsDaSincronizzare.length} aziende su HubSpot...`});
+    pushLog("ok", `▶ Aggiornamento Hubspot avviato — ${idsDaSincronizzare.length} aziend${idsDaSincronizzare.length===1?"a":"e"}`);
     showToast("✓ Aggiornamento Hubspot avviato");
     setLoad("continua", false);
   };
