@@ -2563,9 +2563,16 @@ function App() {
       const {url: sbU, key: sbK} = getSbCreds();
       if (sbU && sbK) {
         try {
+          // Su HubSpot ci vanno tutte le aziende della run TRANNE quelle senza sito:
+          // non essendo mai state classificate arriverebbero senza settore ne'
+          // icebreaker. Rientreranno quando l'utente avra' inserito il sito dal tab
+          // Code e saranno passate dal classificatore.
+          // Lo stato di coda `url_ambigua` viene preservato da Make in scrittura,
+          // altrimenti sincronizzarla la farebbe sparire dalla coda di revisione.
+          const STATI_DA_SINCRONIZZARE = "linkedin_upd,settore_aggiornato,linkedin_ko,url_ambigua";
           const filtroRun = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
           const r = await fetch(
-            `${sbU}/rest/v1/companies?select=id&stato=in.(linkedin_upd,settore_aggiornato,linkedin_ko)${filtroRun}&limit=500`,
+            `${sbU}/rest/v1/companies?select=id&stato=in.(${STATI_DA_SINCRONIZZARE})${filtroRun}&limit=500`,
             {headers:{apikey:sbK, Authorization:`Bearer ${sbK}`}}
           );
           if (r.ok) {
@@ -2816,7 +2823,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.35</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.37</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
