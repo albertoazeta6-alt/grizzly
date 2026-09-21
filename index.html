@@ -302,6 +302,37 @@ const C = {
   orange:"#f97316",orangeDim:"rgba(249,115,22,0.10)",
 };
 
+// Il fatturato arriva dall'import come testo, nei formati piu' vari:
+// "12.500.000", "12500000", "1.234.567,89", "€ 4.000.000". Qui si riduce a una
+// cifra leggibile a colpo d'occhio. Sopra il milione in M€, sotto in k€:
+// arrotondare 250.000 a "0,3 M€" perderebbe l'informazione utile.
+// Se il valore non e' interpretabile come numero viene restituito com'e': meglio
+// un dato grezzo che un "—" che nasconde qualcosa di reale.
+const fmtFatturato = v => {
+  if (v === null || v === undefined || v === "") return "—";
+  if (typeof v === "number") return fmtMilioni(v);
+  let s = String(v).trim();
+  if (!s) return "—";
+  s = s.replace(/[€\s ]/g, "");
+  // Formato italiano: il punto separa le migliaia, la virgola i decimali.
+  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+  else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
+  const n = Number(s);
+  if (!isFinite(n) || n <= 0) return String(v);
+  return fmtMilioni(n);
+};
+const fmtMilioni = n => {
+  if (n >= 1e6) {
+    const m = n / 1e6;
+    // Sotto i 100 milioni un decimale aiuta a distinguere 2,3 da 2,9;
+    // sopra, il decimale e' rumore.
+    return (m >= 100 ? Math.round(m) : Math.round(m * 10) / 10)
+      .toLocaleString("it-IT") + " M€";
+  }
+  if (n >= 1e3) return Math.round(n / 1e3).toLocaleString("it-IT") + " k€";
+  return n.toLocaleString("it-IT") + " €";
+};
+
 const fmtTime = d => !d?"—":new Date(d).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
 const fmtAgo  = d => {if(!d)return"";const s=Math.floor((Date.now()-new Date(d))/1000);if(s<60)return`${s}s fa`;if(s<3600)return`${Math.floor(s/60)}m fa`;return`${Math.floor(s/3600)}h fa`;};
 const dur     = (a,b) => {if(!a||!b)return null;const s=Math.floor((new Date(b)-new Date(a))/1000);return s<60?`${s}s`:`${Math.floor(s/60)}m ${s%60}s`;};
@@ -1146,7 +1177,7 @@ function App() {
       if (sbU && sbK) {
         // Escludi aziende in coda classificazione (bassa/media/Altro/⚠/✗)
         fetch(`${sbU}/rest/v1/companies?stato=in.(nuovo,sito_updated)&hubspot_id=is.null&settore_confidenza=not.in.(bassa,media)&settore=not.eq.Altro&semaforo_verifica=not.in.(%E2%9A%A0,%E2%9C%97)&select=id&limit=500`, {
-          headers:{apikey:sbK, Authorization:`Bearer ${sbK}`}
+          headers:{apikey:sbK, Authorization:`Bearer ${sbBearer()}`}
         }).then(rr=>rr.ok?rr.json():[]).then(async arr=>{
           const ids = arr.map(x=>x.id);
           rilancioCompanyIdsRef.current = ids;
@@ -1155,7 +1186,7 @@ function App() {
             const idList = ids.join(',');
             await fetch(`${sbU}/rest/v1/companies?id=in.(${idList})`, {
               method:'PATCH',
-              headers:{apikey:sbK, Authorization:`Bearer ${sbK}`, 'Content-Type':'application/json', Prefer:'return=minimal'},
+              headers:{apikey:sbK, Authorization:`Bearer ${sbBearer()}`, 'Content-Type':'application/json', Prefer:'return=minimal'},
               body: JSON.stringify({stato:'nuovo', aggiornato_il: new Date().toISOString()})
             }).catch(()=>{});
             pushLog("info", `↺ ${ids.length} aziende resettate a 'nuovo' per rilancio Phantom`);
@@ -2383,7 +2414,7 @@ function App() {
     } else {
       try {
         const r = await fetch(`${sbUrlF}/rest/v1/contacts?select=id&stato=in.(email_trovata,email_non_trovata)&limit=500`, {
-          headers: {apikey:sbKeyF, Authorization:`Bearer ${sbKeyF}`}
+          headers: {apikey:sbKeyF, Authorization:`Bearer ${sbBearer()}`}
         });
         const rows = r.ok ? await r.json() : [];
         contactIds = rows.map(x=>x.id);
@@ -2394,7 +2425,7 @@ function App() {
     let contactsPayload = [];
     try {
       const r = await fetch(`${sbUrlF}/rest/v1/contacts?id=in.(${contactIds.join(",")})&select=id,nome_completo,ruolo,linkedin_url,email,companies(nome,sito_web)&limit=500`, {
-        headers: {apikey:sbKeyF, Authorization:`Bearer ${sbKeyF}`}
+        headers: {apikey:sbKeyF, Authorization:`Bearer ${sbBearer()}`}
       });
       const rows = r.ok ? await r.json() : [];
       contactsPayload = rows.map(c => {
@@ -2586,7 +2617,7 @@ function App() {
           const filtroRun = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
           const r = await fetch(
             `${sbU}/rest/v1/companies?select=id&stato=in.(${STATI_DA_SINCRONIZZARE})${filtroRun}&limit=500`,
-            {headers:{apikey:sbK, Authorization:`Bearer ${sbK}`}}
+            {headers:{apikey:sbK, Authorization:`Bearer ${sbBearer()}`}}
           );
           if (r.ok) {
             const righe = await r.json();
@@ -2819,7 +2850,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.43</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.45</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -3638,7 +3669,7 @@ function App() {
                                                 </div>;
                                               })()}
                                             </td>
-                                            <td style={{padding:"5px 8px",color:C.muted,fontSize:9,whiteSpace:"nowrap"}}>{ct.companies?.fatturato||"—"}</td>
+                                            <td style={{padding:"5px 8px",color:C.muted,fontSize:9,whiteSpace:"nowrap"}}>{fmtFatturato(ct.companies?.fatturato)}</td>
                                             <td style={{padding:"5px 8px",color:ct.email?"#60a5fa":C.muted,fontSize:ct.email?10:9}}>{ct.email||"—"}</td>
                                             <td style={{padding:"5px 8px"}}><span style={{fontSize:9,fontWeight:700,color:sc,background:`${sc}22`,borderRadius:3,padding:"2px 5px"}}>{ct.stato}</span></td>
                                           </tr>
@@ -3840,7 +3871,7 @@ function App() {
                                           )}
                                         </td>
                                         <td style={{padding:"5px 10px",color:C.muted,fontSize:9,whiteSpace:"nowrap"}}>{row.citta||"—"}</td>
-                                        <td style={{padding:"5px 10px",color:C.muted,fontSize:9,whiteSpace:"nowrap"}}>{row.fatturato||"—"}</td>
+                                        <td style={{padding:"5px 10px",color:C.muted,fontSize:9,whiteSpace:"nowrap"}}>{fmtFatturato(row.fatturato)}</td>
                                         <td style={{padding:"5px 10px",whiteSpace:"nowrap"}}>
                                           <span style={{fontSize:8,fontWeight:700,color:statiColor,textTransform:"uppercase",letterSpacing:"0.05em"}}>{row.stato||"—"}</span>
                                         </td>
@@ -4749,7 +4780,7 @@ function App() {
                                       style={{borderBottom:`1px solid ${C.border}`,cursor:"pointer",background:i%2===0?C.surface:"transparent"}}>
                                       <td style={{padding:"6px 10px",fontWeight:600,color:C.textHi,whiteSpace:"nowrap",maxWidth:140,overflow:"hidden",textOverflow:"ellipsis"}}>{r.nome}</td>
                                       <td style={{padding:"6px 10px",color:C.muted,fontSize:10,whiteSpace:"nowrap"}}>{r.citta||'—'}</td>
-                                      <td style={{padding:"6px 10px",color:C.muted,fontSize:10,whiteSpace:"nowrap"}}>{r.fatturato||'—'}</td>
+                                      <td style={{padding:"6px 10px",color:C.muted,fontSize:10,whiteSpace:"nowrap"}}>{fmtFatturato(r.fatturato)}</td>
                                       <td style={{padding:"6px 10px",color:"#3b82f6",fontSize:10,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.sito_web||'—'}</td>
                                       <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}>{r.settore}</td>
                                       <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}><span style={{fontSize:9,fontWeight:700,color:cc,textTransform:"uppercase"}}>{conf||'—'}</span></td>
@@ -4788,7 +4819,7 @@ function App() {
                                 <div style={{fontSize:13,fontWeight:700,color:C.textHi,lineHeight:1.3,marginBottom:2}}>{row.nome}</div>
                                 <div style={{fontSize:10,color:C.muted,marginBottom:4,display:"flex",gap:8,flexWrap:"wrap"}}>
                                   <span>📍 {row.citta||'—'}{row.regione?` (${row.regione})`:''}</span>
-                                  <span>💰 {row.fatturato||'—'}</span>
+                                  <span>💰 {fmtFatturato(row.fatturato)}</span>
                                 </div>
                                 <input value={curSito} onChange={e=>setField(row.id,'sito_web',e.target.value)} placeholder="nessun sito"
                                   style={{background:"transparent",border:"none",borderBottom:`1px solid ${curSito!==row.sito_web?C.accent:"#1a2535"}`,padding:"2px 0",fontSize:10,color:"#3b82f6",fontFamily:"inherit",outline:"none",width:"100%"}}/>
