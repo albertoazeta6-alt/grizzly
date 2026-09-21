@@ -85,16 +85,23 @@ const URL_SHEET_ID = "1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE";
 const SHEET_NAME = "DASHBOARD_STATUS";
 const SHEET_API  = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(SHEET_NAME)}&t=${Date.now()}`;
 
-// Valori default — vengono sovrascritti da loadSettings() se Supabase è configurato
+// I webhook arrivano da loadSettings(), cioe' dalla tabella `settings`.
+// Qui restano vuoti di proposito: i valori di ripiego che c'erano prima erano
+// tutti scaduti — nessuno dei sette corrispondeva a uno scenario ancora attivo
+// in Make — quindi non facevano da rete di sicurezza, rendevano solo invisibile
+// il fatto che le Impostazioni fossero sbagliate.
+// Rimasti tre, perche' tre sono gli scenari vivi. `pulizia`, `importCsv`,
+// `urlRisolto` e `cercaDip` puntavano a scenari cancellati.
 let MAKE = {
-  pulizia:    "https://hook.eu2.make.com/zz716twsajwlpvl3pboo6nm2mre9bltb",
-  importCsv:  "https://hook.eu2.make.com/pg97fwcocjhuyr9rmawb2stt7f4vm2wk",
-  company:    "https://hook.eu2.make.com/3z96ovqse5lobrdvv0wc4k63yn28dvgs",
-  urlRisolto: "https://hook.eu2.make.com/viaciqegod7wv08ycg72hmndwuv6nqod",
-  hubspot:    "https://hook.eu2.make.com/z9eimytqdgpuulhuo6ky66yrt7p1ll6j",
-  cercaDip:   "https://hook.eu2.make.com/htuzcpwibjxykcphlbvdh9agd946t28z",
-  cercaEmail: "https://hook.eu2.make.com/blat1n64wj2rkjy2wo7z6rh8x6v22x07",
+  company:    "",
+  hubspot:    "",
+  cercaEmail: "",
 };
+
+// Il secret condiviso con i filtri degli scenari Make. Sta in `settings`, non
+// qui: questo file e' pubblico su GitHub Pages, e un segreto scritto in una
+// pagina pubblica non e' un segreto.
+let MAKE_SECRET = "";
 let PHANTOM = {
   companyFinder: "163962132206802",
   urlValutare:   "128044396945588",
@@ -152,12 +159,11 @@ async function loadSettings() {
   const rows = await sbGet("settings",{select:"chiave,valore"});
   if(!rows||!rows.length) return null;
   const m = Object.fromEntries(rows.map(r=>[r.chiave, r.valore||""]));
-  // Override MAKE webhooks dalla tabella settings
-  if(m.make_webhook_pulizia)   MAKE.pulizia    = m.make_webhook_pulizia;
-  if(m.make_webhook_import)    MAKE.importCsv  = m.make_webhook_import;
+  // Webhook e secret degli scenari Make
   if(m.make_webhook_company)   MAKE.company    = m.make_webhook_company;
   if(m.make_webhook_hubspot)   MAKE.hubspot    = m.make_webhook_hubspot;
   if(m.make_webhook_email)     MAKE.cercaEmail = m.make_webhook_email;
+  if(m.make_secret)            MAKE_SECRET     = m.make_secret;
   // Override Phantom IDs
   if(m.phantom_company_finder) PHANTOM.companyFinder = m.phantom_company_finder;
   if(m.phantom_dipendenti)     PHANTOM.dipendenti    = m.phantom_dipendenti;
@@ -975,7 +981,7 @@ function App() {
                 headers:{apikey:key, Authorization:`Bearer ${key}`, 'Content-Type':'application/json', Prefer:'return=minimal'},
                 body: JSON.stringify({stato:'linkedin_upd'})
               }).catch(()=>{});
-              callMake(MAKE.hubspot, {secret:"grizzly2026", runId:runId||"", runStart:runStart||"", companyIds:conUrl, source:"linkedin_upd"}, "Aggiornamento HubSpot — Aziende classificate da Code")
+              callMake(MAKE.hubspot, {secret:MAKE_SECRET, runId:runId||"", runStart:runStart||"", companyIds:conUrl, source:"linkedin_upd"}, "Aggiornamento HubSpot — Aziende classificate da Code")
                 .catch(()=>{});
             }
             if (senzaUrl.length > 0) {
@@ -986,7 +992,7 @@ function App() {
                 body: JSON.stringify({stato:'linkedin_ko'})
               }).catch(()=>{});
               // Sync HubSpot anche per linkedin_ko — passa url="linkedin_ko" come marcatore filtrabile
-              callMake(MAKE.hubspot, {secret:"grizzly2026", runId:runId||"", runStart:runStart||"", companyIds:senzaUrl, source:"linkedin_ko"}, "Aggiornamento HubSpot — LinkedIn non trovato")
+              callMake(MAKE.hubspot, {secret:MAKE_SECRET, runId:runId||"", runStart:runStart||"", companyIds:senzaUrl, source:"linkedin_ko"}, "Aggiornamento HubSpot — LinkedIn non trovato")
                 .catch(()=>{});
             }
           })
@@ -1024,7 +1030,7 @@ function App() {
           const ids = liUpdRows.map(r => r.id);
           const nomi = liUpdRows.map(r => r.nome).join(", ");
           pushLog("info", `↗ Sync HubSpot per ${ids.length} URL confermat${ids.length===1?"a":"e"}: ${nomi}`);
-          callMake(MAKE.hubspot, {secret:"grizzly2026", runId:runId||"", runStart:runStart||"", companyIds:ids, source:"linkedin_upd"}, "Aggiornamento HubSpot — URL ambigue risolte");
+          callMake(MAKE.hubspot, {secret:MAKE_SECRET, runId:runId||"", runStart:runStart||"", companyIds:ids, source:"linkedin_upd"}, "Aggiornamento HubSpot — URL ambigue risolte");
           // NON resettare il ref su .finally() — si resetta solo quando liUpdRows torna a 0 (Make ha processato le aziende)
         } else if (!pendingAutoHubspotRef.current) {
           pendingAutoHubspotRef.current = true;
@@ -1251,7 +1257,7 @@ function App() {
     sbWritePipelineState("hubspot", "in_corso", "Forza aggiornamento HubSpot...");
     showToast("⟳ HubSpot in avvio...");
     // Azione manuale esplicita: la deduplica non si applica, ripetere e' l'intento
-    await callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId || "", runStart: runStart || "", companyIds: null }, "Forza Aggiornamento HubSpot", {forza:true});
+    await callMake(MAKE.hubspot, { secret: MAKE_SECRET, runId: runId || "", runStart: runStart || "", companyIds: null }, "Forza Aggiornamento HubSpot", {forza:true});
     pushLog("ok", "▶ HubSpot avviato (forza manuale)");
   }, [runId, runStart, setFaseS, sbWritePipelineState, pushLog, showToast]);
 
@@ -2128,14 +2134,15 @@ function App() {
             sbWritePipelineState("import","completato","Nessuna azienda nuova");
           }
         } else {
-          // Fallback se Supabase non configurato
-          setFaseS("import","in_corso",{dettaglio:`Invio ${rowCount} aziende a Make...`});
-          const fd = new FormData();
-          fd.append("file", blob, "Prospecting_input.csv");
-          fd.append("runId", id); fd.append("campagna", campagna);
-          try { await fetch(MAKE.importCsv,{method:"POST",body:fd}); } catch(e){}
-          pushLog("ok","CSV inviato a Make (Supabase non configurato)");
-          setFaseS("import","completato",{dettaglio:"Inviato a Make"});
+          // Qui c'era un ripiego che inviava il CSV a uno scenario Make di
+          // import. Quello scenario non esiste piu': la chiamata falliva dentro
+          // un try/catch vuoto e la fase risultava "completato" pur non avendo
+          // importato niente. Senza Supabase la pipeline non puo' partire, ed e'
+          // meglio dirlo.
+          pushLog("error","✕ Supabase non configurato — impossibile importare");
+          showToast("✕ Configura Supabase nelle Impostazioni",C.red);
+          setFaseS("import","errore",{dettaglio:"Supabase non configurato"});
+          setLoad("avvia",false); return;
         }
       } catch(err) {
         pushLog("error",`✕ Errore file: ${err.message}`);
@@ -2393,7 +2400,7 @@ function App() {
     const label = `${contactsPayload.length} contatti`;
     pushLog("info", `▶ Avvio caricamento contatti (${label})`);
     try {
-      await fetch(MAKE.cercaEmail, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({runId, secret:"grizzly2026", contacts: contactsPayload})});
+      await fetch(MAKE.cercaEmail, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({runId, secret:MAKE_SECRET, contacts: contactsPayload})});
       pushLog("ok", `✓ Webhook Carica Contatti lanciato per ${contactsPayload.length} contatti`);
     } catch(e) {
       pushLog("error", "✕ Errore invio contatti a HubSpot + Lemlist: " + e.message);
@@ -2585,34 +2592,17 @@ function App() {
       return;
     }
 
-    await callMake(MAKE.hubspot, { secret: "grizzly2026", runId: runId || "", runStart: runStart || "", companyIds: idsDaSincronizzare }, "Aggiornamento Hubspot");
+    await callMake(MAKE.hubspot, { secret: MAKE_SECRET, runId: runId || "", runStart: runStart || "", companyIds: idsDaSincronizzare }, "Aggiornamento Hubspot");
     setFaseS("hubspot", "in_corso", {iniziato: new Date().toISOString(), dettaglio: `Aggiornamento ${idsDaSincronizzare.length} aziende su HubSpot...`});
     pushLog("ok", `▶ Aggiornamento Hubspot avviato — ${idsDaSincronizzare.length} aziend${idsDaSincronizzare.length===1?"a":"e"}`);
     showToast("✓ Aggiornamento Hubspot avviato");
     setLoad("continua", false);
   };
 
-    const checkUnblock = (newUrls) => {
-    // gestito da Make via DASHBOARD_STATUS
-  };
-
-  const resolveUrl = async (id,urlScelto) => {
-    if(!urlScelto?.trim()) return;
-    setLoad(`u${id}`,true);
-    const az = urls.find(u=>u.id===id);
-    await callMake(MAKE.urlRisolto,{ragione_sociale:az.ragione_sociale,linkedin_url:urlScelto,runId,secret:"grizzly2026"},"URL risolto");
-    const next = urls.map(u=>u.id===id?{...u,stato:"resolved",scelta:urlScelto}:u);
-    setUrls(next);
-    pushLog("ok",`URL: ${az.ragione_sociale} → ${urlScelto.slice(0,50)}`);
-    showToast("✓ URL confermato — Make aggiornato");
-    checkUnblock(next);
-    setLoad(`u${id}`,false);
-  };
-  const skipUrl = (id) => {
-    const next = urls.map(u=>u.id===id?{...u,stato:"skipped"}:u);
-    setUrls(next); pushLog("warn",`Saltata: ${urls.find(u=>u.id===id)?.ragione_sociale}`);
-    showToast("Azienda saltata",C.yellow); checkUnblock(next);
-  };
+  // Qui stavano resolveUrl, skipUrl e checkUnblock: nessuna parte
+  // dell'interfaccia le richiamava piu', e resolveUrl chiamava lo scenario
+  // "URL risolto", cancellato da Make. La risoluzione delle URL ambigue passa
+  // ora da continuaDopoUrl, che sincronizza con source "url_ambigua".
 
   const approveExec = id => setExecs(p=>p.map(e=>e.id===id?{...e,approvato:true}:e));
   const rejectExec  = id => setExecs(p=>p.map(e=>e.id===id?{...e,approvato:false}:e));
@@ -2620,7 +2610,7 @@ function App() {
   const launchEmail = async () => {
     const approved = execs.filter(e=>e.approvato===true);
     setLoad("email",true);
-    await callMake(MAKE.cercaEmail,{profiles:approved.map(e=>({nome:e.nome,ruolo:e.ruolo,profileUrl:e.url,azienda:e.azienda})),runId,phantomAgent:PHANTOM.email,secret:"grizzly2026"},"Lancia Phantom email");
+    await callMake(MAKE.cercaEmail,{profiles:approved.map(e=>({nome:e.nome,ruolo:e.ruolo,profileUrl:e.url,azienda:e.azienda})),runId,phantomAgent:PHANTOM.email,secret:MAKE_SECRET},"Lancia Phantom email");
     setFaseS("email","in_corso",{dettaglio:`Phantom email su ${approved.length} profili`});
     pushLog("ok",`🚀 Phantom email lanciato su ${approved.length} profili`);
     showToast(`🚀 Phantom email lanciato su ${approved.length} profili`);
@@ -2814,7 +2804,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.41</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.42</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -2879,7 +2869,7 @@ function App() {
               setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
               setErrori(DEFAULT_ERRORI.map(e=>({...e,stato:"aperto"})));
               setCsvFile(null); setRunId(null); setRunStart(null);
-              setFasi(FASI_INIT.map(f=>f.id==="import"?{...f,stato:"in_corso",dettaglio:"Pulizia Google Sheet..."}:{...f}));
+              setFasi(FASI_INIT.map(f=>f.id==="import"?{...f,stato:"in_corso",dettaglio:"Azzeramento in corso..."}:{...f}));
               setRunAttivo(true);
               localStorage.removeItem("grizzly_run");
               const {url: sbUrl, key: sbKey} = getSbCreds();
@@ -2888,8 +2878,7 @@ function App() {
                 // Segnala stop al classificatore in corso (se presente)
                 try { await fetch(`${sbUrl}/rest/v1/settings?on_conflict=chiave`, {method:"POST", headers:{apikey:sbKey, Authorization:`Bearer ${sbKey}`,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=minimal"}, body:JSON.stringify({chiave:"stop_classificatore",valore:"true",aggiornato_il:new Date().toISOString()})}); } catch(e){}
               }
-              try { await fetch(MAKE.pulizia,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({secret:"grizzly2026"})}); } catch(e){}
-              pushLog("ok","✓ Pulizia fogli avviata");
+              pushLog("ok","✓ Run azzerata");
               // Sblocca guard auto-start dopo 10s (abbondanti per il pulizia Make)
               setTimeout(() => {
                 runInitializingRef.current = false;
@@ -2975,8 +2964,10 @@ function App() {
 {/* WEBHOOK MAKE */}
             <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
               <SectionHead title="WEBHOOK MAKE"/>
+              <SettingRow chiave="make_webhook_company" label="Cerca Company Page"      {...sr}/>
               <SettingRow chiave="make_webhook_email"   label="Carica Contatti Trovati" {...sr}/>
               <SettingRow chiave="make_webhook_hubspot" label="Aggiorna HubSpot"        {...sr}/>
+              <SettingRow chiave="make_secret"          label="Secret scenari" tipo="secret" {...sr}/>
             </div>
 
             {/* PHANTOM */}
@@ -3371,7 +3362,6 @@ function App() {
                             <div style={{fontSize:12,fontWeight:700,color:"#4ade80",marginBottom:2}}>✅ Nessun duplicato trovato</div>
                             <div style={{fontSize:10,color:C.muted}}>Pro.Persona è pulito, puoi avviare la ricerca email</div>
                           </div>
-                          <button onClick={()=>callMake("https://hook.eu2.make.com/htuzcpwibjxykcphlbvdh9agd946t28z",{secret:"grizzly2026",runId},"Avvia Cerca Email").then(()=>{setFaseS("dipendenti","completato",{completato:new Date().toISOString()});setFaseS("email","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Phantom Email avviato..."});setDipIdle(false);setDupCheck(null);pushLog("ok","▶ Cerca Email avviato");})} style={{padding:"7px 16px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#ea580c,#f97316)",border:"none",borderRadius:5,cursor:"pointer",width:180,textAlign:"center",flexShrink:0}}>▶ Avvia cerca email</button>
                         </div>
                       )}
                       {dupCheck?.ok===false&&(
