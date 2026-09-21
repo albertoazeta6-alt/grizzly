@@ -90,10 +90,12 @@ const SHEET_API  = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?t
 // tutti scaduti — nessuno dei sette corrispondeva a uno scenario ancora attivo
 // in Make — quindi non facevano da rete di sicurezza, rendevano solo invisibile
 // il fatto che le Impostazioni fossero sbagliate.
-// Rimasti tre, perche' tre sono gli scenari vivi. `pulizia`, `importCsv`,
-// `urlRisolto` e `cercaDip` puntavano a scenari cancellati.
+// Restano due, perche' due sono gli scenari che Grizzly avvia da se'.
+// `pulizia`, `importCsv`, `urlRisolto` e `cercaDip` puntavano a scenari
+// cancellati. `company` (scenario 1, Cerca Company Page) non e' un'omissione:
+// quello scenario lo chiama Phantombuster a fine esecuzione, Grizzly non lo
+// invoca mai — il valore veniva caricato e poi non usato da nessuno.
 let MAKE = {
-  company:    "",
   hubspot:    "",
   cercaEmail: "",
 };
@@ -160,7 +162,6 @@ async function loadSettings() {
   if(!rows||!rows.length) return null;
   const m = Object.fromEntries(rows.map(r=>[r.chiave, r.valore||""]));
   // Webhook e secret degli scenari Make
-  if(m.make_webhook_company)   MAKE.company    = m.make_webhook_company;
   if(m.make_webhook_hubspot)   MAKE.hubspot    = m.make_webhook_hubspot;
   if(m.make_webhook_email)     MAKE.cercaEmail = m.make_webhook_email;
   if(m.make_secret)            MAKE_SECRET     = m.make_secret;
@@ -2964,7 +2965,6 @@ function App() {
 {/* WEBHOOK MAKE */}
             <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
               <SectionHead title="WEBHOOK MAKE"/>
-              <SettingRow chiave="make_webhook_company" label="Cerca Company Page"      {...sr}/>
               <SettingRow chiave="make_webhook_email"   label="Carica Contatti Trovati" {...sr}/>
               <SettingRow chiave="make_webhook_hubspot" label="Aggiorna HubSpot"        {...sr}/>
               <SettingRow chiave="make_secret"          label="Secret scenari" tipo="secret" {...sr}/>
