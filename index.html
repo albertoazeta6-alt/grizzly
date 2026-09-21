@@ -129,12 +129,26 @@ function getSbCreds() {
   };
 }
 
+// Token da mettere in `Authorization`. La anon key va nell'header `apikey` e
+// identifica il progetto; e' il Bearer a dire *chi sei*. Con la sola anon key
+// si e' `anon`, e da quando le tabelle hanno RLS il ruolo `anon` non vede
+// niente: le letture tornano [] e le scritture vengono respinte.
+// Prima qui passava la anon key anche come Bearer — funzionava solo perche'
+// RLS era spenta.
+function sbBearer() {
+  try {
+    const s = JSON.parse(localStorage.getItem('grizzly_auth') || 'null');
+    if (s?.access_token) return s.access_token;
+  } catch(e) {}
+  return getSbCreds().key;   // prima del login: serve per raggiungere /auth
+}
+
 async function sbGet(table, params={}) {
   const {url,key} = getSbCreds(); if(!url||!key) return null;
   const base = {select:"*",...params};
   const qs = Object.entries(base).map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join("&");
   try {
-    const r = await fetch(`${url}/rest/v1/${table}?${qs}`,{headers:{apikey:key,Authorization:`Bearer ${key}`}});
+    const r = await fetch(`${url}/rest/v1/${table}?${qs}`,{headers:{apikey:key,Authorization:`Bearer ${sbBearer()}`}});
     return r.ok ? r.json() : null;
   } catch { return null; }
 }
@@ -145,7 +159,7 @@ async function sbUpdate(table, matchObj, updates) {
   try {
     const r = await fetch(`${url}/rest/v1/${table}?${qs}`,{
       method:"PATCH",
-      headers:{apikey:key,Authorization:`Bearer ${key}`,"Content-Type":"application/json",Prefer:"return=minimal"},
+      headers:{apikey:key,Authorization:`Bearer ${sbBearer()}`,"Content-Type":"application/json",Prefer:"return=minimal"},
       body:JSON.stringify(updates)
     });
     if(!r.ok) {
@@ -178,7 +192,7 @@ async function saveSetting(chiave, valore) {
     const r = await fetch(`${url}/rest/v1/settings?on_conflict=chiave`, {
       method: "POST",
       headers: {
-        apikey: key, Authorization: `Bearer ${key}`,
+        apikey: key, Authorization: `Bearer ${sbBearer()}`,
         "Content-Type": "application/json",
         Prefer: "resolution=merge-duplicates,return=minimal"
       },
@@ -193,7 +207,7 @@ async function sbWritePipelineState(fase, stato, dettaglio) {
   try {
     await fetch(`${url}/rest/v1/pipeline_state`, {
       method: "POST",
-      headers: {apikey:key, Authorization:`Bearer ${key}`, "Content-Type":"application/json", Prefer:"resolution=merge-duplicates"},
+      headers: {apikey:key, Authorization:`Bearer ${sbBearer()}`, "Content-Type":"application/json", Prefer:"resolution=merge-duplicates"},
       body: JSON.stringify({fase, stato, dettaglio, aggiornato_il: new Date().toISOString()})
     });
   } catch(e) {}
@@ -208,7 +222,7 @@ async function sbInsert(table, records, {onConflict=null}={}) {
       : "return=minimal";
     const r = await fetch(`${url}/rest/v1/${table}${qs}`,{
       method:"POST",
-      headers:{apikey:key,Authorization:`Bearer ${key}`,"Content-Type":"application/json",Prefer:prefer},
+      headers:{apikey:key,Authorization:`Bearer ${sbBearer()}`,"Content-Type":"application/json",Prefer:prefer},
       body:JSON.stringify(records)
     });
     if(!r.ok) {
@@ -243,12 +257,12 @@ async function checkDedup(sitiArr, pivaArr) {
     if(siti.length){
       const orFilter = siti.map(s=>`sito_web.ilike.*${s}*`).join(',');
       const r = await fetch(`${url}/rest/v1/companies?select=sito_web&or=(${orFilter})`,
-        {headers:{apikey:key,Authorization:`Bearer ${key}`}});
+        {headers:{apikey:key,Authorization:`Bearer ${sbBearer()}`}});
       if(r.ok)(await r.json()).forEach(row=>out.sitiFnd.add(normSito(row.sito_web)));
     }
     if(pive.length){
       const r = await fetch(`${url}/rest/v1/companies?select=partita_iva&partita_iva=in.(${pive.join(",")})`,
-        {headers:{apikey:key,Authorization:`Bearer ${key}`}});
+        {headers:{apikey:key,Authorization:`Bearer ${sbBearer()}`}});
       if(r.ok)(await r.json()).forEach(row=>out.piveFnd.add(String(row.partita_iva).trim()));
     }
   } catch {}
@@ -258,7 +272,7 @@ async function checkDedup(sitiArr, pivaArr) {
 // ── CODE DI REVISIONE ─────────────────────────────────────────────────────────
 async function loadCodeQueue() {
   const {url,key} = getSbCreds(); if(!url||!key) return null;
-  const h = {apikey:key, Authorization:`Bearer ${key}`};
+  const h = {apikey:key, Authorization:`Bearer ${sbBearer()}`};
   try {
     const [siti, urlAmbigue, contatti] = await Promise.all([
       fetch(`${url}/rest/v1/companies?stato=eq.sito_mancante&select=id,nome,citta,partita_iva&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
@@ -687,7 +701,7 @@ function App() {
     const {url:sbUrl, key:sbKey} = getSbCreds();
     if(!sbUrl||!sbKey) return;
     fetch(`${sbUrl}/rest/v1/companies?select=settore&settore=not.is.null&order=settore.asc`, {
-      headers:{apikey:sbKey, Authorization:`Bearer ${sbKey}`, "Accept":"application/json"}
+      headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, "Accept":"application/json"}
     }).then(r=>r.ok?r.json():[]).then(rows=>{
       const unici = [...new Set(rows.map(r=>r.settore).filter(Boolean))].sort();
       if(unici.length>0) setSettori(unici);
@@ -700,7 +714,7 @@ function App() {
     if(classifReview.loaded||classifReview.loading) return;
     setClassifReview(s=>({...s,loading:true}));
     const {url,key}=getSbCreds(); if(!url||!key){setClassifReview(s=>({...s,loading:false}));return;}
-    const h={apikey:key,Authorization:`Bearer ${key}`};
+    const h={apikey:key,Authorization:`Bearer ${sbBearer()}`};
     fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,citta,regione,fatturato,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&settore=not.is.null&semaforo_verifica=not.eq.scartata&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h})
       .then(r=>r.ok?r.json():[])
       .then(rows=>setClassifReview({rows,loading:false,loaded:true}))
@@ -717,7 +731,7 @@ function App() {
       if (now - classifRefreshLastRef.current < 30000) return; // throttle 30s
       classifRefreshLastRef.current = now;
       const {url,key}=getSbCreds(); if(!url||!key) return;
-      const h={apikey:key,Authorization:`Bearer ${key}`};
+      const h={apikey:key,Authorization:`Bearer ${sbBearer()}`};
       try {
         const r = await fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,citta,regione,fatturato,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&settore=not.is.null&semaforo_verifica=not.eq.scartata&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h});
         if(r.ok) {
@@ -740,7 +754,7 @@ function App() {
     if(classifApprovati.loaded||classifApprovati.loading) return;
     setClassifApprovati(s=>({...s,loading:true}));
     const {url,key}=getSbCreds(); if(!url||!key){setClassifApprovati(s=>({...s,loading:false}));return;}
-    const h={apikey:key,Authorization:`Bearer ${key}`};
+    const h={apikey:key,Authorization:`Bearer ${sbBearer()}`};
     fetch(`${url}/rest/v1/esempi_approvati?select=id,nome,settore,motivazione,creato_il&order=aggiornato_il.desc&limit=500`,{headers:h})
       .then(r=>r.ok?r.json():[])
       .then(rows=>setClassifApprovati({rows,loading:false,loaded:true}))
@@ -862,7 +876,7 @@ function App() {
     const {url, key} = getSbCreds();
     if (!url || !key) { fetchCountersRunningRef.current = false; return; }
     try {
-      const h = {apikey: key, Authorization: `Bearer ${key}`, Prefer: "count=exact"};
+      const h = {apikey: key, Authorization: `Bearer ${sbBearer()}`, Prefer: "count=exact"};
       const ts = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
       const [rAll, rLiOk, rAmb, rEB, rNuovo, rHubspot, rClassificata, rLiUpd] = await Promise.all([
         fetch(`${url}/rest/v1/companies?select=id&limit=1${ts}`, {headers: h}),
@@ -969,7 +983,7 @@ function App() {
         // Controlla quali aziende hanno effettivamente linkedin_url (Phantom ha trovato la pagina)
         // Quelle senza URL → linkedin_ko, NON mandate a HubSpot
         fetch(`${url}/rest/v1/companies?id=in.(${idsAll.join(',')})&select=id,linkedin_url,stato`, {
-          headers:{apikey:key, Authorization:`Bearer ${key}`}
+          headers:{apikey:key, Authorization:`Bearer ${sbBearer()}`}
         })
           .then(r=>r.ok?r.json():[])
           .then(aziende => {
@@ -979,7 +993,7 @@ function App() {
               pushLog("info", `↗ Sync HubSpot post-Phantom (${conUrl.length} aziend${conUrl.length===1?"a":"e"} con URL LinkedIn)`);
               fetch(`${url}/rest/v1/companies?id=in.(${conUrl.join(',')})`, {
                 method:'PATCH',
-                headers:{apikey:key, Authorization:`Bearer ${key}`, 'Content-Type':'application/json', Prefer:'return=minimal'},
+                headers:{apikey:key, Authorization:`Bearer ${sbBearer()}`, 'Content-Type':'application/json', Prefer:'return=minimal'},
                 body: JSON.stringify({stato:'linkedin_upd'})
               }).catch(()=>{});
               callMake(MAKE.hubspot, {secret:MAKE_SECRET, runId:runId||"", runStart:runStart||"", companyIds:conUrl, source:"linkedin_upd"}, "Aggiornamento HubSpot — Aziende classificate da Code")
@@ -989,7 +1003,7 @@ function App() {
               pushLog("warn", `⚠ Phantom non ha trovato LinkedIn per ${senzaUrl.length} aziend${senzaUrl.length===1?"a":"e"} → linkedin_ko (sync HubSpot con url="linkedin_ko")`);
               fetch(`${url}/rest/v1/companies?id=in.(${senzaUrl.join(',')})`, {
                 method:'PATCH',
-                headers:{apikey:key, Authorization:`Bearer ${key}`, 'Content-Type':'application/json', Prefer:'return=minimal'},
+                headers:{apikey:key, Authorization:`Bearer ${sbBearer()}`, 'Content-Type':'application/json', Prefer:'return=minimal'},
                 body: JSON.stringify({stato:'linkedin_ko'})
               }).catch(()=>{});
               // Sync HubSpot anche per linkedin_ko — passa url="linkedin_ko" come marcatore filtrabile
@@ -1042,7 +1056,7 @@ function App() {
 
       // Leggi pipeline_state da Supabase e aggiorna fasi
       const rPipeline = await fetch(`${url}/rest/v1/pipeline_state?select=fase,stato,dettaglio,aggiornato_il`, {
-        headers: {apikey: key, Authorization: `Bearer ${key}`}
+        headers: {apikey: key, Authorization: `Bearer ${sbBearer()}`}
       });
       if (rPipeline.ok) {
         const pipelineRows = await rPipeline.json();
@@ -1200,7 +1214,7 @@ function App() {
     try {
       await fetch(`${url}/rest/v1/settings?on_conflict=chiave`, {
         method: "POST",
-        headers: {apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal"},
+        headers: {apikey: key, Authorization: `Bearer ${sbBearer()}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal"},
         body: JSON.stringify({chiave: "stop_classificatore", valore: "true", aggiornato_il: new Date().toISOString()})
       });
       showToast("⏹ Stop inviato — auto-avvio in pausa");
@@ -1303,7 +1317,7 @@ function App() {
       if (!sbUrl || !sbKey) return;
       const runFilter = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
       const r = await fetch(`${sbUrl}/rest/v1/companies?settore=is.null&sito_web=neq.&select=id&limit=1${runFilter}`, {
-        headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`, Prefer:"count=exact", Range:"0-0"}
+        headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"count=exact", Range:"0-0"}
       });
       const cr = r.headers.get("content-range") || "0/0";
       const n = parseInt(cr.split("/")[1] || "0");
@@ -1315,7 +1329,7 @@ function App() {
   // ── Contatori code (pannello destro top area) ────────────────────────────────
   const fetchQueueCounts = useCallback(async () => {
     const {url, key} = getSbCreds(); if(!url||!key) return;
-    const h = {apikey:key, Authorization:`Bearer ${key}`, Prefer:"count=exact", Range:"0-0"};
+    const h = {apikey:key, Authorization:`Bearer ${sbBearer()}`, Prefer:"count=exact", Range:"0-0"};
     const cnt = async (endpoint) => {
       try { const r = await fetch(`${url}/rest/v1/${endpoint}`,{headers:h}); const cr = r.headers.get("content-range")||"0/0"; return parseInt(cr.split("/")[1]||"0"); }
       catch { return null; }
@@ -1426,7 +1440,7 @@ function App() {
     if (!url || !key) { setSyncErr(true); return; }
     try {
       const r = await fetch(`${url}/rest/v1/companies?select=id&limit=1`, {
-        headers: {apikey: key, Authorization: `Bearer ${key}`}
+        headers: {apikey: key, Authorization: `Bearer ${sbBearer()}`}
       });
       if (r.ok) { setSyncErr(false); setLastSync(new Date()); }
       else setSyncErr(true);
@@ -1817,7 +1831,7 @@ function App() {
     if (!sbUrl || !sbKey) return;
     const ts = `&creato_il=gte.${encodeURIComponent(runStart)}`;
     fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,fatturato,icebreaker${ts}&order=nome.asc&limit=500`, {
-      headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`}
+      headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}
     }).then(r=>r.ok?r.json():[]).then(rows=>{
       if (rows.length > 0) setImportDati(p=>({...p, rows}));
     }).catch(()=>{});
@@ -2168,7 +2182,7 @@ function App() {
       let allRows = [], offset = 0, done = false;
       while (!done) {
         const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,settore_confidenza,fatturato,icebreaker${filter}&order=creato_il.desc&limit=${BATCH}&offset=${offset}`, {
-          headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`, Prefer:"count=none"}
+          headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"count=none"}
         });
         const batch = r.ok ? await r.json() : [];
         allRows = allRows.concat(batch);
@@ -2188,7 +2202,7 @@ function App() {
       let allRows = [], offset = 0, done = false;
       while (!done) {
         const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,citta,stato,settore,icebreaker,linkedin_url&order=creato_il.desc&limit=${BATCH}&offset=${offset}`, {
-          headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`, Prefer:"count=none"}
+          headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"count=none"}
         });
         const batch = r.ok ? await r.json() : [];
         allRows = allRows.concat(batch);
@@ -2205,7 +2219,7 @@ function App() {
       const {url:sbUrl, key:sbKey} = getSbCreds();
       if (!sbUrl || !sbKey) { setDbContatti(p=>({...p, loading:false})); return; }
       const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,company_id,companies(nome)&order=creato_il.desc&limit=1000`, {
-        headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`}
+        headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}
       });
       const payload = await r.json();
       const rows = Array.isArray(payload) ? payload : [];
@@ -2220,7 +2234,7 @@ function App() {
       if (!sbUrl || !sbKey) return;
       const ts = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
       const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,company_id,companies(nome,settore,sito_web,fatturato)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato)${ts}&order=creato_il.desc&limit=300`, {
-        headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`}
+        headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}
       });
       if (!r.ok) return;
       const fresh = await r.json();
@@ -2244,7 +2258,7 @@ function App() {
       if (!sbUrl || !sbKey) { setContattiRun(p=>({...p, loading:false})); return; }
       const ts = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
       const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,company_id,companies(nome,settore,sito_web,fatturato)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato)${ts}&order=creato_il.desc&limit=300`, {
-        headers: {apikey:sbKey, Authorization:`Bearer ${sbKey}`}
+        headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}
       });
       const rows = r.ok ? await r.json() : [];
       setContattiRun(p=>({...p, loading:false, rows}));
@@ -2257,7 +2271,7 @@ function App() {
     if (!sbUrl || !sbKey) return;
     try {
       await fetch(`${sbUrl}/rest/v1/contacts?id=eq.${id}`, {
-        method:"DELETE", headers:{apikey:sbKey, Authorization:`Bearer ${sbKey}`, Prefer:"return=minimal"}
+        method:"DELETE", headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"return=minimal"}
       });
       setContattiRun(p=>({...p, rows:p.rows.filter(r=>r.id!==id)}));
       setContattiSelected(s=>{const n=new Set(s);n.delete(id);return n;});
@@ -2278,7 +2292,7 @@ function App() {
     try {
       await fetch(`${sbUrl}/rest/v1/companies?id=in.(${ids.join(",")})`, {
         method:"PATCH",
-        headers:{apikey:sbKey, Authorization:`Bearer ${sbKey}`, "Content-Type":"application/json", Prefer:"return=minimal"},
+        headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, "Content-Type":"application/json", Prefer:"return=minimal"},
         body: JSON.stringify({settore:null, aggiornato_il: new Date().toISOString()})
       });
     } catch(e) { showToast("✕ Errore reset settore: " + e.message); return; }
@@ -2310,7 +2324,7 @@ function App() {
     try {
       await fetch(`${sbUrl}/rest/v1/companies?id=in.(${ids.join(",")})`, {
         method:"PATCH",
-        headers:{apikey:sbKey, Authorization:`Bearer ${sbKey}`, "Content-Type":"application/json", Prefer:"return=minimal"},
+        headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, "Content-Type":"application/json", Prefer:"return=minimal"},
         body: JSON.stringify({stato:"classificata"})
       });
     } catch(e) { showToast("✕ Errore aggiornamento stato: " + e.message); return; }
@@ -2334,7 +2348,7 @@ function App() {
     if (!sbUrl || !sbKey) return;
     try {
       await fetch(`${sbUrl}/rest/v1/companies?id=in.(${ids.join(",")})`, {
-        method:"DELETE", headers:{apikey:sbKey, Authorization:`Bearer ${sbKey}`, Prefer:"return=minimal"}
+        method:"DELETE", headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"return=minimal"}
       });
       setImportDati(p=>({...p, rows:p.rows.filter(r=>!ids.includes(r.id))}));
       setImportSelected(new Set());
@@ -2351,7 +2365,7 @@ function App() {
     if (!sbUrl || !sbKey) return;
     try {
       await fetch(`${sbUrl}/rest/v1/contacts?id=in.(${ids.join(",")})`, {
-        method:"DELETE", headers:{apikey:sbKey, Authorization:`Bearer ${sbKey}`, Prefer:"return=minimal"}
+        method:"DELETE", headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"return=minimal"}
       });
       setContattiRun(p=>({...p, rows:p.rows.filter(r=>!ids.includes(r.id))}));
       setContattiSelected(new Set());
@@ -2410,7 +2424,7 @@ function App() {
     // Polling: monitora stato contatti finché tutti in_coda→inviato (o timeout 10 min)
     const {url:sbUrl, key:sbKey} = getSbCreds();
     if (!sbUrl || !sbKey) return;
-    const sbHdr = {apikey:sbKey, Authorization:`Bearer ${sbKey}`};
+    const sbHdr = {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`};
     const TERMINAL = new Set(["inviato","email_trovata","email_non_trovata","trovato"]);
     const statiPrecedenti = {};
     const STATI_LABEL = {inviato:"✓ Inviato a HubSpot + Lemlist", email_trovata:"Email trovata", email_non_trovata:"Email non trovata", trovato:"Trovato"};
@@ -2465,7 +2479,7 @@ function App() {
     // Toggle: se TUTTI i selezionati sono già in enrichment_richiesto → rimuovi dalla coda
     const tuttiInCoda = ids.every(id => contattiRun.rows.find(r=>r.id===id)?.stato === "enrichment_richiesto");
     const nuovoStato = tuttiInCoda ? "trovato" : "enrichment_richiesto";
-    const hdr = {apikey:sbKey, Authorization:`Bearer ${sbKey}`, "Content-Type":"application/json", Prefer:"return=minimal"};
+    const hdr = {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, "Content-Type":"application/json", Prefer:"return=minimal"};
     const patchRes = await fetch(`${sbUrl}/rest/v1/contacts?id=in.(${ids.join(",")})`, {
       method:"PATCH", headers:hdr,
       body: JSON.stringify({stato:nuovoStato})
@@ -2805,7 +2819,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.42</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.43</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -2875,9 +2889,9 @@ function App() {
               localStorage.removeItem("grizzly_run");
               const {url: sbUrl, key: sbKey} = getSbCreds();
               if (sbUrl && sbKey) {
-                try { await fetch(`${sbUrl}/rest/v1/pipeline_state?fase=neq.null`, {method:"DELETE", headers:{apikey:sbKey, Authorization:`Bearer ${sbKey}`}}); } catch(e){}
+                try { await fetch(`${sbUrl}/rest/v1/pipeline_state?fase=neq.null`, {method:"DELETE", headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}}); } catch(e){}
                 // Segnala stop al classificatore in corso (se presente)
-                try { await fetch(`${sbUrl}/rest/v1/settings?on_conflict=chiave`, {method:"POST", headers:{apikey:sbKey, Authorization:`Bearer ${sbKey}`,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=minimal"}, body:JSON.stringify({chiave:"stop_classificatore",valore:"true",aggiornato_il:new Date().toISOString()})}); } catch(e){}
+                try { await fetch(`${sbUrl}/rest/v1/settings?on_conflict=chiave`, {method:"POST", headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=minimal"}, body:JSON.stringify({chiave:"stop_classificatore",valore:"true",aggiornato_il:new Date().toISOString()})}); } catch(e){}
               }
               pushLog("ok","✓ Run azzerata");
               // Sblocca guard auto-start dopo 10s (abbondanti per il pulizia Make)
@@ -3942,7 +3956,7 @@ function App() {
         {tab==="classificatore"&&(()=>{
           const salvaModello=async(r)=>{
             const {url,key}=getSbCreds();if(!url||!key)return;
-            try{await fetch(`${url}/rest/v1/esempi_approvati`,{method:"POST",headers:{apikey:key,Authorization:`Bearer ${key}`,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify({nome:r.nome,settore:r.settore||'',motivazione:r.settore_motivazione||''})});}catch(e){showToast("Errore salvataggio");return;}
+            try{await fetch(`${url}/rest/v1/esempi_approvati`,{method:"POST",headers:{apikey:key,Authorization:`Bearer ${sbBearer()}`,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify({nome:r.nome,settore:r.settore||'',motivazione:r.settore_motivazione||''})});}catch(e){showToast("Errore salvataggio");return;}
             if(classifApprovati.loaded) setClassifApprovati(s=>({...s,rows:[{id:Date.now(),nome:r.nome,settore:r.settore||'',motivazione:r.settore_motivazione||'',creato_il:new Date().toISOString()},...s.rows]}));
             setSavedModelliNomi(s=>{const n=new Set(s);n.add(r.nome);return n;});
             showToast("✓ Modello salvato");
@@ -3953,12 +3967,12 @@ function App() {
             try{
               // 1. Aggiorna settore + stato=settore_aggiornato in Supabase
               await fetch(`${url}/rest/v1/companies?id=eq.${r.id}`,{
-                method:"PATCH",headers:{apikey:key,Authorization:`Bearer ${key}`,"Content-Type":"application/json",Prefer:"return=minimal"},
+                method:"PATCH",headers:{apikey:key,Authorization:`Bearer ${sbBearer()}`,"Content-Type":"application/json",Prefer:"return=minimal"},
                 body:JSON.stringify({settore:nuovoSettore,stato:"settore_aggiornato",settore_confidenza:"alta",aggiornato_il:new Date().toISOString()})
               });
               // 2. Salva in esempi_approvati per insegnare al classificatore
               await fetch(`${url}/rest/v1/esempi_approvati`,{
-                method:"POST",headers:{apikey:key,Authorization:`Bearer ${key}`,"Content-Type":"application/json",Prefer:"return=minimal"},
+                method:"POST",headers:{apikey:key,Authorization:`Bearer ${sbBearer()}`,"Content-Type":"application/json",Prefer:"return=minimal"},
                 body:JSON.stringify({nome:r.nome,settore:nuovoSettore,motivazione:`Correzione manuale: era classificato come ${r.settore||'?'}`})
               });
               // 3. Aggiorna stato locale
@@ -3970,7 +3984,7 @@ function App() {
           };
           const rimuoviApprovato=async(r)=>{
             const {url,key}=getSbCreds();if(!url||!key)return;
-            await fetch(`${url}/rest/v1/esempi_approvati?id=eq.${r.id}`,{method:"DELETE",headers:{apikey:key,Authorization:`Bearer ${key}`,Prefer:"return=minimal"}});
+            await fetch(`${url}/rest/v1/esempi_approvati?id=eq.${r.id}`,{method:"DELETE",headers:{apikey:key,Authorization:`Bearer ${sbBearer()}`,Prefer:"return=minimal"}});
             setClassifApprovati(s=>({...s,rows:s.rows.filter(x=>x.id!==r.id)}));
             setSavedModelliNomi(s=>{const n=new Set(s);n.delete(r.nome);return n;});
             showToast("Rimosso");
@@ -3982,7 +3996,7 @@ function App() {
               {/* TAB BAR */}
               <div style={{padding:"6px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8,flexShrink:0,background:C.bg}}>
                 {[{k:'classificazioni',l:`Classificazioni${classifReview.loaded?' ('+classifReview.rows.length+')':''}`},{k:'approvati',l:`Modelli salvati${classifApprovati.loaded?' ('+classifApprovati.rows.length+')':''}`}].map(t=>(
-                  <button key={t.k} onClick={()=>{setClassifFilterAll(t.k);if(t.k==='approvati'&&!classifApprovati.loaded&&!classifApprovati.loading){setClassifApprovati(s=>({...s,loading:true}));const {url,key}=getSbCreds();if(url&&key){fetch(`${url}/rest/v1/esempi_approvati?select=id,nome,settore,motivazione,creato_il&order=creato_il.desc&limit=500`,{headers:{apikey:key,Authorization:`Bearer ${key}`}}).then(r=>r.ok?r.json():[]).then(rows=>setClassifApprovati({rows,loading:false,loaded:true})).catch(()=>setClassifApprovati(s=>({...s,loading:false,loaded:true})));}}}}
+                  <button key={t.k} onClick={()=>{setClassifFilterAll(t.k);if(t.k==='approvati'&&!classifApprovati.loaded&&!classifApprovati.loading){setClassifApprovati(s=>({...s,loading:true}));const {url,key}=getSbCreds();if(url&&key){fetch(`${url}/rest/v1/esempi_approvati?select=id,nome,settore,motivazione,creato_il&order=creato_il.desc&limit=500`,{headers:{apikey:key,Authorization:`Bearer ${sbBearer()}`}}).then(r=>r.ok?r.json():[]).then(rows=>setClassifApprovati({rows,loading:false,loaded:true})).catch(()=>setClassifApprovati(s=>({...s,loading:false,loaded:true})));}}}}
                     style={{padding:"4px 14px",fontSize:12,fontWeight:600,border:"none",borderRadius:5,cursor:"pointer",
                       color:classifFilterAll===t.k?"#fff":C.muted,
                       background:classifFilterAll===t.k?"rgba(37,99,235,0.55)":"transparent"}}>
@@ -4405,7 +4419,7 @@ function App() {
           const _classifPatch = async (id, body) => {
             const {url,key}=getSbCreds(); if(!url||!key) return false;
             const r = await fetch(`${url}/rest/v1/companies?id=eq.${id}`,{
-              method:'PATCH',headers:{apikey:key,Authorization:`Bearer ${key}`,'Content-Type':'application/json',Prefer:'return=minimal'},
+              method:'PATCH',headers:{apikey:key,Authorization:`Bearer ${sbBearer()}`,'Content-Type':'application/json',Prefer:'return=minimal'},
               body:JSON.stringify({...body,aggiornato_il:new Date().toISOString()})
             });
             return r.ok||r.status===204;
