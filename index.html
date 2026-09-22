@@ -2305,7 +2305,7 @@ function App() {
       const {url:sbUrl, key:sbKey} = getSbCreds();
       if (!sbUrl || !sbKey) return;
       const ts = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
-      const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,company_id,companies(nome,settore,sito_web,fatturato)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato)${ts}&order=creato_il.desc&limit=300`, {
+      const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,tipo,email_origine,company_id,companies(nome,settore,sito_web,fatturato)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato)${ts}&order=creato_il.desc&limit=300`, {
         headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}
       });
       if (!r.ok) return;
@@ -2329,7 +2329,7 @@ function App() {
       const {url:sbUrl, key:sbKey} = getSbCreds();
       if (!sbUrl || !sbKey) { setContattiRun(p=>({...p, loading:false})); return; }
       const ts = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
-      const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,company_id,companies(nome,settore,sito_web,fatturato)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato)${ts}&order=creato_il.desc&limit=300`, {
+      const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,tipo,email_origine,company_id,companies(nome,settore,sito_web,fatturato)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato)${ts}&order=creato_il.desc&limit=300`, {
         headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}
       });
       const rows = r.ok ? await r.json() : [];
@@ -2351,6 +2351,67 @@ function App() {
   };
 
   const customConfirm = (msg) => new Promise(resolve => setConfirmModal({msg, resolve}));
+
+  // ── Ricerca dell'indirizzo email aziendale ────────────────────────────────
+  // Per le aziende senza pagina LinkedIn non c'e' una buyer persona: l'agente
+  // legge il sito e ne ricava un indirizzo generico, che diventa un contatto
+  // `tipo='generico'` gia' in stato email_trovata (l'email ce l'ha gia').
+  const cercaEmailAziendali = useCallback(async () => {
+    if (importSelected.size === 0) { showToast("⚠ Nessuna azienda selezionata"); return; }
+    const ids = [...importSelected];
+    const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
+    if (!base) { showToast("⚠ URL Agente Azure non configurato"); return; }
+    if (!await customConfirm(`Cercare l'indirizzo email per ${ids.length} aziend${ids.length===1?"a":"e"}?\n\nL'agente legge il sito e le pagine contatti. Le aziende senza sito verranno saltate.`)) return;
+
+    try {
+      const r = await fetch(`${base}/email-azienda/avvia`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({companyIds: ids})
+      });
+      const data = await r.json();
+      if (data.status === "già_in_corso") { showToast("⚠ Ricerca email già in esecuzione"); return; }
+      pushLog("ok", `▶ Ricerca email avviata su ${ids.length} aziend${ids.length===1?"a":"e"}`);
+      showToast(`✓ Ricerca email avviata (${ids.length})`);
+      setImportSelected(new Set());
+      avviaPollingEmailAziendali(base);
+    } catch(e) { showToast("✕ Errore avvio ricerca email: " + e.message); }
+  }, [importSelected, sbSettings, customConfirm, pushLog, showToast]);
+
+  // Polling dedicato: l'agente distingue quattro esiti e vanno riportati tutti,
+  // altrimenti "0 trovate" non dice se i siti erano muti o se mancavano.
+  const emailPollRef = React.useRef(null);
+  const avviaPollingEmailAziendali = useCallback((base) => {
+    if (emailPollRef.current) clearInterval(emailPollRef.current);
+    emailPollRef.current = setInterval(async () => {
+      try {
+        const r = await fetch(`${base}/email-azienda/stato`);
+        if (!r.ok) return;
+        const sj = await r.json();
+        const u = sj?.ultimo_run || {};
+        if (sj.in_corso) {
+          const fatte = (u.trovate||0)+(u.presunte||0)+(u.senza_sito||0)+(u.non_raggiungibili||0)+(u.gia_presenti||0)+(u.errori||0);
+          pushLog("info", `⟳ Ricerca email: ${fatte}/${u.totale||"?"}${u.nome_corrente?` · ${u.nome_corrente}`:""}`);
+          return;
+        }
+        clearInterval(emailPollRef.current); emailPollRef.current = null;
+        if (u.fase === "errore") {
+          pushLog("error", `✕ Ricerca email interrotta: ${u.errore_fatale||"errore agente"}`);
+          return;
+        }
+        if (u.fase === "completato") {
+          pushLog("ok", `✓ Ricerca email conclusa — ${u.trovate||0} trovate sul sito, ${u.presunte||0} presunte (info@)`);
+          const scarti = [];
+          if (u.senza_sito)        scarti.push(`${u.senza_sito} senza sito`);
+          if (u.non_raggiungibili) scarti.push(`${u.non_raggiungibili} siti non raggiungibili`);
+          if (u.gia_presenti)      scarti.push(`${u.gia_presenti} già con un contatto`);
+          if (u.errori)            scarti.push(`${u.errori} errori`);
+          if (scarti.length) pushLog("warn", `⬡ Senza risultato: ${scarti.join(" · ")}`);
+          if (u.ultimo_errore) pushLog("warn", `⬡ Ultimo errore: ${u.ultimo_errore}`);
+          fetchContattiRun();
+        }
+      } catch(e) { /* l'agente puo' riavviarsi: si riprova al giro dopo */ }
+    }, 5000);
+  }, [pushLog]);
 
   const rilanciClassificatoreSelezionate = useCallback(async () => {
     if (importSelected.size === 0) { showToast("⚠ Nessuna azienda selezionata"); return; }
@@ -2891,7 +2952,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.50</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.51</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -3700,6 +3761,19 @@ function App() {
                                               <div style={{display:"flex",alignItems:"center",gap:5}}>
                                                 {ct.linkedin_url&&<a href={ct.linkedin_url} target="_blank" onClick={e=>e.stopPropagation()} style={{flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center",width:18,height:18,borderRadius:3,background:"#0a66c2",textDecoration:"none",fontSize:9,color:"#fff",fontWeight:700,lineHeight:1}}>in</a>}
                                                 <span style={{color:C.text}}>{ct.nome_completo||"—"}</span>
+                                                {/* Un indirizzo aziendale non e' una persona: va riconosciuto
+                                                    a colpo d'occhio, perche' il messaggio della campagna
+                                                    dev'essere diverso. "presunto" = info@ costruito sul
+                                                    dominio, non letto dal sito: piu' probabile che rimbalzi. */}
+                                                {ct.tipo==="generico"&&(
+                                                  <span title={ct.email_origine==="presunto"?"Indirizzo presunto: info@ costruito sul dominio, non pubblicato dal sito":"Indirizzo letto dal sito aziendale"}
+                                                    style={{flexShrink:0,fontSize:8,fontWeight:700,padding:"1px 5px",borderRadius:3,whiteSpace:"nowrap",
+                                                      color:ct.email_origine==="presunto"?"#fbbf24":"#67e8f9",
+                                                      background:ct.email_origine==="presunto"?"rgba(251,191,36,0.12)":"rgba(6,182,212,0.12)",
+                                                      border:`1px solid ${ct.email_origine==="presunto"?"rgba(251,191,36,0.3)":"rgba(6,182,212,0.3)"}`}}>
+                                                    {ct.email_origine==="presunto"?"info@ presunto":"info@"}
+                                                  </span>
+                                                )}
                                               </div>
                                             </td>
                                             <td style={{padding:"5px 8px",color:C.muted,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ct.ruolo||"—"}</td>
@@ -3763,6 +3837,7 @@ function App() {
                             );
                           })()}
                           {importSelected.size>0&&<button onClick={rilanciClassificatoreSelezionate} style={{fontSize:10,fontWeight:700,color:"#93c5fd",background:"rgba(59,130,246,0.12)",border:"1px solid rgba(59,130,246,0.3)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🏷 Classifica ({importSelected.size})</button>}
+                          {importSelected.size>0&&<button onClick={cercaEmailAziendali} title="Cerca l'indirizzo email sul sito delle aziende selezionate" style={{fontSize:10,fontWeight:700,color:"#67e8f9",background:"rgba(6,182,212,0.12)",border:"1px solid rgba(6,182,212,0.3)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>✉ Cerca email ({importSelected.size})</button>}
                           {importSelected.size>0&&<button onClick={rilanciPhantomSelezionate} style={{fontSize:10,fontWeight:700,color:"#86efac",background:"rgba(34,197,94,0.12)",border:"1px solid rgba(34,197,94,0.3)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🔄 Phantom ({importSelected.size})</button>}
                           <button onClick={deleteImportSelected} style={{fontSize:10,fontWeight:700,color:"#fff",color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🗑 {importSelected.size>0?`Elimina (${importSelected.size})`:"Elimina"}</button>
                           <button onClick={()=>openImportDati(runStart)} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>⟳ Aggiorna</button>
