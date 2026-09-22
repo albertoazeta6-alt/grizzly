@@ -679,6 +679,7 @@ function App() {
   const rilanciClassificatoreRef = React.useRef(null);   // ref stabile a rilanciClassificatore
   const fetchAzSenzaSitoRef      = React.useRef(null);   // ref stabile a fetchAzSenzaSito
   const rilancioCompanyIdsRef = React.useRef([]); // IDs aziende oggetto dell'ultimo rilancio pipeline
+  const rilancioAgenteRef        = React.useRef(false); // un solo rilancio automatico dopo un riavvio dell'App Service
   const classificaAutoRef        = React.useRef(false); // guard anti-doppio per async call Azure (attesa_utente → in_corso)
   const fetchCountersRunningRef  = React.useRef(false); // mutex — evita esecuzioni concorrenti di fetchCounters
   const pendingPhantomHubspotRef = React.useRef([]); // IDs aziende Code-path in attesa di sync HubSpot dopo Phantom
@@ -1729,6 +1730,36 @@ function App() {
               // NON resettare autoNuovoFiringRef: la guardia rimane attiva e blocca il re-trigger automatico
               return;
             }
+            // L'agente dice di non star facendo niente, mentre la webapp lo crede
+            // al lavoro. Succede quando l'App Service si riavvia: il batch gira in
+            // un thread e il suo stato vive solo in memoria, quindi sparisce senza
+            // lasciare traccia. Senza questo controllo il polling prosegue per ore
+            // su una classificazione che non esiste piu', ripetendo sempre la
+            // stessa riga di log — che e' proprio il sintomo osservato.
+            if (sj?.in_corso === false && !sj?.ultimo_run?.avviato_il && n > 0) {
+              if (!rilancioAgenteRef.current) {
+                rilancioAgenteRef.current = true;
+                pushLog("warn", `⚠ L'agente non sta classificando (probabile riavvio) — rilancio ${n} aziende`);
+                try {
+                  await fetch(`${base}/classifica/avvia`, {
+                    method:"POST", headers:{"Content-Type":"application/json"},
+                    body: JSON.stringify({openai_model: sbSettings["openai_model"]||"gpt-4o-mini"})
+                  });
+                } catch(e) { pushLog("error","✕ Rilancio fallito: "+e.message); }
+              } else {
+                // Gia' riprovato una volta senza esito: meglio fermarsi e dirlo,
+                // invece di insistere su un agente che non risponde.
+                clearInterval(poll);
+                pushLog("error","✕ L'agente non riparte — classificazione ferma, riprendi manualmente");
+                setFaseS("classifica","bloccato",{dettaglio:"Agente non riparte dopo il riavvio"});
+                sbWritePipelineState("classifica","bloccato","Agente non riparte dopo il riavvio");
+              }
+              return;
+            }
+            // Il batch sta girando davvero: la prossima interruzione potra' essere
+            // di nuovo recuperata in automatico.
+            if (sj?.in_corso === true) rilancioAgenteRef.current = false;
+
             // Log progresso dettagliato
             const tot     = sj?.ultimo_run?.totale        ?? "?";
             const cl      = sj?.ultimo_run?.classificate  ?? "?";
@@ -2860,7 +2891,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.49</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.50</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
