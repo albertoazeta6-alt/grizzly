@@ -657,6 +657,7 @@ function App() {
   const [importSelected, setImportSelected] = useState(new Set());
   const [importStatoFilter, setImportStatoFilter] = useState(new Set()); // filtro stati Ricerca Aziende — vuoto = mostra tutto
   const [importSearch, setImportSearch] = useState(""); // ricerca libera in Ricerca Aziende
+  const [importInCoda, setImportInCoda] = useState(false); // vista "code": tutte le run, non solo quella corrente
   const [importSettoreFilter, setImportSettoreFilter] = useState(""); // "" = tutti, "__vuoto__" = senza settore
   const [importConfFilter, setImportConfFilter]       = useState(""); // "" = tutte, "__vuoto__" = senza confidenza
   // Filtro unico di Ricerca Aziende: stato (chip, multi) + settore + confidenza (tendine).
@@ -673,7 +674,21 @@ function App() {
     // Piu' parole: devono esserci tutte, in qualsiasi ordine e campo
     return q.toLowerCase().split(/\s+/).filter(Boolean).every(p => testo.includes(p));
   };
+  // "In coda" = aziende che aspettano un intervento e su cui si puo' ancora
+  // lavorare, cioe' che hanno un sito. Senza dominio non c'e' niente da
+  // classificare ne' da cui ricavare un indirizzo, quindi `sito_mancante` resta
+  // fuori: quella coda si smarca solo inserendo il sito a mano.
+  const eInCoda = r => {
+    if (!(r.sito_web||"").trim()) return false;
+    if (r.stato === "url_ambigua" || r.stato === "linkedin_ko") return true;
+    // coda Classificazioni: stessi criteri del tab Code
+    if (r.settore_confidenza === "bassa" || r.settore_confidenza === "media") return true;
+    if (r.settore === "Altro") return true;
+    if (r.semaforo_verifica === "✗") return true;
+    return false;
+  };
   const applicaFiltriImport = rows => (rows||[]).filter(r =>
+    (!importInCoda || eInCoda(r)) &&
     (importStatoFilter.size === 0 || importStatoFilter.has(r.stato)) &&
     (!importSettoreFilter || (importSettoreFilter === "__vuoto__" ? !r.settore : r.settore === importSettoreFilter)) &&
     (!importConfFilter    || (importConfFilter    === "__vuoto__" ? !r.settore_confidenza : r.settore_confidenza === importConfFilter)) &&
@@ -2312,7 +2327,7 @@ function App() {
       const BATCH = 1000;
       let allRows = [], offset = 0, done = false;
       while (!done) {
-        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,settore_confidenza,fatturato,icebreaker${filter}&order=creato_il.desc&limit=${BATCH}&offset=${offset}`, {
+        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,settore_confidenza,semaforo_verifica,fatturato,icebreaker${filter}&order=creato_il.desc&limit=${BATCH}&offset=${offset}`, {
           headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"count=none"}
         });
         const batch = r.ok ? await r.json() : [];
@@ -3053,7 +3068,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.60</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.62</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -4017,6 +4032,30 @@ function App() {
                                 </>
                               );
                             })()}
+                            {/* Le code raccolgono aziende di run diverse, mentre questa vista
+                                mostra per default solo la run corrente. Il pulsante toglie il
+                                filtro temporale e seleziona gli stati in attesa: serve per
+                                lavorarle in blocco, per esempio cercando l'indirizzo info@
+                                delle aziende ferme in URL ambigua. */}
+                            <button onClick={async ()=>{
+                                const attiva = !importInCoda;
+                                setImportInCoda(attiva);
+                                if (attiva) {
+                                  setImportStatoFilter(new Set());   // il criterio lo applica eInCoda
+                                  await openImportDati(null);        // null = nessun filtro di run
+                                } else {
+                                  await openImportDati(runStart);
+                                }
+                              }}
+                              title={importInCoda
+                                ? "Torna alle aziende della run corrente"
+                                : "Aziende con sito in attesa, di tutte le run: URL ambiguo, LinkedIn non trovato, classificazione da rivedere"}
+                              style={{padding:"3px 10px",fontSize:10,fontWeight:700,borderRadius:5,cursor:"pointer",whiteSpace:"nowrap",
+                                color:importInCoda?"#fbbf24":"#93c5fd",
+                                background:importInCoda?"rgba(251,191,36,0.15)":"rgba(59,130,246,0.10)",
+                                border:`1px solid ${importInCoda?"rgba(251,191,36,0.4)":"rgba(59,130,246,0.25)"}`}}>
+                              {importInCoda?"⏳ In coda (tutte le run)":"⏳ In coda"}
+                            </button>
                             <input value={importSearch} onChange={e=>setImportSearch(e.target.value)}
                               placeholder="🔍 Cerca azienda, sito, città…"
                               onClick={e=>e.stopPropagation()}
