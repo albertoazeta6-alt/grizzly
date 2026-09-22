@@ -276,7 +276,7 @@ async function loadCodeQueue() {
   try {
     const [siti, urlAmbigue, contatti] = await Promise.all([
       fetch(`${url}/rest/v1/companies?stato=eq.sito_mancante&select=id,nome,citta,partita_iva&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
-      fetch(`${url}/rest/v1/companies?stato=eq.url_ambigua&select=id,nome,sito_web,linkedin_url,citta&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
+      fetch(`${url}/rest/v1/companies?stato=eq.url_ambigua&select=id,nome,sito_web,linkedin_url,linkedin_url_pb,citta,settore,fatturato&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
       Promise.resolve([]),
     ]);
     // rilanciaReady NON viene impostato da loadCodeQueue — solo le azioni manuali dell'utente
@@ -331,6 +331,50 @@ const fmtMilioni = n => {
   }
   if (n >= 1e3) return Math.round(n / 1e3).toLocaleString("it-IT") + " k€";
   return n.toLocaleString("it-IT") + " €";
+};
+
+// Valore numerico di un importo scritto come testo ("1.234.567,89", "€ 4.000.000").
+// Serve per ordinare: confrontare quelle stringhe alfabeticamente mette
+// "9.000.000" prima di "85.000", che e' esattamente il contrario del vero.
+const numFatturato = v => {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v === "number") return v;
+  let x = String(v).replace(/[€\s\u00a0]/g, "");
+  // Riconosce anche i valori gia' abbreviati ("95k", "12,5M"): capita di
+  // ordinare su un campo che qualcuno ha compilato a mano cosi'.
+  const suff = x.match(/^([\d.,]+)([kKmM])$/);
+  if (suff) x = suff[1];
+  if (x.includes(",")) x = x.replace(/\./g, "").replace(",", ".");
+  else if (/^\d{1,3}(\.\d{3})+$/.test(x)) x = x.replace(/\./g, "");
+  let n = Number(x);
+  if (!isFinite(n)) return null;
+  if (suff) n *= (suff[2].toLowerCase() === "k") ? 1e3 : 1e6;
+  return n;
+};
+
+// Confronto usato da tutte le tabelle ordinabili. I vuoti finiscono sempre in
+// fondo, in entrambe le direzioni: una cella senza dato non e' "il piu' piccolo",
+// e' assente — vederla in cima quando si cerca il fatturato piu' alto confonde.
+const confrontaCelle = (av, bv, numerico, dir) => {
+  const aVuoto = av === null || av === undefined || av === "";
+  const bVuoto = bv === null || bv === undefined || bv === "";
+  // I vuoti restano in fondo in entrambe le direzioni, quindi il verso lo
+  // applica questa funzione e non il chiamante: invertendo fuori, in ordine
+  // decrescente le celle vuote finirebbero in cima — e chi ordina per
+  // fatturato decrescente vuole vedere gli importi piu' alti, non i buchi.
+  if (aVuoto && bVuoto) return 0;
+  if (aVuoto) return 1;
+  if (bVuoto) return -1;
+  let cmp;
+  if (numerico) {
+    const an = numFatturato(av), bn = numFatturato(bv);
+    cmp = (an !== null && bn !== null)
+      ? an - bn
+      : String(av).toLowerCase().localeCompare(String(bv).toLowerCase(), "it");
+  } else {
+    cmp = String(av).toLowerCase().localeCompare(String(bv).toLowerCase(), "it");
+  }
+  return dir === "desc" ? -cmp : cmp;
 };
 
 const fmtTime = d => !d?"—":new Date(d).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
@@ -602,6 +646,7 @@ function App() {
   const [classifSelected,  setClassifSelected]  = useState(0);  // indice nell'array filtrato
   const [classifApprovati, setClassifApprovati] = useState({rows:[], loading:false, loaded:false});
   const [classifViewMode,  setClassifViewMode]  = useState('split'); // 'split' | 'tabella'
+  const [urlViewMode,      setUrlViewMode]      = useState('strumento'); // 'strumento' | 'tabella'
   const [classifCorreggi, setClassifCorreggi] = useState({id:null, settore:''}); // correzione inline settore
   const [counters, setCounters] = useState({az_input:null, az_output:null, exec:null, scartati:null, mail_ok:null, mail_no:null});
   const azOutputRef = React.useRef(0); // ref stabile per evitare loop in fetchUrlSheet
@@ -2979,7 +3024,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.52</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.55</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -3720,11 +3765,19 @@ function App() {
                       {(()=>{
                         const STATO_COL = {trovato:"#60a5fa",email_trovata:"#10b981",email_non_trovata:"#f59e0b",inviato:"#a78bfa"};
                         const sorted = [...contattiRun.rows].filter(r=>contattiStatoFilter.size===0||contattiStatoFilter.has(r.stato)).sort((a,b)=>{
-                          let cmp = 0;
-                          if(contattiSort.key==="azienda") cmp=(a.companies?.nome||"").localeCompare(b.companies?.nome||"");
-                          if(contattiSort.key==="stato")   cmp=(a.stato||"").localeCompare(b.stato||"");
-                          if(contattiSort.key==="settore") cmp=(a.companies?.settore||"").localeCompare(b.companies?.settore||"");
-                          return contattiSort.dir==="asc"?cmp:-cmp;
+                          // Una mappa sola: aggiungere una colonna ordinabile
+                          // significa aggiungere una riga qui e la chiave nell'header.
+                          const val = (r,k) => ({
+                            nome:      r.nome_completo,
+                            ruolo:     r.ruolo,
+                            azienda:   r.companies?.nome,
+                            sito:      r.companies?.sito_web,
+                            settore:   r.companies?.settore,
+                            fatturato: r.companies?.fatturato,
+                            email:     r.email,
+                            stato:     r.stato,
+                          })[k];
+                          return confrontaCelle(val(a,contattiSort.key), val(b,contattiSort.key), contattiSort.key==="fatturato", contattiSort.dir);
                         });
                         const allIds = sorted.map(r=>r.id);
                         const allSel = allIds.length>0 && allIds.every(id=>contattiSelected.has(id));
@@ -3756,13 +3809,13 @@ function App() {
                               <thead>
                                 <tr style={{background:"rgba(59,130,246,0.15)"}}>
                                   {[
-                                    {label:"Nome",k:null},
-                                    {label:"Ruolo",k:null},
+                                    {label:"Nome",k:"nome"},
+                                    {label:"Ruolo",k:"ruolo"},
                                     {label:"Azienda",k:"azienda"},
-                                    {label:"Sito",k:null},
+                                    {label:"Sito",k:"sito"},
                                     {label:"Settore",k:"settore"},
-                                    {label:"Fatturato",k:null},
-                                    {label:"Email",k:null},
+                                    {label:"Fatturato",k:"fatturato"},
+                                    {label:"Email",k:"email"},
                                     {label:"Stato",k:"stato"},
                                   ].map(({label,k},colIdx)=>{
                                     const active = contattiSort.key===k && k;
@@ -3960,14 +4013,14 @@ function App() {
                                   <tr style={{background:"rgba(59,130,246,0.07)"}}>
                                     {[
                                       {label:"Azienda",key:"nome"},
-                                      {label:"Sito web",key:null},
-                                      {label:"LinkedIn URL",key:null},
-                                      {label:"Città",key:null},
+                                      {label:"Sito web",key:"sito_web"},
+                                      {label:"LinkedIn URL",key:"linkedin_url"},
+                                      {label:"Città",key:"citta"},
                                       {label:"Fatturato",key:"fatturato"},
                                       {label:"Stato",key:"stato"},
                                       {label:"Settore",key:"settore"},
                                       {label:"Conf.",key:"settore_confidenza"},
-                                      {label:"Icebreaker",key:null},
+                                      {label:"Icebreaker",key:"icebreaker"},
                                     ].map(({label,key},colIdx)=>{
                                       const active = importDati.sortCol===key && key;
                                       return (
@@ -3987,9 +4040,7 @@ function App() {
                                     const {sortCol,sortDir,rows} = importDati;
                                     const filtered = applicaFiltriImport(rows);
                                     const sorted = sortCol ? [...filtered].sort((a,b)=>{
-                                      const av=(a[sortCol]||"").toString().toLowerCase();
-                                      const bv=(b[sortCol]||"").toString().toLowerCase();
-                                      return sortDir==="asc"?av.localeCompare(bv):bv.localeCompare(av);
+                                      return confrontaCelle(a[sortCol], b[sortCol], sortCol==="fatturato", sortDir);
                                     }) : filtered;
                                     return sorted;
                                   })().map((row,i)=>{
@@ -4729,7 +4780,90 @@ function App() {
                       <div style={{fontSize:12,color:C.muted}}>Tutti gli URL LinkedIn sono stati verificati</div>
                     </div>
                   )}
+                  {/* Barra vista: lo strumento serve a decidere una per una guardando il
+                      sito, la tabella a vedere tutta la coda insieme — utile per capire
+                      quanto lavoro resta e per sbrigare in serie i casi ovvi. */}
                   {sbReady&&codeQueue.urlAmbigue.length>0&&(
+                    <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",borderBottom:`1px solid ${C.border}`}}>
+                      <span style={{fontSize:11,color:C.muted}}>{codeQueue.urlAmbigue.length} da verificare</span>
+                      <button onClick={()=>setUrlViewMode(m=>m==='tabella'?'strumento':'tabella')}
+                        style={{marginLeft:"auto",padding:"3px 10px",fontSize:11,cursor:"pointer",borderRadius:5,
+                          background:urlViewMode==='tabella'?"rgba(37,99,235,0.15)":"transparent",
+                          border:`1px solid ${urlViewMode==='tabella'?"#3b82f6":C.border}`,
+                          color:urlViewMode==='tabella'?"#93c5fd":C.muted}}>
+                        {urlViewMode==='tabella'?"🔍 Strumento":"⊞ Tabella"}
+                      </button>
+                    </div>
+                  )}
+
+                  {sbReady&&codeQueue.urlAmbigue.length>0&&urlViewMode==='tabella'&&(
+                    <div style={{flex:1,minHeight:0,overflowY:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                        <thead>
+                          <tr style={{background:C.bg,position:"sticky",top:0,zIndex:1}}>
+                            {[{l:"Azienda",k:"nome"},{l:"Città",k:"citta"},{l:"Settore",k:"settore"},
+                              {l:"Fatturato",k:"fatturato"},{l:"Sito",k:"sito_web"},
+                              {l:"URL proposto da Phantom",k:"linkedin_url_pb"},{l:"",k:null}].map(({l,k})=>{
+                              const attivo = k && urlSort.col===k;
+                              return (
+                                <th key={l||"az"} onClick={k?()=>setUrlSort(x=>({col:k,dir:x.col===k&&x.dir==="asc"?"desc":"asc"})):undefined}
+                                  style={{padding:"6px 10px",textAlign:"left",fontWeight:600,fontSize:9,textTransform:"uppercase",
+                                    letterSpacing:".05em",color:attivo?C.accent:C.muted,borderBottom:`1px solid ${C.border}`,
+                                    cursor:k?"pointer":"default",userSelect:"none",whiteSpace:"nowrap"}}>
+                                  {l}{attivo?(urlSort.dir==="asc"?" ↑":" ↓"):(k?" ·":"")}
+                                </th>
+                              );
+                            })}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...codeQueue.urlAmbigue].sort((a,b)=>urlSort.col
+                              ? confrontaCelle(a[urlSort.col], b[urlSort.col], urlSort.col==="fatturato", urlSort.dir)
+                              : 0
+                          ).map((az,i)=>{
+                            const proposto = az.linkedin_url_pb || "";
+                            // Solo le pagine azienda sono utilizzabili: da un profilo
+                            // personale non si apre la scheda People dei dipendenti.
+                            const eCompany = /linkedin\.com\/company\//i.test(proposto);
+                            return (
+                              <tr key={az.id} style={{borderBottom:`1px solid ${C.border}`,background:i%2===0?C.surface:"transparent"}}>
+                                <td style={{padding:"6px 10px",fontWeight:600,color:C.textHi,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={az.nome}>{az.nome}</td>
+                                <td style={{padding:"6px 10px",color:C.muted,fontSize:10,whiteSpace:"nowrap"}}>{az.citta||"—"}</td>
+                                <td style={{padding:"6px 10px",color:C.muted,fontSize:10,whiteSpace:"nowrap"}}>{az.settore||"—"}</td>
+                                <td style={{padding:"6px 10px",color:C.muted,fontSize:10,whiteSpace:"nowrap"}}>{fmtFatturato(az.fatturato)}</td>
+                                <td style={{padding:"6px 10px",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                  {az.sito_web
+                                    ? <a href={az.sito_web.startsWith("http")?az.sito_web:`https://${az.sito_web}`} target="_blank" rel="noopener"
+                                        style={{color:"#3b82f6",textDecoration:"none",fontSize:10}}>{az.sito_web}</a>
+                                    : <span style={{color:C.muted}}>—</span>}
+                                </td>
+                                <td style={{padding:"6px 10px",maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                  {proposto
+                                    ? <a href={proposto} target="_blank" rel="noopener" title={proposto}
+                                        style={{color:eCompany?"#3b82f6":"#f59e0b",textDecoration:"none",fontSize:10}}>
+                                        {eCompany?"":"⚠ "}{proposto.replace(/^https?:\/\/(www\.)?/,"")}
+                                      </a>
+                                    : <span style={{color:C.muted}}>—</span>}
+                                </td>
+                                <td style={{padding:"6px 10px",whiteSpace:"nowrap",textAlign:"right"}}>
+                                  <button onClick={()=>approvaUrl(az.id, proposto)} disabled={!eCompany}
+                                    title={eCompany?"Conferma questo URL":"Non è una pagina azienda: apri lo strumento e cercane una valida"}
+                                    style={{fontSize:10,fontWeight:700,padding:"2px 8px",marginRight:5,borderRadius:3,
+                                      cursor:eCompany?"pointer":"not-allowed",opacity:eCompany?1:0.35,
+                                      color:"#4ade80",background:"rgba(74,222,128,0.12)",border:"1px solid rgba(74,222,128,0.3)"}}>✓ Conferma</button>
+                                  <button onClick={()=>approvaUrl(az.id, "NESSUNA")}
+                                    title="Nessun profilo LinkedIn valido per questa azienda"
+                                    style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:3,cursor:"pointer",
+                                      color:"#fca5a5",background:"rgba(239,68,68,0.10)",border:"1px solid rgba(239,68,68,0.28)"}}>✕ Nessuna</button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {sbReady&&codeQueue.urlAmbigue.length>0&&urlViewMode==='strumento'&&(
                     <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column"}}>
                       {reviewBlobUrl&&<iframe src={reviewBlobUrl} style={{flex:1,border:"none",width:"100%"}} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
                         onLoad={e=>{
