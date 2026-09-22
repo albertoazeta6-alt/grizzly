@@ -2598,7 +2598,21 @@ function App() {
     if (!sbUrlF || !sbKeyF) { pushLog("error","✕ Invio annullato: credenziali Supabase mancanti"); showToast("⚠ Credenziali Supabase mancanti"); return; }
     let contactIds;
     if (contattiSelected.size > 0) {
-      contactIds = [...contattiSelected];
+      // Un contatto gia' "inviato" e' gia' su HubSpot: rimandarlo fa creare un
+      // doppione, e se l'email e' la stessa HubSpot rifiuta l'intera operazione
+      // (l'email e' un identificatore unico fra i contatti). Meglio escluderli
+      // qui e dirlo, invece di far fallire lo scenario.
+      const giaInviati = [...contattiSelected].filter(id =>
+        (contattiRun.rows.find(r => r.id === id) || {}).stato === "inviato");
+      contactIds = [...contattiSelected].filter(id => !giaInviati.includes(id));
+      if (giaInviati.length) {
+        pushLog("warn", `⬡ ${giaInviati.length} contatt${giaInviati.length===1?"o gia' inviato escluso":"i gia' inviati esclusi"} dall'invio`);
+      }
+      if (!contactIds.length) {
+        pushLog("warn", "⬡ Invio annullato: i contatti selezionati sono gia' stati inviati");
+        showToast("⚠ Già inviati");
+        return;
+      }
     } else {
       try {
         const r = await fetch(`${sbUrlF}/rest/v1/contacts?select=id&stato=in.(email_trovata,email_non_trovata)&limit=500`, {
@@ -3039,7 +3053,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.59</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.60</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
