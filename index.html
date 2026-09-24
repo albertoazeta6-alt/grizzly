@@ -244,28 +244,68 @@ function normSito(s){
   if(md)v=md[1];
   // https:foo.com → https://foo.com
   else if(/^https?:[^/]/i.test(v))v=v.replace(/^(https?:)/i,"$1//");
-  return v.toLowerCase().replace(/^https?:\/\/(www\.)?/,"").replace(/\/+$/,"").split("/")[0];
+  // Il "www." va tolto in un passo separato: su Supabase molti siti sono
+  // salvati senza protocollo ("www.tizio.it") mentre dall'export arrivano
+  // con ("https://www.tizio.it"). Togliendolo solo insieme al protocollo,
+  // le due forme non combaciavano mai e il controllo duplicati per sito
+  // non trovava niente — sempre in silenzio, come se il DB fosse vuoto.
+  return v.toLowerCase()
+          .replace(/^https?:\/\//,"")
+          .replace(/^www\./,"")
+          .replace(/\/+$/,"")
+          .split("/")[0]
+          .split("?")[0]
+          .split("#")[0];
 }
 
+// Cerca su Supabase quali dei siti e delle partite IVA in arrivo esistono gia'.
+//
+// Restituisce anche `errore`: se una qualsiasi delle interrogazioni non va a
+// buon fine, chi chiama DEVE fermarsi. Un controllo duplicati che fallisce
+// risponde "nessun duplicato", che e' indistinguibile da un DB vuoto: e' cosi'
+// che sono nate 56 aziende doppie su HubSpot. Meglio un import che si rifiuta
+// di partire di un import che raddoppia il CRM in silenzio.
+//
+// Le interrogazioni vanno a blocchi perche' l'URL ha un limite di lunghezza:
+// con qualche centinaio di siti un solo or=(...) viene rifiutato dal server.
 async function checkDedup(sitiArr, pivaArr) {
   const {url,key} = getSbCreds();
-  const out = {sitiFnd: new Set(), piveFnd: new Set()};
-  if(!url||!key) return out;
-  const siti = [...new Set(sitiArr.filter(Boolean).map(normSito))];
-  const pive = [...new Set(pivaArr.filter(Boolean).map(p=>String(p).trim()))];
+  const out = {sitiFnd: new Set(), piveFnd: new Set(), errore: null};
+  if(!url||!key){ out.errore = "credenziali Supabase mancanti"; return out; }
+
+  const siti = [...new Set(sitiArr.filter(Boolean).map(normSito).filter(Boolean))];
+  const pive = [...new Set(pivaArr.filter(Boolean).map(p=>String(p).trim()).filter(Boolean))];
+  const BLOCCO = 40;
+  const h = {apikey:key, Authorization:`Bearer ${sbBearer()}`};
+
+  const interroga = async (query, etichetta) => {
+    let r;
+    try {
+      r = await fetch(query, {headers:h});
+    } catch(e) {
+      throw new Error(`${etichetta}: rete non raggiungibile (${e.message||e})`);
+    }
+    if(!r.ok) throw new Error(`${etichetta}: HTTP ${r.status} ${await r.text().catch(()=>"")}`.slice(0,200));
+    return r.json();
+  };
+
   try {
-    if(siti.length){
-      const orFilter = siti.map(s=>`sito_web.ilike.*${s}*`).join(',');
-      const r = await fetch(`${url}/rest/v1/companies?select=sito_web&or=(${orFilter})`,
-        {headers:{apikey:key,Authorization:`Bearer ${sbBearer()}`}});
-      if(r.ok)(await r.json()).forEach(row=>out.sitiFnd.add(normSito(row.sito_web)));
+    for(let i=0; i<siti.length; i+=BLOCCO){
+      const parte = siti.slice(i, i+BLOCCO);
+      const orFilter = parte.map(s=>`sito_web.ilike.*${encodeURIComponent(s)}*`).join(',');
+      const righe = await interroga(
+        `${url}/rest/v1/companies?select=sito_web&or=(${orFilter})&limit=1000`, "siti");
+      righe.forEach(row => { const n = normSito(row.sito_web); if(n) out.sitiFnd.add(n); });
     }
-    if(pive.length){
-      const r = await fetch(`${url}/rest/v1/companies?select=partita_iva&partita_iva=in.(${pive.join(",")})`,
-        {headers:{apikey:key,Authorization:`Bearer ${sbBearer()}`}});
-      if(r.ok)(await r.json()).forEach(row=>out.piveFnd.add(String(row.partita_iva).trim()));
+    for(let i=0; i<pive.length; i+=BLOCCO){
+      const parte = pive.slice(i, i+BLOCCO).map(p=>`"${encodeURIComponent(p)}"`);
+      const righe = await interroga(
+        `${url}/rest/v1/companies?select=partita_iva&partita_iva=in.(${parte.join(",")})&limit=1000`, "partite IVA");
+      righe.forEach(row => out.piveFnd.add(String(row.partita_iva).trim()));
     }
-  } catch {}
+  } catch(e) {
+    out.errore = e.message || String(e);
+  }
   return out;
 }
 
@@ -2229,12 +2269,23 @@ function App() {
         pushLog("ok",`✓ ${rowCount} aziende — ${mappedCols} colonne mappate`);
 
         // Dedup check su Supabase
+        let sitiFnd = new Set(), piveFnd = new Set();
         if(sbReady && parsedRows) {
           setFaseS("import","in_corso",{dettaglio:"Controllo duplicati su DB..."});
           pushLog("info","⬡ Controllo duplicati in Supabase...");
           const siti = parsedRows.map(r=>r["Sito web"]||r["sito_web"]||"");
           const pive = parsedRows.map(r=>r["Partita IVA"]||r["partita_iva"]||"");
-          const {sitiFnd, piveFnd} = await checkDedup(siti, pive);
+          const dedup = await checkDedup(siti, pive);
+          if(dedup.errore){
+            // Senza un controllo duplicati attendibile non si importa: il
+            // risultato sarebbe indistinguibile da "nessun duplicato".
+            const msg = `Controllo duplicati fallito (${dedup.errore}). Import annullato.`;
+            pushLog("error", `✕ ${msg}`);
+            setFaseS("import","errore",{dettaglio:msg});
+            sbWritePipelineState("import","errore",msg);
+            throw new Error(msg);
+          }
+          sitiFnd = dedup.sitiFnd; piveFnd = dedup.piveFnd;
           const dupCount = parsedRows.filter(r=>{
             const s = normSito(r["Sito web"]||r["sito_web"]||"");
             const p = String(r["Partita IVA"]||r["partita_iva"]||"").trim();
@@ -2248,11 +2299,11 @@ function App() {
 
         // ── Importa direttamente su Supabase ────────────────────────────────
         if(sbReady && parsedRows) {
-          // Filtra i duplicati già trovati nel dedup check
-          const {sitiFnd:sf, piveFnd:pf} = await checkDedup(
-            parsedRows.map(r=>r["Sito web"]||""),
-            parsedRows.map(r=>String(r["Partita IVA"]||"").trim())
-          );
+          // Riusa il risultato del controllo qui sopra invece di rifarlo:
+          // due interrogazioni identiche sugli stessi dati possono dare esiti
+          // diversi (una passa, l'altra fallisce), e il conteggio mostrato
+          // all'utente non corrisponderebbe piu' a cio' che viene scritto.
+          const sf = sitiFnd, pf = piveFnd;
           const nuove = parsedRows.filter(r=>{
             const s = normSito(r["Sito web"]||"");
             const p = String(r["Partita IVA"]||"").trim();
@@ -2263,29 +2314,44 @@ function App() {
             setFaseS("import","in_corso",{dettaglio:`Scrittura ${nuove.length} aziende su Supabase...`});
             pushLog("info",`⬡ Inserimento ${nuove.length} aziende in Supabase...`);
 
-            const ebSito  = r => normSito(r["Sito web"]||"") || null;
-            const ebLi    = r => { const v=(r["Social Media"]||"").trim(); return v.toLowerCase().includes("linkedin.com/company/")?v:null; };
+            // Legge una colonna senza farsi fermare da maiuscole, spazi doppi o
+            // spazi ai bordi dell'intestazione. EasyBusiness esporta "Social media"
+            // con la m minuscola: cercando "Social Media" il valore risultava
+            // sempre vuoto e i LinkedIn dell'export non entravano mai, lasciando
+            // a Phantom un lavoro che era gia' stato fatto. Un confronto rigido
+            // sul nome di colonna fallisce in silenzio, e il silenzio e' il
+            // problema: nessun errore, solo un campo che resta null.
+            const ebCol = (r, nome) => {
+              const k = Object.keys(r||{}).find(
+                x => x.toLowerCase().replace(/\s+/g," ").trim()
+                   === nome.toLowerCase().replace(/\s+/g," ").trim()
+              );
+              return k === undefined ? "" : (r[k] ?? "");
+            };
+
+            const ebSito  = r => normSito(String(ebCol(r,"Sito web")))    || null;
+            const ebLi    = r => { const v=String(ebCol(r,"Social media")).trim(); return v.toLowerCase().includes("linkedin.com/company/")?v:null; };
             const ebAteco = r => {
-              const c = String(r["ATECO code (IT 2007)"]||"").replace(/\D/g,"").trim();
+              const c = String(ebCol(r,"ATECO code (IT 2007)")).replace(/\D/g,"").trim();
               if(!c) return null;
               if(c.length <= 2) return c;
               if(c.length <= 4) return c.slice(0,2)+"."+c.slice(2);
               return c.slice(0,2)+"."+c.slice(2,4)+"."+c.slice(4);
             };
-            const ebProv  = r => (r["Regione/provincia"]||"").replace(/[()]/g,"").trim() || null;
+            const ebProv  = r => String(ebCol(r,"Regione/provincia")).replace(/[()]/g,"").trim() || null;
 
             const records = nuove.map(r=>({
-              nome:              (r["Ragione sociale"]||"").trim(),
+              nome:              String(ebCol(r,"Ragione sociale")).trim(),
               sito_web:          ebSito(r),
               linkedin_url_eb:   ebLi(r) || null,  // candidato grezzo EB — da verificare con Phantom
-              partita_iva:       String(r["Partita IVA"]||"").trim() || null,
-              citta:             (r["Città"]||"").trim() || null,
-              cap:               String(r["CAP"]||"").trim() || null,
-              regione:           (r["Regione"]||"").trim() || null,
+              partita_iva:       String(ebCol(r,"Partita IVA")).trim() || null,
+              citta:             String(ebCol(r,"Città")).trim() || null,
+              cap:               String(ebCol(r,"CAP")).trim() || null,
+              regione:           String(ebCol(r,"Regione")).trim() || null,
               provincia:         ebProv(r),
               ateco:             ebAteco(r),
-              fatturato:         String(r["Fatturato lordo"]||"").trim() || null,
-              numero_dipendenti: (r["Numero dipendenti per fascia"]||"").trim() || null,
+              fatturato:         String(ebCol(r,"Fatturato lordo")).trim() || null,
+              numero_dipendenti: String(ebCol(r,"Numero dipendenti per fascia")).trim() || null,
               stato:             ebSito(r) ? "nuovo" : "sito_mancante",
               fonte:             "Automazione Bancadati",
             })).filter(r=>r.nome);
@@ -3101,7 +3167,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.65</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.67</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
