@@ -114,7 +114,7 @@ let PHANTOM = {
 // ── CLASSIFICAZIONE ───────────────────────────────────────────────────────────
 const SETTORI_CLASS = ["Facility management","Ascensori","Gru","Carrelli","Fotovoltaico",
   "Antincendio","Automazione industriale","Impianti","Costruttore","Componentistica",
-  "Produzione","Manutenzione","Wholesale","Altro"];
+  "Produzione","Manutenzione","Vendita all'ingrosso","Altro"];
 
 // ── SUPABASE ──────────────────────────────────────────────────────────────────
 const SB_URL_LS = "grizzly_sb_url";
@@ -4557,7 +4557,7 @@ function App() {
                                     <select value={classifCorreggi.settore} onChange={e=>setClassifCorreggi(s=>({...s,settore:e.target.value}))}
                                       style={{fontSize:9,padding:"2px 4px",background:C.card,color:C.text,border:`1px solid ${C.border}`,borderRadius:3,maxWidth:110}}>
                                       <option value="">— settore —</option>
-                                      {["Facility management","Ascensori","Gru","Carrelli","Fotovoltaico","Antincendio","Automazione industriale","Impianti","Costruttore","Componentistica","Produzione","Manutenzione","Wholesale","Altro"].map(s=>(
+                                      {["Facility management","Ascensori","Gru","Carrelli","Fotovoltaico","Antincendio","Automazione industriale","Impianti","Costruttore","Componentistica","Produzione","Manutenzione","Vendita all'ingrosso","Altro"].map(s=>(
                                         <option key={s} value={s}>{s}</option>
                                       ))}
                                     </select>
