@@ -711,6 +711,10 @@ function App() {
   // comunque selezionate per mandarle a HubSpot.
   const [importInCoda, setImportInCoda] = useState(false);
   const [importTutteRun, setImportTutteRun] = useState(false);
+  // openImportDati viene chiamata anche da timer e da effetti con closure
+  // vecchie: deve leggere l'ambito da un ref, non dallo state.
+  const importTutteRunRef = React.useRef(false);
+  useEffect(() => { importTutteRunRef.current = importTutteRun; }, [importTutteRun]);
   const [importSettoreFilter, setImportSettoreFilter] = useState(""); // "" = tutti, "__vuoto__" = senza settore
   const [importConfFilter, setImportConfFilter]       = useState(""); // "" = tutte, "__vuoto__" = senza confidenza
   // Filtro unico di Ricerca Aziende: stato (chip, multi) + settore + confidenza (tendine).
@@ -2458,7 +2462,13 @@ function App() {
     try {
       const {url:sbUrl, key:sbKey} = getSbCreds();
       if (!sbUrl || !sbKey) { if (!silent) setImportDati(p=>({...p, loading:false})); return; }
-      const filter = sinceTs ? `&creato_il=gte.${encodeURIComponent(sinceTs)}` : "";
+      // Con la vista "Tutte le run" attiva il filtro temporale va ignorato,
+      // qualunque cosa passi chi chiama. I refresh automatici — polling,
+      // classificazione completata, cambio fase — passano sempre runStart:
+      // senza questo controllo riportavano la tabella alla sola run corrente
+      // ogni pochi secondi, svuotando la selezione mentre la si stava facendo.
+      const ts = importTutteRunRef.current ? null : sinceTs;
+      const filter = ts ? `&creato_il=gte.${encodeURIComponent(ts)}` : "";
       const BATCH = 1000;
       let allRows = [], offset = 0, done = false;
       while (!done) {
@@ -4192,6 +4202,7 @@ function App() {
                                 delle aziende ferme in URL ambigua. */}
                             <button onClick={async ()=>{
                                 const attiva = !importTutteRun;
+                                importTutteRunRef.current = attiva;  // subito: openImportDati lo legge ora
                                 setImportTutteRun(attiva);
                                 if (!attiva) setImportInCoda(false); // senza l'ambito il filtro coda non ha senso
                                 await openImportDati(attiva ? null : runStart);
@@ -4211,6 +4222,7 @@ function App() {
                                 if (attiva) {
                                   setImportStatoFilter(new Set());   // il criterio lo applica eInCoda
                                   if (!importTutteRun) {             // le code pescano da tutte le run
+                                    importTutteRunRef.current = true;
                                     setImportTutteRun(true);
                                     await openImportDati(null);
                                   }
