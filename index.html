@@ -316,7 +316,7 @@ async function loadCodeQueue() {
   try {
     const [siti, urlAmbigue, contatti] = await Promise.all([
       // sito_web e motivazione servono perche' in questa coda non ci sono piu'
-      // solo aziende senza sito: da v4.77 ci finisce anche chi ha un indirizzo
+      // solo aziende senza sito: da v4.79 ci finisce anche chi ha un indirizzo
       // che non risponde, e per correggerlo bisogna vedere qual e'.
       fetch(`${url}/rest/v1/companies?stato=eq.sito_mancante&select=id,nome,citta,partita_iva,sito_web,settore,settore_motivazione&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
       fetch(`${url}/rest/v1/companies?stato=eq.url_ambigua&select=id,nome,sito_web,linkedin_url,linkedin_url_pb,citta,settore,fatturato&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
@@ -428,6 +428,29 @@ const dur     = (a,b) => {if(!a||!b)return null;const s=Math.floor((new Date(b)-
 const SectionHead = ({title}) => (
   <div style={{padding:"10px 16px",borderBottom:"1px solid #1e2a3a",fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:"#4b5e78",textTransform:"uppercase"}}>{title}</div>
 );
+// Selettore a due o piu' valori: mostra tutte le opzioni e evidenzia quella
+// attiva. Sostituisce gli interruttori la cui etichetta cambiava a ogni click,
+// dove non si capiva se il testo dicesse lo stato attuale o l'azione da fare.
+const Selettore = ({label, valore, opzioni, onChange, C}) => (
+  <span style={{display:"inline-flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}>
+    <span style={{fontSize:10,color:C.muted,fontWeight:600}}>{label}</span>
+    <span style={{display:"inline-flex",border:`1px solid ${C.border}`,borderRadius:5,overflow:"hidden"}}>
+      {opzioni.map(({v,testo,titolo},i)=>{
+        const attivo = v===valore;
+        return (
+          <button key={v} onClick={()=>onChange(v)} title={titolo}
+            style={{padding:"3px 10px",fontSize:10,fontWeight:700,cursor:"pointer",border:"none",
+              borderLeft: i>0 ? `1px solid ${C.border}` : "none",
+              color: attivo ? "#fff" : C.muted,
+              background: attivo ? "rgba(59,130,246,0.55)" : "transparent"}}>
+            {testo}
+          </button>
+        );
+      })}
+    </span>
+  </span>
+);
+
 const SettingRow = ({chiave,label,tipo="text",placeholder="",settingEdit,setSettingEdit,sbSettings,setSbSettings,sbSaving,setSbSaving,showToast}) => {
   const val = settingEdit[chiave]!==undefined ? settingEdit[chiave] : (sbSettings[chiave]||"");
   const dirty = settingEdit[chiave]!==undefined && settingEdit[chiave]!==(sbSettings[chiave]||"");
@@ -720,11 +743,28 @@ function App() {
   // Tenerle insieme rendeva invisibile qualunque azienda fuori dai criteri di
   // eInCoda: per esempio le `linkedin_upd`, che non sono in coda ma vanno
   // comunque selezionate per mandarle a HubSpot.
-  const [importInCoda, setImportInCoda] = useState(false);
-  const [importTutteRun, setImportTutteRun] = useState(false);
+  // La scelta si ricorda fra una sessione e l'altra: chi lavora sulle aziende
+  // storiche non deve rimetterla a ogni apertura.
+  const [importInCoda, setImportInCoda] = useState(() => {
+    try { return localStorage.getItem("grizzly_filtro_in_coda") === "1"; } catch { return false; }
+  });
+  const [importTutteRun, setImportTutteRun] = useState(() => {
+    try { return localStorage.getItem("grizzly_filtro_tutte_run") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("grizzly_filtro_tutte_run", importTutteRun ? "1" : "0");
+      localStorage.setItem("grizzly_filtro_in_coda",  importInCoda  ? "1" : "0");
+    } catch {}
+  }, [importTutteRun, importInCoda]);
   // openImportDati viene chiamata anche da timer e da effetti con closure
   // vecchie: deve leggere l'ambito da un ref, non dallo state.
-  const importTutteRunRef = React.useRef(false);
+  // Parte dal valore salvato, non da false: al primo caricamento openImportDati
+  // legge il ref, e trovarlo disallineato dal selettore significherebbe
+  // mostrare la sola run corrente con "Tutte" evidenziato.
+  const importTutteRunRef = React.useRef((() => {
+    try { return localStorage.getItem("grizzly_filtro_tutte_run") === "1"; } catch { return false; }
+  })());
   useEffect(() => { importTutteRunRef.current = importTutteRun; }, [importTutteRun]);
   const [importSettoreFilter, setImportSettoreFilter] = useState(""); // "" = tutti, "__vuoto__" = senza settore
   const [importConfFilter, setImportConfFilter]       = useState(""); // "" = tutte, "__vuoto__" = senza confidenza
@@ -3329,7 +3369,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.77</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.79</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -3804,7 +3844,7 @@ function App() {
                               </a>
                             )}
                           </div>
-                          {/* Salta fase — ex "⏹ Stop", rinominato in v4.77 perche' non
+                          {/* Salta fase — ex "⏹ Stop", rinominato in v4.79 perche' non
                               ferma niente: manda avanti la pipeline. Per non far partire
                               nulla c'e' la pausa generale. */}
                           {fase.id==="company"&&fase.stato==="in_corso"&&(
@@ -4300,7 +4340,11 @@ function App() {
                               const on = importStatoFilter.has(k);
                               return (
                                 <button key={k} onClick={()=>setImportStatoFilter(prev=>{const n=new Set(prev);on?n.delete(k):n.add(k);return n;})}
+                                  title={on?`Togli "${label}" dal filtro`:`Aggiungi "${label}" al filtro — se ne possono accendere piu' di uno`}
                                   style={{display:"flex",alignItems:"center",gap:5,padding:"3px 9px",borderRadius:5,border:`1px solid ${on?col:"rgba(148,163,184,0.2)"}`,background:on?`${col}18`:"transparent",color:on?col:"#64748b",cursor:"pointer",fontSize:10,fontWeight:on?700:400,transition:"all .12s"}}>
+                                  {/* La casella dice che la scelta e' multipla: senza,
+                                      questi pill sembrano alternativi fra loro. */}
+                                  <span style={{fontSize:9,opacity:on?1:0.55}}>{on?"☑":"☐"}</span>
                                   <span>{label}</span>
                                   <span style={{fontSize:9,fontWeight:700,background:on?`${col}30`:"rgba(148,163,184,0.15)",borderRadius:3,padding:"0 4px"}}>{cnt}</span>
                                 </button>
@@ -4339,29 +4383,33 @@ function App() {
                                 </>
                               );
                             })()}
-                            {/* Le code raccolgono aziende di run diverse, mentre questa vista
-                                mostra per default solo la run corrente. Il pulsante toglie il
-                                filtro temporale e seleziona gli stati in attesa: serve per
-                                lavorarle in blocco, per esempio cercando l'indirizzo info@
-                                delle aziende ferme in URL ambigua. */}
-                            <button onClick={async ()=>{
-                                const attiva = !importTutteRun;
+                            {/* Due selettori, non due interruttori. Un interruttore che
+                                mostra lo stato attuale ("Run corrente") viene letto come
+                                l'azione da compiere, e i due sensi sono opposti: si finiva
+                                per premere il contrario di quello che si voleva. Qui
+                                entrambe le opzioni sono sempre visibili e quella attiva e'
+                                evidenziata, quindi non c'e' niente da indovinare. */}
+                            <Selettore label="Run" valore={importTutteRun?"tutte":"corrente"}
+                              opzioni={[
+                                {v:"corrente", testo:"Corrente", titolo:"Solo le aziende importate in questa run"},
+                                {v:"tutte",    testo:"Tutte",    titolo:"Tutte le aziende del database, di qualunque run"},
+                              ]}
+                              onChange={async v=>{
+                                const attiva = v==="tutte";
+                                if (attiva===importTutteRun) return;
                                 importTutteRunRef.current = attiva;  // subito: openImportDati lo legge ora
                                 setImportTutteRun(attiva);
                                 if (!attiva) setImportInCoda(false); // senza l'ambito il filtro coda non ha senso
                                 await openImportDati(attiva ? null : runStart);
-                              }}
-                              title={importTutteRun
-                                ? "Torna alle aziende della run corrente"
-                                : "Mostra le aziende di tutte le run, non solo quella corrente"}
-                              style={{padding:"3px 10px",fontSize:10,fontWeight:700,borderRadius:5,cursor:"pointer",whiteSpace:"nowrap",
-                                color:importTutteRun?"#34d399":"#93c5fd",
-                                background:importTutteRun?"rgba(52,211,153,0.15)":"rgba(59,130,246,0.10)",
-                                border:`1px solid ${importTutteRun?"rgba(52,211,153,0.4)":"rgba(59,130,246,0.25)"}`}}>
-                              {importTutteRun?"🗂 Tutte le run":"🗂 Run corrente"}
-                            </button>
-                            <button onClick={async ()=>{
-                                const attiva = !importInCoda;
+                              }} C={C}/>
+                            <Selettore label="Aziende" valore={importInCoda?"coda":"tutte"}
+                              opzioni={[
+                                {v:"tutte", testo:"Tutte",    titolo:"Tutte le aziende caricate"},
+                                {v:"coda",  testo:"In attesa", titolo:"Solo quelle con sito che aspettano un intervento: URL ambiguo, LinkedIn non trovato, classificazione da rivedere"},
+                              ]}
+                              onChange={async v=>{
+                                const attiva = v==="coda";
+                                if (attiva===importInCoda) return;
                                 setImportInCoda(attiva);
                                 if (attiva) {
                                   setImportStatoFilter(new Set());   // il criterio lo applica eInCoda
@@ -4371,31 +4419,31 @@ function App() {
                                     await openImportDati(null);
                                   }
                                 }
-                              }}
-                              title={importInCoda
-                                ? "Mostra tutte le aziende, non solo quelle in attesa"
-                                : "Solo le aziende con sito che aspettano un intervento: URL ambiguo, LinkedIn non trovato, classificazione da rivedere"}
-                              style={{padding:"3px 10px",fontSize:10,fontWeight:700,borderRadius:5,cursor:"pointer",whiteSpace:"nowrap",
-                                color:importInCoda?"#fbbf24":"#93c5fd",
-                                background:importInCoda?"rgba(251,191,36,0.15)":"rgba(59,130,246,0.10)",
-                                border:`1px solid ${importInCoda?"rgba(251,191,36,0.4)":"rgba(59,130,246,0.25)"}`}}>
-                              ⏳ Solo in coda
-                            </button>
+                              }} C={C}/>
                             <input value={importSearch} onChange={e=>setImportSearch(e.target.value)}
                               placeholder="🔍 Cerca azienda, sito, città…"
                               onClick={e=>e.stopPropagation()}
                               style={{padding:"3px 8px",fontSize:10,borderRadius:5,minWidth:190,
                                 border:`1px solid ${importSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
                                 background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
-                            {(importStatoFilter.size>0||importSettoreFilter||importConfFilter||importSearch)&&(()=>{
+                            {/* Il conteggio e' SEMPRE visibile, non solo con un filtro
+                                attivo: sapere quante aziende si sta guardando e' come
+                                ci si accorge di stare lavorando su una lista parziale.
+                                Senza, si scopre dopo — ed e' gia' successo. */}
+                            {(()=>{
                               const n = applicaFiltriImport(importDati.rows).length;
+                              const tot = importDati.rows.length;
+                              const filtrato = importStatoFilter.size>0||importSettoreFilter||importConfFilter||importSearch||importInCoda;
                               return (
                                 <div style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto"}}>
-                                  <span style={{fontSize:10,color:"#93c5fd",fontWeight:600}}>{n} di {importDati.rows.length}</span>
-                                  <button onClick={()=>{setImportStatoFilter(new Set());setImportSettoreFilter("");setImportConfFilter("");setImportSearch("");}}
+                                  <span style={{fontSize:10,fontWeight:600,color:filtrato?"#93c5fd":C.muted}}>
+                                    {filtrato ? `${n} di ${tot}` : `${tot} aziend${tot===1?"a":"e"}`}
+                                  </span>
+                                  {filtrato&&(
+                                  <button onClick={()=>{setImportStatoFilter(new Set());setImportSettoreFilter("");setImportConfFilter("");setImportSearch("");setImportInCoda(false);}}
                                     style={{padding:"3px 8px",borderRadius:5,border:"1px solid rgba(148,163,184,0.2)",background:"transparent",color:"#64748b",cursor:"pointer",fontSize:10}}>
                                     ✕ Azzera filtri
-                                  </button>
+                                  </button>)}
                                 </div>
                               );
                             })()}
