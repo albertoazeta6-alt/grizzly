@@ -1494,39 +1494,28 @@ function App() {
     pushLog("ok", "▶ HubSpot avviato (forza manuale)");
   }, [runId, runStart, setFaseS, sbWritePipelineState, pushLog, showToast]);
 
-  // ── Stop forzato HubSpot (segna completato → triggera Lemlist) ──────────────
-  const stopHubspotForzato = useCallback(() => {
+  // ── Salta fase ─────────────────────────────────────────────────────────────
+  // Erano due pulsanti "⏹ Stop" che non fermavano niente: marcavano la fase
+  // come completata e facevano partire la successiva. Il nome prometteva un
+  // freno e l'effetto era un acceleratore, premuto per giunta proprio quando
+  // qualcosa sembrava bloccato. Stesso comportamento, nome onesto e una
+  // conferma che dice cosa succede dopo.
+  //
+  // L'abort di Phantom via API e' stato tolto: dal browser falliva quasi
+  // sempre per CORS, e un'operazione che riesce una volta su dieci e' peggio
+  // di una che non c'e', perche' fa credere che il Phantom sia fermo.
+  const saltaFase = useCallback(async (id, etichetta, prossima) => {
+    const ok = await customConfirm(
+      `Saltare la fase "${etichetta}"?\n\nViene segnata come completata e parte ${prossima}. ` +
+      `Quello che sta girando adesso non si ferma: se ${etichetta} e' ancora al lavoro, ` +
+      `continuera' e i suoi risultati arriveranno comunque.`);
+    if (!ok) return;
     const now = new Date().toISOString();
-    setFaseS("hubspot","completato",{completato:now,dettaglio:"Stop manuale — Lemlist avviato"});
-    sbWritePipelineState("hubspot","completato","Stop manuale — Lemlist avviato");
-    showToast("⏹ HubSpot fermato — Lemlist in avvio");
-    pushLog("warn","⏹ Stop HubSpot forzato — avvio Lemlist...");
-  }, [setFaseS, sbWritePipelineState, pushLog]);
-
-  // ── Stop forzato Phantom + avvia HubSpot ────────────────────────────────────
-  const stopPhantomForzato = useCallback(async () => {
-    pushLog("warn","⏹ Stop Phantom forzato — avvio HubSpot...");
-    // Tenta abort Phantom API (potrebbe fallire per CORS da browser, non bloccante)
-    const phantomKey = sbSettings["phantom_api_key"]||"";
-    const agentId = "7679104398153989";
-    if (phantomKey) {
-      try {
-        await fetch("https://api.phantombuster.com/api/v2/agents/abort", {
-          method:"POST",
-          headers:{"Content-Type":"application/json","X-Phantombuster-Key-1":phantomKey},
-          body: JSON.stringify({id: agentId})
-        });
-        pushLog("ok","✓ Phantom abortito via API");
-      } catch(e) {
-        pushLog("warn","⚠ Abort Phantom fallito (CORS) — procedo comunque con HubSpot");
-      }
-    }
-    // Marca company come completato → triggera useEffect HubSpot
-    const now = new Date().toISOString();
-    setFaseS("company","completato",{completato:now,dettaglio:"Stop manuale — HubSpot avviato"});
-    sbWritePipelineState("company","completato","Stop manuale — HubSpot avviato");
-    showToast("⏹ Phantom fermato — HubSpot in avvio");
-  }, [sbSettings, pushLog, setFaseS, sbWritePipelineState]);
+    setFaseS(id, "completato", {completato: now, dettaglio: `Fase saltata a mano — ${prossima} avviata`});
+    sbWritePipelineState(id, "completato", `Fase saltata a mano — ${prossima} avviata`);
+    pushLog("warn", `⏭ Fase "${etichetta}" saltata — avvio ${prossima}`);
+    showToast(`⏭ ${etichetta} saltata`);
+  }, [setFaseS, sbWritePipelineState, pushLog, showToast]);
 
   // ── Classificazione: conta aziende stato=nuovo con sito ─────────────────────
   const fetchClassificaCount = useCallback(async () => {
@@ -3262,7 +3251,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.70</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.71</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -3737,13 +3726,18 @@ function App() {
                               </a>
                             )}
                           </div>
-                          {/* Stop Phantom — in basso a destra, solo quando company in_corso */}
+                          {/* Salta fase — ex "⏹ Stop", rinominato in v4.71 perche' non
+                              ferma niente: manda avanti la pipeline. Per non far partire
+                              nulla c'e' la pausa generale. */}
                           {fase.id==="company"&&fase.stato==="in_corso"&&(
-                            <button onClick={stopPhantomForzato} style={{position:"absolute",bottom:8,right:8,fontSize:8,fontWeight:600,color:"#fca5a5",background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer"}}>⏹ Stop</button>
+                            <button onClick={()=>saltaFase("company","Cerca Company Page","Aggiornamento HubSpot")}
+                              title="Segna la ricerca LinkedIn come conclusa e passa ad HubSpot. Non ferma il Phantom in corso."
+                              style={{position:"absolute",bottom:8,right:8,fontSize:8,fontWeight:600,color:"#fcd34d",background:"rgba(251,191,36,0.12)",border:"1px solid rgba(251,191,36,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer"}}>⏭ Salta fase</button>
                           )}
-                          {/* Stop HubSpot — in basso a destra, solo quando hubspot in_corso */}
                           {fase.id==="hubspot"&&fase.stato==="in_corso"&&(
-                            <button onClick={stopHubspotForzato} style={{position:"absolute",bottom:8,right:8,fontSize:8,fontWeight:600,color:"#fca5a5",background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer"}}>⏹ Stop</button>
+                            <button onClick={()=>saltaFase("hubspot","Aggiornamento HubSpot","lo scraping dei lead")}
+                              title="Segna l'aggiornamento HubSpot come concluso e passa alla fase successiva. Non ferma lo scenario Make in corso."
+                              style={{position:"absolute",bottom:8,right:8,fontSize:8,fontWeight:600,color:"#fcd34d",background:"rgba(251,191,36,0.12)",border:"1px solid rgba(251,191,36,0.3)",borderRadius:3,padding:"3px 7px",cursor:"pointer"}}>⏭ Salta fase</button>
                           )}
                           {/* Forza HubSpot — quando la fase non sta girando. Rimanda a Make
                               tutte le aziende ferme negli stati da sincronizzare
