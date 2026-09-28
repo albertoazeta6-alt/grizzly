@@ -2544,7 +2544,12 @@ function App() {
       const BATCH = 1000;
       let allRows = [], offset = 0, done = false;
       while (!done) {
-        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,settore_confidenza,semaforo_verifica,fatturato,icebreaker${filter}&order=creato_il.desc&limit=${BATCH}&offset=${offset}`, {
+        // L'ordinamento DEVE avere un secondo criterio univoco (id): creato_il
+        // si ripete su molte righe e senza spareggio Postgres puo' restituire
+        // la stessa riga in due pagine e ometterne un'altra. Il risultato erano
+        // chiavi duplicate nella tabella, e React con chiavi duplicate mostra
+        // righe che il filtro ha gia' escluso.
+        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,settore_confidenza,semaforo_verifica,fatturato,icebreaker${filter}&order=creato_il.desc,id.desc&limit=${BATCH}&offset=${offset}`, {
           headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"count=none"}
         });
         const batch = r.ok ? await r.json() : [];
@@ -2552,7 +2557,16 @@ function App() {
         if (batch.length < BATCH) done = true;
         else offset += BATCH;
       }
-      setImportDati(p=>({...p, loading:false, rows:allRows}));
+      // Rete di sicurezza: anche con lo spareggio su id, una riga duplicata
+      // non deve piu' poter arrivare al rendering.
+      const visti = new Set();
+      const righeUniche = allRows.filter(r => {
+        const k = String(r.id);
+        if (visti.has(k)) return false;
+        visti.add(k);
+        return true;
+      });
+      setImportDati(p=>({...p, loading:false, rows:righeUniche}));
     } catch(e) { if (!silent) setImportDati(p=>({...p, loading:false})); }
   };
 
@@ -2564,7 +2578,8 @@ function App() {
       const BATCH = 1000;
       let allRows = [], offset = 0, done = false;
       while (!done) {
-        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,citta,stato,settore,icebreaker,linkedin_url&order=creato_il.desc&limit=${BATCH}&offset=${offset}`, {
+        // Stesso spareggio su id della tabella Aziende: vedi openImportDati.
+        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,citta,stato,settore,icebreaker,linkedin_url&order=creato_il.desc,id.desc&limit=${BATCH}&offset=${offset}`, {
           headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"count=none"}
         });
         const batch = r.ok ? await r.json() : [];
@@ -3369,7 +3384,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.79</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.80</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
