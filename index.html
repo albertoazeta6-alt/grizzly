@@ -635,6 +635,10 @@ function App() {
   // Supabase
   const [sbReady, setSbReady]       = useState(true); // credenziali hardcodate — sempre pronte
   const [confirmModal, setConfirmModal] = useState(null); // {msg, resolve}
+  // Selezione da elenco di id: le liste di aziende da lavorare nascono quasi
+  // sempre da una query, e spuntarle una per una nella tabella e' il punto in
+  // cui si perde tempo e si sbaglia. Si incolla l'elenco e si seleziona.
+  const [selezionaDaElenco, setSelezionaDaElenco] = useState(null); // {testo, esito}
   const [settori, setSettori]         = useState([]); // caricati da DB
   const [sbSettings, setSbSettings] = useState({});  // mappa chiave→valore dalla tabella settings
   // `settingsPronteRef` distingue "impostazioni non ancora caricate" da
@@ -2686,6 +2690,73 @@ function App() {
     setImportSelected(new Set());
   }, [importSelected, runId, runStart, customConfirm, pushLog, showToast]);
 
+  // ── Rigenera solo l'icebreaker ────────────────────────────────────────────
+  // Serve quando su HubSpot manca la descrizione ma il settore e' gia' quello
+  // giusto: riclassificare da capo ricalcolerebbe anche il settore, e siccome
+  // il modulo 281 non sovrascrive un campo gia' pieno, Supabase e HubSpot
+  // finirebbero per dire cose diverse — proprio sul campo che decide la
+  // campagna Lemlist.
+  //
+  // L'endpoint genera e basta: il salvataggio su Supabase lo fa questo codice.
+  // Le chiamate sono sequenziali di proposito: in parallelo si finisce contro
+  // i limiti di OpenAI, e un rate limit a meta' lista lascerebbe il lavoro a
+  // meta' senza sapere dove.
+  const [icebreakerRun, setIcebreakerRun] = useState(null); // {fatti, totale, stop}
+  const icebreakerStopRef = React.useRef(false);
+
+  const rigeneraIcebreakerSelezionate = useCallback(async () => {
+    if (importSelected.size === 0) { showToast("⚠ Nessuna azienda selezionata"); return; }
+    const ids = [...importSelected];
+    const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
+    if (!base) { showToast("⚠ URL Agente Azure non configurato"); return; }
+    const {url:sbUrl, key:sbKey} = getSbCreds();
+    if (!sbUrl || !sbKey) { showToast("⚠ Credenziali Supabase mancanti"); return; }
+    if (!await customConfirm(
+      `Rigenerare l'icebreaker per ${ids.length} aziend${ids.length===1?"a":"e"}?\n\n` +
+      `Il settore non viene toccato. Richiede circa ${Math.ceil(ids.length*4/60)} minuti ` +
+      `e altrettante chiamate al modello.`)) return;
+
+    // Serve nome e sito: l'endpoint li vuole entrambi e non li legge dal DB.
+    const righe = (importDati.rows||[]).filter(r => ids.includes(r.id));
+    icebreakerStopRef.current = false;
+    setIcebreakerRun({fatti:0, totale:righe.length});
+    pushLog("info", `✍ Rigenerazione icebreaker su ${righe.length} aziende...`);
+
+    let ok=0, ko=0, saltate=0;
+    for (const r of righe) {
+      if (icebreakerStopRef.current) { pushLog("warn","⏹ Rigenerazione interrotta"); break; }
+      if (!(r.sito_web||"").trim()) { saltate++; setIcebreakerRun(s=>({...s, fatti:s.fatti+1})); continue; }
+      try {
+        const resp = await fetch(`${base}/classifica/icebreaker`, {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({nome:r.nome, sito_web:r.sito_web,
+                                openai_model: sbSettings["openai_model"]||"gpt-4o-mini"})
+        });
+        if (!resp.ok) { ko++; pushLog("warn",`⚠ ${r.nome}: agente HTTP ${resp.status}`); }
+        else {
+          const j = await resp.json();
+          const ice = (j?.icebreaker||"").trim();
+          if (!ice) { ko++; pushLog("warn",`⚠ ${r.nome}: icebreaker vuoto`); }
+          else {
+            const pr = await fetch(`${sbUrl}/rest/v1/companies?id=eq.${r.id}`, {
+              method:"PATCH",
+              headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, "Content-Type":"application/json", Prefer:"return=minimal"},
+              body: JSON.stringify({icebreaker: ice, aggiornato_il: new Date().toISOString()})
+            });
+            // Se il salvataggio fallisce la chiamata al modello e' stata pagata
+            // per niente: va detto, non contato come successo.
+            if (pr.ok) ok++; else { ko++; pushLog("warn",`⚠ ${r.nome}: generato ma non salvato (HTTP ${pr.status})`); }
+          }
+        }
+      } catch(e) { ko++; pushLog("warn",`⚠ ${r.nome}: ${e.message}`); }
+      setIcebreakerRun(s=>({...s, fatti:s.fatti+1}));
+    }
+    setIcebreakerRun(null);
+    pushLog(ko?"warn":"ok", `✍ Icebreaker: ${ok} salvati · ${ko} falliti${saltate?` · ${saltate} senza sito`:""}`);
+    showToast(`✓ ${ok} icebreaker salvati`);
+    await openImportDati(runStart);
+  }, [importSelected, importDati.rows, sbSettings, getSbCreds, customConfirm, pushLog, showToast, runStart]);
+
   const rilanciClassificatoreSelezionate = useCallback(async () => {
     if (importSelected.size === 0) { showToast("⚠ Nessuna azienda selezionata"); return; }
     const ids = [...importSelected];
@@ -3251,7 +3322,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.71</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.73</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -3726,7 +3797,7 @@ function App() {
                               </a>
                             )}
                           </div>
-                          {/* Salta fase — ex "⏹ Stop", rinominato in v4.71 perche' non
+                          {/* Salta fase — ex "⏹ Stop", rinominato in v4.73 perche' non
                               ferma niente: manda avanti la pipeline. Per non far partire
                               nulla c'e' la pausa generale. */}
                           {fase.id==="company"&&fase.stato==="in_corso"&&(
@@ -4175,7 +4246,19 @@ function App() {
                               </button>
                             );
                           })()}
+                          <button onClick={()=>setSelezionaDaElenco({testo:"", esito:null})}
+                            title="Incolla un elenco di id (da una query) e seleziona quelle righe"
+                            style={{fontSize:10,fontWeight:700,color:"#a7f3d0",background:"rgba(16,185,129,0.12)",border:"1px solid rgba(16,185,129,0.3)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>⌸ Da elenco</button>
                           {importSelected.size>0&&<button onClick={rilanciClassificatoreSelezionate} style={{fontSize:10,fontWeight:700,color:"#93c5fd",background:"rgba(59,130,246,0.12)",border:"1px solid rgba(59,130,246,0.3)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🏷 Classifica ({importSelected.size})</button>}
+                          {importSelected.size>0&&<button onClick={rigeneraIcebreakerSelezionate} title="Rigenera solo la descrizione commerciale, senza toccare il settore"
+                            style={{fontSize:10,fontWeight:700,color:"#c4b5fd",background:"rgba(167,139,250,0.12)",border:"1px solid rgba(167,139,250,0.35)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>✍ Icebreaker ({importSelected.size})</button>}
+                          {icebreakerRun&&(
+                            <span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:10,fontWeight:700,color:"#c4b5fd"}}>
+                              ✍ {icebreakerRun.fatti}/{icebreakerRun.totale}
+                              <button onClick={()=>{icebreakerStopRef.current=true;}}
+                                style={{fontSize:9,fontWeight:700,color:"#fca5a5",background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:3,padding:"1px 6px",cursor:"pointer"}}>⏹ Ferma</button>
+                            </span>
+                          )}
                           {importSelected.size>0&&<button onClick={cercaEmailAziendali} title="Cerca l'indirizzo email sul sito delle aziende selezionate" style={{fontSize:10,fontWeight:700,color:"#67e8f9",background:"rgba(6,182,212,0.12)",border:"1px solid rgba(6,182,212,0.3)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>✉ Cerca info ({importSelected.size})</button>}
                           {importSelected.size>0&&<button onClick={sincronizzaSelezionateHubspot} title="Manda queste aziende allo scenario HubSpot, qualunque sia il loro stato" style={{fontSize:10,fontWeight:700,color:"#5eead4",background:"rgba(20,184,166,0.12)",border:"1px solid rgba(20,184,166,0.3)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>⇪ Aziende a HubSpot ({importSelected.size})</button>}
                           {importSelected.size>0&&<button onClick={rilanciPhantomSelezionate} style={{fontSize:10,fontWeight:700,color:"#86efac",background:"rgba(34,197,94,0.12)",border:"1px solid rgba(34,197,94,0.3)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🔄 Phantom ({importSelected.size})</button>}
@@ -5523,6 +5606,53 @@ function App() {
 
 
       {/* ── CONFIRM MODAL ── */}
+      {selezionaDaElenco&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}}
+          onClick={()=>setSelezionaDaElenco(null)}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:8,padding:20,width:520,maxWidth:"90vw"}}>
+            <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:6}}>Seleziona da elenco di id</div>
+            <div style={{fontSize:11,color:C.muted,marginBottom:12,lineHeight:1.5}}>
+              Incolla gli id Supabase: vanno bene virgole, spazi, a capo o una colonna copiata
+              dal risultato di una query. Vengono selezionate solo le righe presenti nella
+              tabella con i filtri attuali.
+            </div>
+            <textarea autoFocus value={selezionaDaElenco.testo}
+              onChange={e=>setSelezionaDaElenco(s=>({...s, testo:e.target.value, esito:null}))}
+              placeholder="4473, 7929, 7937&#10;8181&#10;8067"
+              style={{width:"100%",height:150,padding:8,fontSize:12,fontFamily:"monospace",borderRadius:5,
+                border:`1px solid ${C.border}`,background:"rgba(15,23,42,0.6)",color:C.text,outline:"none",resize:"vertical"}}/>
+            {selezionaDaElenco.esito&&(
+              <div style={{fontSize:11,marginTop:10,color:selezionaDaElenco.esito.mancanti.length?"#fbbf24":"#86efac",lineHeight:1.5}}>
+                {selezionaDaElenco.esito.trovati} selezionate su {selezionaDaElenco.esito.chiesti} id.
+                {selezionaDaElenco.esito.mancanti.length>0&&(
+                  <> <br/>Non nella tabella: {selezionaDaElenco.esito.mancanti.slice(0,20).join(", ")}
+                  {selezionaDaElenco.esito.mancanti.length>20?` … e altre ${selezionaDaElenco.esito.mancanti.length-20}`:""}.
+                  <br/><span style={{color:C.muted}}>Se sono tante, probabilmente serve “🗂 Tutte le run” o vanno tolti dei filtri.</span></>
+                )}
+              </div>
+            )}
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
+              <button onClick={()=>setSelezionaDaElenco(null)}
+                style={{padding:"6px 14px",fontSize:12,borderRadius:5,cursor:"pointer",background:"transparent",border:`1px solid ${C.border}`,color:C.muted}}>Chiudi</button>
+              <button onClick={()=>{
+                  // Si accetta qualunque separatore: incollare una colonna di
+                  // risultati non deve richiedere di ripulirla a mano.
+                  const chiesti = [...new Set((selezionaDaElenco.testo.match(/\d+/g)||[]).map(Number))];
+                  const presenti = new Set(applicaFiltriImport(importDati.rows).map(r=>r.id));
+                  const trovati = chiesti.filter(id=>presenti.has(id));
+                  const mancanti = chiesti.filter(id=>!presenti.has(id));
+                  setImportSelected(new Set(trovati));
+                  setSelezionaDaElenco(s=>({...s, esito:{chiesti:chiesti.length, trovati:trovati.length, mancanti}}));
+                  pushLog(mancanti.length?"warn":"ok",
+                    `⌸ Selezionate ${trovati.length} righe su ${chiesti.length} id${mancanti.length?` — ${mancanti.length} non presenti nella tabella`:""}`);
+                }}
+                style={{padding:"6px 14px",fontSize:12,fontWeight:700,borderRadius:5,cursor:"pointer",background:"rgba(16,185,129,0.2)",border:"1px solid rgba(16,185,129,0.5)",color:"#a7f3d0"}}>Seleziona</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmModal&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}}
           onClick={()=>{confirmModal.resolve(false);setConfirmModal(null);}}>
