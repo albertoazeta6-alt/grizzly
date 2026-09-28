@@ -315,7 +315,10 @@ async function loadCodeQueue() {
   const h = {apikey:key, Authorization:`Bearer ${sbBearer()}`};
   try {
     const [siti, urlAmbigue, contatti] = await Promise.all([
-      fetch(`${url}/rest/v1/companies?stato=eq.sito_mancante&select=id,nome,citta,partita_iva&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
+      // sito_web e motivazione servono perche' in questa coda non ci sono piu'
+      // solo aziende senza sito: da v4.77 ci finisce anche chi ha un indirizzo
+      // che non risponde, e per correggerlo bisogna vedere qual e'.
+      fetch(`${url}/rest/v1/companies?stato=eq.sito_mancante&select=id,nome,citta,partita_iva,sito_web,settore,settore_motivazione&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
       fetch(`${url}/rest/v1/companies?stato=eq.url_ambigua&select=id,nome,sito_web,linkedin_url,linkedin_url_pb,citta,settore,fatturato&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
       Promise.resolve([]),
     ]);
@@ -3326,7 +3329,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.76</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.77</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -3801,7 +3804,7 @@ function App() {
                               </a>
                             )}
                           </div>
-                          {/* Salta fase — ex "⏹ Stop", rinominato in v4.76 perche' non
+                          {/* Salta fase — ex "⏹ Stop", rinominato in v4.77 perche' non
                               ferma niente: manda avanti la pipeline. Per non far partire
                               nulla c'e' la pausa generale. */}
                           {fase.id==="company"&&fase.stato==="in_corso"&&(
@@ -5314,6 +5317,14 @@ function App() {
                       <div style={{flex:"0 0 220px"}}>
                         <div style={{fontSize:12,fontWeight:600,color:C.textHi,marginBottom:2}}>{az.nome}</div>
                         <div style={{fontSize:10,color:C.muted}}>{az.citta||"—"}{az.partita_iva?` · P.IVA ${az.partita_iva}`:""}</div>
+                        {/* Un sito gia' presente qui vuol dire che non risponde:
+                            va mostrato, altrimenti non si sa cosa correggere. */}
+                        {az.sito_web&&(
+                          <div style={{fontSize:10,color:"#fbbf24",marginTop:3,fontFamily:"'JetBrains Mono',monospace"}}
+                            title={az.settore_motivazione||""}>
+                            ⚠ {az.sito_web} <span style={{color:C.muted}}>non raggiungibile</span>
+                          </div>
+                        )}
                       </div>
                       <button
                         onClick={()=>window.open(ddgUrl,'_blank')}
