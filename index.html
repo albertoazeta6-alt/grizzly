@@ -703,7 +703,14 @@ function App() {
   const [importSelected, setImportSelected] = useState(new Set());
   const [importStatoFilter, setImportStatoFilter] = useState(new Set()); // filtro stati Ricerca Aziende — vuoto = mostra tutto
   const [importSearch, setImportSearch] = useState(""); // ricerca libera in Ricerca Aziende
-  const [importInCoda, setImportInCoda] = useState(false); // vista "code": tutte le run, non solo quella corrente
+  // Due cose distinte, prima governate da un unico pulsante:
+  //   importTutteRun → l'ambito: tutto il database invece della sola run corrente
+  //   importInCoda   → il filtro: solo le aziende che aspettano un intervento
+  // Tenerle insieme rendeva invisibile qualunque azienda fuori dai criteri di
+  // eInCoda: per esempio le `linkedin_upd`, che non sono in coda ma vanno
+  // comunque selezionate per mandarle a HubSpot.
+  const [importInCoda, setImportInCoda] = useState(false);
+  const [importTutteRun, setImportTutteRun] = useState(false);
   const [importSettoreFilter, setImportSettoreFilter] = useState(""); // "" = tutti, "__vuoto__" = senza settore
   const [importConfFilter, setImportConfFilter]       = useState(""); // "" = tutte, "__vuoto__" = senza confidenza
   // Filtro unico di Ricerca Aziende: stato (chip, multi) + settore + confidenza (tendine).
@@ -3213,7 +3220,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.68</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.69</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -4184,23 +4191,39 @@ function App() {
                                 lavorarle in blocco, per esempio cercando l'indirizzo info@
                                 delle aziende ferme in URL ambigua. */}
                             <button onClick={async ()=>{
+                                const attiva = !importTutteRun;
+                                setImportTutteRun(attiva);
+                                if (!attiva) setImportInCoda(false); // senza l'ambito il filtro coda non ha senso
+                                await openImportDati(attiva ? null : runStart);
+                              }}
+                              title={importTutteRun
+                                ? "Torna alle aziende della run corrente"
+                                : "Mostra le aziende di tutte le run, non solo quella corrente"}
+                              style={{padding:"3px 10px",fontSize:10,fontWeight:700,borderRadius:5,cursor:"pointer",whiteSpace:"nowrap",
+                                color:importTutteRun?"#34d399":"#93c5fd",
+                                background:importTutteRun?"rgba(52,211,153,0.15)":"rgba(59,130,246,0.10)",
+                                border:`1px solid ${importTutteRun?"rgba(52,211,153,0.4)":"rgba(59,130,246,0.25)"}`}}>
+                              {importTutteRun?"🗂 Tutte le run":"🗂 Run corrente"}
+                            </button>
+                            <button onClick={async ()=>{
                                 const attiva = !importInCoda;
                                 setImportInCoda(attiva);
                                 if (attiva) {
                                   setImportStatoFilter(new Set());   // il criterio lo applica eInCoda
-                                  await openImportDati(null);        // null = nessun filtro di run
-                                } else {
-                                  await openImportDati(runStart);
+                                  if (!importTutteRun) {             // le code pescano da tutte le run
+                                    setImportTutteRun(true);
+                                    await openImportDati(null);
+                                  }
                                 }
                               }}
                               title={importInCoda
-                                ? "Torna alle aziende della run corrente"
-                                : "Aziende con sito in attesa, di tutte le run: URL ambiguo, LinkedIn non trovato, classificazione da rivedere"}
+                                ? "Mostra tutte le aziende, non solo quelle in attesa"
+                                : "Solo le aziende con sito che aspettano un intervento: URL ambiguo, LinkedIn non trovato, classificazione da rivedere"}
                               style={{padding:"3px 10px",fontSize:10,fontWeight:700,borderRadius:5,cursor:"pointer",whiteSpace:"nowrap",
                                 color:importInCoda?"#fbbf24":"#93c5fd",
                                 background:importInCoda?"rgba(251,191,36,0.15)":"rgba(59,130,246,0.10)",
                                 border:`1px solid ${importInCoda?"rgba(251,191,36,0.4)":"rgba(59,130,246,0.25)"}`}}>
-                              {importInCoda?"⏳ In coda (tutte le run)":"⏳ In coda"}
+                              ⏳ Solo in coda
                             </button>
                             <input value={importSearch} onChange={e=>setImportSearch(e.target.value)}
                               placeholder="🔍 Cerca azienda, sito, città…"
