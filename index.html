@@ -834,6 +834,22 @@ function App() {
   const [classifPausa, setClassifPausa] = useState(() => {
     try { return localStorage.getItem("grizzly_classif_pausa") === "1"; } catch(e) { return false; }
   });
+  // ── Pausa generale ────────────────────────────────────────────────────────
+  // Interruttore unico per lavorare in pace: niente auto-avvii, niente
+  // chiamate a Make o all'agente, niente ricariche della tabella sotto le
+  // dita. Quello che e' gia' partito prosegue — non si puo' richiamare
+  // indietro una chiamata gia' fatta — ma non ne parte nessuna nuova.
+  // Sopravvive al reload: chi mette in pausa per fare prove non si aspetta
+  // che un F5 riaccenda tutto.
+  const [pausaTutto, setPausaTutto] = useState(() => {
+    try { return localStorage.getItem("grizzly_pausa_tutto") === "1"; } catch { return false; }
+  });
+  const pausaTuttoRef = React.useRef(false);
+  useEffect(() => {
+    pausaTuttoRef.current = pausaTutto;
+    try { localStorage.setItem("grizzly_pausa_tutto", pausaTutto ? "1" : "0"); } catch {}
+  }, [pausaTutto]);
+
   const classifPausaRef = React.useRef(false);
   useEffect(() => { classifPausaRef.current = classifPausa; }, [classifPausa]);
   const setPausaClassificatore = React.useCallback((on) => {
@@ -1045,6 +1061,9 @@ function App() {
 
     // ── Contatori fogli ──────────────────────────────────────────────────────────
   const fetchCounters = useCallback(async () => {
+    // In pausa non si legge e soprattutto non si scatena niente: gli auto-avvii
+    // di classificatore, Phantom e HubSpot vivono tutti dentro questa funzione.
+    if (pausaTuttoRef.current) return;
     if (fetchCountersRunningRef.current) return; // mutex — previene esecuzioni concorrenti
     fetchCountersRunningRef.current = true;
     const {url, key} = getSbCreds();
@@ -1801,6 +1820,7 @@ function App() {
     // Seconda via d'avvio del classificatore, oltre a quella di fetchCounters:
     // va rispettata anche qui la pausa, altrimenti premendo Stop la pipeline
     // rilancia la classificazione un istante dopo averla fermata.
+    if (pausaTuttoRef.current) { pushLog("info","⏸ Classificazione non avviata — sistema in pausa"); return; }
     if (classifPausaRef.current) { pushLog("info","⏸ Classificazione non avviata — auto-avvio in pausa"); return; }
     classificaAutoRef.current = true;
     // Prima controlla se ci sono aziende da classificare
@@ -1870,6 +1890,7 @@ function App() {
     const stato = classificaStato;
     if (stato !== "attesa_utente" && stato !== "in_corso") return;
     const poll = setInterval(async () => {
+      if (pausaTuttoRef.current) return;  // in pausa il polling salta il giro
       const n = await fetchClassificaCount();
       if (n === null) return; // errore fetch, riprova al prossimo giro
 
@@ -2001,6 +2022,9 @@ function App() {
   // Guard 1: stato company — se non è bloccato, qualcuno ha già sparato (cross-render)
   // Guard 2: localStorage per runId — protegge da reload browser mid-run
   useEffect(() => {
+    // Questo avvio non passa da fetchCounters: va fermato qui, altrimenti in
+    // pausa Phantom partirebbe comunque appena la classificazione si chiude.
+    if (pausaTuttoRef.current) return;
     const classificaFase = fasi.find(f => f.id === "classifica");
     const companyFase    = fasi.find(f => f.id === "company");
     if (classificaFase?.stato !== "completato" || !runId) return;
@@ -2214,6 +2238,10 @@ function App() {
   // `forza:true` per le azioni manuali esplicite (es. "Forza Aggiornamento HubSpot"),
   // dove ripetere e' proprio quello che l'utente sta chiedendo.
   const callMake = async (url,payload={},label="",{forza=false,finestraMin=MAKE_DEDUP_MIN}={}) => {
+    // Nessun blocco qui: la pausa ferma gli automatismi, non l'utente. Le
+    // chiamate automatiche a Make partono tutte da fetchCounters, che in
+    // pausa non gira; i pulsanti — Forza, sincronizzazione su selezione,
+    // Phantom email — devono restare usabili proprio mentre si fanno prove.
     // Deduplica al punto di uscita: i guard in memoria dei singoli chiamanti non
     // bastano, perche' si azzerano al reload della pagina e dopo il loro timeout,
     // e piu' percorsi diversi possono chiedere la stessa cosa sugli stessi ID.
@@ -2457,6 +2485,10 @@ function App() {
   const openSheet = (url, label) => setEmbedSheet({url: url.replace("/edit", "/preview").replace(/[?#].*$/, ""), editUrl: url, label});
 
   const openImportDati = async (sinceTs, silent=false) => {
+    // I refresh automatici (silent) non devono ricaricare la tabella mentre
+    // si sta selezionando o modificando. Un aggiornamento chiesto a mano
+    // passa comunque: la pausa ferma gli automatismi, non l'utente.
+    if (silent && pausaTuttoRef.current) return;
     if (!silent) setImportDati(p=>({...p, open:true, loading:true, rows:[], edits:{}}));
     else setImportDati(p=>({...p, open:true}));
     try {
@@ -3230,7 +3262,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.69</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.70</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -3313,6 +3345,28 @@ function App() {
               }, 10000);
             }} style={{fontSize:11,fontWeight:600,padding:"4px 12px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",color:"#60a5fa",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>Nuova Run</button>
           )}
+
+          {/* Pausa generale — sempre visibile, perche' e' la prima cosa da
+              guardare quando "non succede niente" e la prima da premere
+              quando si vuole lavorare senza che parta nulla da solo. */}
+          <button onClick={()=>{
+              const attiva = !pausaTutto;
+              pausaTuttoRef.current = attiva;        // subito: i timer leggono il ref
+              setPausaTutto(attiva);
+              pushLog(attiva?"warn":"ok", attiva
+                ? "⏸ Sistema in pausa — nessun avvio automatico e nessun aggiornamento periodico. I pulsanti funzionano normalmente."
+                : "▶ Sistema ripreso — gli automatismi ripartono dal prossimo giro");
+              showToast(attiva?"⏸ Tutto in pausa":"▶ Ripreso");
+            }}
+            title={pausaTutto
+              ? "Riprendi: gli avvii automatici e gli aggiornamenti periodici tornano attivi"
+              : "Ferma ogni avvio automatico — classificatore, Phantom, HubSpot — e i refresh periodici della tabella. I pulsanti restano tutti funzionanti; quello che e' gia' partito prosegue."}
+            style={{fontSize:11,fontWeight:700,padding:"4px 12px",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap",
+              background:pausaTutto?"rgba(248,113,113,0.18)":"rgba(148,163,184,0.10)",
+              border:`1px solid ${pausaTutto?"rgba(248,113,113,0.55)":"rgba(148,163,184,0.25)"}`,
+              color:pausaTutto?"#fca5a5":"#cbd5e1"}}>
+            {pausaTutto?"⏸ IN PAUSA · ▶ Riprendi":"⏸ Pausa"}
+          </button>
 
           {/* Avviso pausa — la pipeline e' automatica, quindi se l'automatismo e'
               spento deve vedersi subito, altrimenti sembra che si sia impiantata */}
