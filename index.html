@@ -802,6 +802,21 @@ function App() {
     (!importConfFilter    || (importConfFilter    === "__vuoto__" ? !r.settore_confidenza : r.settore_confidenza === importConfFilter)) &&
     cercaInRiga(r, importSearch)
   );
+  // Ricerca libera nei Leads. I campi utili sono altri rispetto alle aziende:
+  // qui si cerca per persona, indirizzo o azienda di appartenenza.
+  const [contattiSearch, setContattiSearch] = useState("");
+  const cercaInContatto = (r, q) => {
+    if (!q) return true;
+    const testo = [r.nome_completo, r.ruolo, r.email, r.linkedin_url, r.stato,
+                   r.tipo, r.email_origine, r.companies?.nome, r.companies?.settore,
+                   r.companies?.sito_web]
+      .filter(Boolean).join(" ").toLowerCase();
+    return q.toLowerCase().split(/\s+/).filter(Boolean).every(p => testo.includes(p));
+  };
+  const applicaFiltriContatti = rows => (rows||[]).filter(r =>
+    (contattiStatoFilter.size === 0 || contattiStatoFilter.has(r.stato)) &&
+    cercaInContatto(r, contattiSearch)
+  );
   const [importColWidths, setImportColWidths] = useState({0:220,1:110,2:140,3:110,4:100,5:100,6:140,7:52,8:200}); // larghezze colonne Ricerca Aziende (px)
   const importResizingRef = React.useRef(null); // {colIdx, startX, startWidth}
   const [leadsColWidths, setLeadsColWidths] = useState({0:160,1:140,2:140,3:130,4:120,5:90,6:160,7:90}); // larghezze colonne Leads (px)
@@ -3394,7 +3409,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.81</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.82</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -4124,9 +4139,24 @@ function App() {
                               setContattiTutteRun(attiva);
                               await fetchContattiRun();
                             }} C={C}/>
+                          <input value={contattiSearch} onChange={e=>setContattiSearch(e.target.value)}
+                            placeholder="🔍 Cerca nome, email, azienda…"
+                            style={{padding:"6px 10px",fontSize:11,borderRadius:5,minWidth:210,
+                              border:`1px solid ${contattiSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
+                              background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
+                          {/* Conteggio sempre visibile: con 500 contatti caricati e un
+                              filtro attivo, sapere quanti se ne stanno guardando evita
+                              di credere che una lista parziale sia tutto. */}
+                          {(()=>{
+                            const n = applicaFiltriContatti(contattiRun.rows).length;
+                            const tot = contattiRun.rows.length;
+                            return <span style={{fontSize:10,color:n<tot?"#93c5fd":C.muted,whiteSpace:"nowrap"}}>
+                              {n===tot ? `${tot}` : `${n} di ${tot}`}
+                            </span>;
+                          })()}
                           <button onClick={fetchContattiRun} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>↻ Aggiorna</button>
                           {(()=>{
-                            const filteredCt = contattiRun.rows.filter(r=>contattiStatoFilter.size===0||contattiStatoFilter.has(r.stato));
+                            const filteredCt = applicaFiltriContatti(contattiRun.rows);
                             const allSel = filteredCt.length>0 && filteredCt.every(r=>contattiSelected.has(r.id));
                             return (
                               <button onClick={()=>{
@@ -4176,7 +4206,7 @@ function App() {
                       {/* Tabella contatti */}
                       {(()=>{
                         const STATO_COL = {trovato:"#60a5fa",email_trovata:"#10b981",email_non_trovata:"#f59e0b",inviato:"#a78bfa"};
-                        const sorted = [...contattiRun.rows].filter(r=>contattiStatoFilter.size===0||contattiStatoFilter.has(r.stato)).sort((a,b)=>{
+                        const sorted = applicaFiltriContatti(contattiRun.rows).slice().sort((a,b)=>{
                           // Una mappa sola: aggiungere una colonna ordinabile
                           // significa aggiungere una riga qui e la chiave nell'header.
                           const val = (r,k) => ({
