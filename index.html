@@ -3424,7 +3424,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.83</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.84</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -5547,6 +5547,10 @@ function App() {
                 };
                 const manualRows=classifReview.rows.filter(r=>r.settore_confidenza!=='alta');
                 const filtered=manualRows.filter(r=>{
+                  // La ricerca si somma alla pill attiva: cercare un'azienda che sta
+                  // in un'altra categoria non deve dare "nessun risultato" senza
+                  // spiegazione, quindi il conteggio sotto mostra sempre il totale.
+                  if(!cercaAzienda(r, classifSearch)) return false;
                   if(classifFilter==='bassa') return r.settore_confidenza==='bassa'&&r.semaforo_verifica!=='✗';
                   if(classifFilter==='media') return r.settore_confidenza==='media'&&r.semaforo_verifica!=='✗';
                   if(classifFilter==='altro') return r.settore==='Altro';
@@ -5586,6 +5590,11 @@ function App() {
                           {f.l}{counts[f.k]!=null&&counts[f.k]>0?` (${counts[f.k]})`:''}
                         </button>
                       ))}
+                      <input value={classifSearch} onChange={e=>{setClassifSearch(e.target.value);setClassifSelected(0);}}
+                        placeholder="🔍 Cerca azienda, sito, motivo…"
+                        style={{padding:"3px 8px",fontSize:10,borderRadius:5,minWidth:190,
+                          border:`1px solid ${classifSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
+                          background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
                       <button onClick={()=>setClassifViewMode(m=>m==='tabella'?'split':'tabella')}
                         style={{marginLeft:"auto",padding:"3px 10px",fontSize:11,background:classifViewMode==='tabella'?"rgba(37,99,235,0.15)":"transparent",border:`1px solid ${classifViewMode==='tabella'?"#3b82f6":C.border}`,borderRadius:5,color:classifViewMode==='tabella'?"#93c5fd":C.muted,cursor:"pointer"}}>⊞ Tabella/Sito</button>
                       <button onClick={()=>{setClassifReview({rows:[],loading:false,loaded:false});setClassifApprovati({rows:[],loading:false,loaded:false});}}
