@@ -708,6 +708,16 @@ function App() {
   const [classifSearch, setClassifSearch] = useState("");
   const [urlSearch,     setUrlSearch]     = useState("");
   const [sitiSearch,    setSitiSearch]    = useState("");
+  // Chi finisce nella coda Classificazioni. La confidenza da sola non basta:
+  // una riga con confidenza alta ma semaforo '✗' e' il caso piu' importante —
+  // il classificatore era sicuro e la verifica indipendente lo contraddice —
+  // e col solo criterio sulla confidenza restava invisibile.
+  // Lo stesso criterio del conteggio lato server in fetchQueueCounts: se i due
+  // divergono, il badge annuncia un numero di casi che la lista poi non mostra.
+  const daRivedere = r =>
+    r.settore_confidenza !== 'alta' ||
+    r.semaforo_verifica === '✗' || r.semaforo_verifica === '⚠' ||
+    r.settore === 'Altro';
   const cercaAzienda = (r, q) => {
     if (!q) return true;
     const testo = [r.nome, r.sito_web, r.linkedin_url, r.linkedin_url_pb, r.citta,
@@ -3424,13 +3434,13 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.84</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.85</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
             </button>
             {[
-              {key:"revisione",label:"Code",icon:"📋",badge:(codeQueue.urlAmbigue?.length||0)+(codeQueue.siti?.length||0)+(classifReview.loaded?classifReview.rows.filter(r=>r.settore_confidenza!=='alta').length:(queueCounts.classifDaRevedere||0))},
+              {key:"revisione",label:"Code",icon:"📋",badge:(codeQueue.urlAmbigue?.length||0)+(codeQueue.siti?.length||0)+(classifReview.loaded?classifReview.rows.filter(daRivedere).length:(queueCounts.classifDaRevedere||0))},
               {key:"classificatore",label:"Classificatore",icon:"🏷",badge:0},
               {key:"database",label:"CRM",icon:"🗄",badge:0},
               {key:"impostazioni",label:"Impostazioni",icon:"⚙",badge:0}
@@ -5301,7 +5311,7 @@ function App() {
               <div style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
                 {[
                   {key:"siti_mancanti", icon:"🌐", label:"Siti Mancanti", badge:codeQueue.siti?.length||0},
-                  {key:"classificazione", icon:"🏷", label:"Classificazioni", badge:classifReview.loaded?classifReview.rows.filter(r=>r.settore_confidenza!=='alta').length:(queueCounts.classifDaRevedere||0)},
+                  {key:"classificazione", icon:"🏷", label:"Classificazioni", badge:classifReview.loaded?classifReview.rows.filter(daRivedere).length:(queueCounts.classifDaRevedere||0)},
                   {key:"url_ambigui", icon:"🔗", label:"URL Ambigui", badge:codeQueue.urlAmbigue?.length||0},
                 ].map(st=>{
                   const active = codeSubTab===st.key;
@@ -5545,7 +5555,7 @@ function App() {
                   if(r.settore_confidenza==='media') return {bg:'rgba(251,191,36,.08)',border:'rgba(251,191,36,.28)',color:'#fbbf24'};
                   return {bg:'rgba(100,116,139,.08)',border:'rgba(100,116,139,.25)',color:'#64748b'};
                 };
-                const manualRows=classifReview.rows.filter(r=>r.settore_confidenza!=='alta');
+                const manualRows=classifReview.rows.filter(daRivedere);
                 const filtered=manualRows.filter(r=>{
                   // La ricerca si somma alla pill attiva: cercare un'azienda che sta
                   // in un'altra categoria non deve dare "nessun risultato" senza
