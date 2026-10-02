@@ -313,13 +313,29 @@ async function checkDedup(sitiArr, pivaArr) {
 async function loadCodeQueue() {
   const {url,key} = getSbCreds(); if(!url||!key) return null;
   const h = {apikey:key, Authorization:`Bearer ${sbBearer()}`};
+  // Le code si scaricano a pagine. Con un limite fisso a 200 si lavorava su una
+  // lista parziale senza alcun segnale: i siti mancanti sono quasi 800, e le
+  // aziende oltre la duecentesima erano semplicemente invisibili — niente le
+  // distingueva da una coda finita. Lo spareggio su id serve perche' creato_il
+  // si ripete e senza un secondo criterio le pagine si sovrappongono.
+  const tutte = async (q) => {
+    const BATCH = 1000;
+    let righe = [], offset = 0;
+    for (;;) {
+      const r = await fetch(`${url}/rest/v1/${q}&order=creato_il.asc,id.asc&limit=${BATCH}&offset=${offset}`, {headers:h});
+      const b = r.ok ? await r.json() : [];
+      righe = righe.concat(b);
+      if (b.length < BATCH) return righe;
+      offset += BATCH;
+    }
+  };
   try {
     const [siti, urlAmbigue, contatti] = await Promise.all([
       // sito_web e motivazione servono perche' in questa coda non ci sono piu'
       // solo aziende senza sito: da v4.79 ci finisce anche chi ha un indirizzo
       // che non risponde, e per correggerlo bisogna vedere qual e'.
-      fetch(`${url}/rest/v1/companies?stato=eq.sito_mancante&select=id,nome,citta,partita_iva,sito_web,settore,settore_motivazione&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
-      fetch(`${url}/rest/v1/companies?stato=eq.url_ambigua&select=id,nome,sito_web,linkedin_url,linkedin_url_pb,citta,settore,fatturato&order=creato_il.asc&limit=200`,{headers:h}).then(r=>r.ok?r.json():[]),
+      tutte(`companies?stato=eq.sito_mancante&select=id,nome,citta,partita_iva,sito_web,settore,settore_motivazione`),
+      tutte(`companies?stato=eq.url_ambigua&select=id,nome,sito_web,linkedin_url,linkedin_url_pb,citta,settore,fatturato`),
       Promise.resolve([]),
     ]);
     // rilanciaReady NON viene impostato da loadCodeQueue — solo le azioni manuali dell'utente
@@ -720,9 +736,11 @@ function App() {
     r.settore === 'Altro';
   const cercaAzienda = (r, q) => {
     if (!q) return true;
+    // Niente motivazioni ne' icebreaker: sono testi lunghi dove quasi ogni
+    // parola compare da qualche parte — cercare "real" vi trovava "realizza" e
+    // restituiva mezza lista. Qui si cerca un'azienda, non una parola.
     const testo = [r.nome, r.sito_web, r.linkedin_url, r.linkedin_url_pb, r.citta,
-                   r.regione, r.settore, r.settore_suggerito, r.partita_iva,
-                   r.settore_motivazione, r.note_verifica]
+                   r.regione, r.settore, r.settore_suggerito, r.partita_iva]
       .filter(Boolean).join(" ").toLowerCase();
     return q.toLowerCase().split(/\s+/).filter(Boolean).every(p => testo.includes(p));
   };
@@ -995,6 +1013,23 @@ function App() {
     }).catch(()=>{});
   }, [sbReady]);
 
+  // Le classificazioni si scaricano a pagine. Con `limit=500` se ne vedeva poco
+  // piu' di un decimo: l'ordinamento per semaforo mette per primi i '✓', cioe'
+  // proprio le righe che non serve rivedere, e i casi discordanti restavano
+  // oltre il taglio. Lo spareggio su id evita che le pagine si sovrappongano.
+  const CLASSIF_SELECT = "id,nome,sito_web,citta,regione,fatturato,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito";
+  const caricaClassificazioni = async (url, h) => {
+    const BATCH = 1000;
+    let righe = [], offset = 0;
+    for (;;) {
+      const r = await fetch(`${url}/rest/v1/companies?select=${CLASSIF_SELECT}&settore=not.is.null&semaforo_verifica=not.eq.scartata&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc,id.asc&limit=${BATCH}&offset=${offset}`, {headers:h});
+      const b = r.ok ? await r.json() : [];
+      righe = righe.concat(b);
+      if (b.length < BATCH) return righe;
+      offset += BATCH;
+    }
+  };
+
   // ── Classificazione review: carica quando si apre il sub-tab ─────────────
   useEffect(() => {
     if((tab!=="revisione"||codeSubTab!=="classificazione")&&tab!=="classificatore"||!sbReady) return;
@@ -1002,8 +1037,7 @@ function App() {
     setClassifReview(s=>({...s,loading:true}));
     const {url,key}=getSbCreds(); if(!url||!key){setClassifReview(s=>({...s,loading:false}));return;}
     const h={apikey:key,Authorization:`Bearer ${sbBearer()}`};
-    fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,citta,regione,fatturato,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&settore=not.is.null&semaforo_verifica=not.eq.scartata&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h})
-      .then(r=>r.ok?r.json():[])
+    caricaClassificazioni(url, h)
       .then(rows=>setClassifReview({rows,loading:false,loaded:true}))
       .catch(()=>setClassifReview(s=>({...s,loading:false,loaded:true})));
   }, [tab,codeSubTab,sbReady,classifReview.loaded,classifReview.loading]);
@@ -1020,9 +1054,8 @@ function App() {
       const {url,key}=getSbCreds(); if(!url||!key) return;
       const h={apikey:key,Authorization:`Bearer ${sbBearer()}`};
       try {
-        const r = await fetch(`${url}/rest/v1/companies?select=id,nome,sito_web,citta,regione,fatturato,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito&settore=not.is.null&semaforo_verifica=not.eq.scartata&order=semaforo_verifica.asc,settore_confidenza.asc,nome.asc&limit=500`,{headers:h});
-        if(r.ok) {
-          const rows=await r.json();
+        const rows = await caricaClassificazioni(url, h);
+        if(rows.length) {
           // Aggiorna solo se i dati sono effettivamente cambiati (evita re-render inutili)
           setClassifReview(s=>{
             if(s.rows.length===rows.length && s.rows.every((x,i)=>x.id===rows[i].id&&x.settore===rows[i].settore&&x.semaforo_verifica===rows[i].semaforo_verifica)) return s;
@@ -2189,15 +2222,14 @@ function App() {
   useEffect(() => {
     if (!importDatiOpenRef.current) return;
     if (!runStart) return;
-    // Refresh silenzioso — non mostra il loader
-    const {url:sbUrl, key:sbKey} = getSbCreds();
-    if (!sbUrl || !sbKey) return;
-    const ts = `&creato_il=gte.${encodeURIComponent(runStart)}`;
-    fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,fatturato,icebreaker${ts}&order=nome.asc&limit=500`, {
-      headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}
-    }).then(r=>r.ok?r.json():[]).then(rows=>{
-      if (rows.length > 0) setImportDati(p=>({...p, rows}));
-    }).catch(()=>{});
+    // Refresh silenzioso — non mostra il loader.
+    // Passa da openImportDati invece di rifare una fetch propria: quella
+    // leggeva al massimo 500 righe della sola run corrente e SOSTITUIVA la
+    // lista, quindi con "Run: tutte" attivo la tabella si accorciava da sola
+    // da qualche migliaio a cinquecento righe, in silenzio, mentre ci si stava
+    // lavorando. Qui l'ambito lo decide il selettore, e le pagine si leggono
+    // tutte.
+    openImportDati(importTutteRunRef.current ? null : runStart, true);
   }, [counters.az_output, counters.scartati, counters.az_input]);
 
   // Fetch contatori al mount e ogni 30s
@@ -3434,7 +3466,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.85</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.87</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -4819,7 +4851,7 @@ function App() {
                 return (
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center",padding:"6px 12px",borderBottom:`1px solid rgba(59,130,246,0.15)`,background:"rgba(59,130,246,0.03)",flexShrink:0}}>
                     <input value={classifSearch} onChange={e=>setClassifSearch(e.target.value)}
-                      placeholder="🔍 Cerca azienda, sito, settore…"
+                      placeholder="🔍 Cerca azienda, sito, città…"
                       style={{padding:"3px 8px",fontSize:10,borderRadius:5,minWidth:200,
                         border:`1px solid ${classifSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
                         background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
@@ -5601,7 +5633,7 @@ function App() {
                         </button>
                       ))}
                       <input value={classifSearch} onChange={e=>{setClassifSearch(e.target.value);setClassifSelected(0);}}
-                        placeholder="🔍 Cerca azienda, sito, motivo…"
+                        placeholder="🔍 Cerca azienda, sito, città…"
                         style={{padding:"3px 8px",fontSize:10,borderRadius:5,minWidth:190,
                           border:`1px solid ${classifSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
                           background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
