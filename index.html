@@ -702,11 +702,26 @@ function App() {
   // un ordine senza senso. Si usa un rango esplicito, crescente = piu' problematico prima.
   const CONF_RANK = {bassa:1, media:2, alta:3};
   const SEM_RANK  = {"✗":1, "⚠":2, "✓":3};
+  // Ricerca libera nelle code di revisione. Le code arrivano a centinaia di
+  // righe e spesso si cerca una sola azienda, di cui si ricorda il nome o il
+  // dominio: scorrerle a mano e' il punto in cui si perde tempo.
+  const [classifSearch, setClassifSearch] = useState("");
+  const [urlSearch,     setUrlSearch]     = useState("");
+  const [sitiSearch,    setSitiSearch]    = useState("");
+  const cercaAzienda = (r, q) => {
+    if (!q) return true;
+    const testo = [r.nome, r.sito_web, r.linkedin_url, r.linkedin_url_pb, r.citta,
+                   r.regione, r.settore, r.settore_suggerito, r.partita_iva,
+                   r.settore_motivazione, r.note_verifica]
+      .filter(Boolean).join(" ").toLowerCase();
+    return q.toLowerCase().split(/\s+/).filter(Boolean).every(p => testo.includes(p));
+  };
   const classifRighe = () => {
     const f = (classifReview.rows||[]).filter(r =>
       (!classifConfF || (classifConfF === "__vuoto__" ? !r.settore_confidenza : r.settore_confidenza === classifConfF)) &&
       (!classifSettF || (classifSettF === "__vuoto__" ? !r.settore : r.settore === classifSettF)) &&
-      (!classifSemF  || (classifSemF  === "__vuoto__" ? !r.semaforo_verifica : r.semaforo_verifica === classifSemF))
+      (!classifSemF  || (classifSemF  === "__vuoto__" ? !r.semaforo_verifica : r.semaforo_verifica === classifSemF)) &&
+      cercaAzienda(r, classifSearch)
     );
     const {col, dir} = classifSort;
     if (!col) return f;
@@ -3409,7 +3424,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.82</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.83</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -4790,9 +4805,14 @@ function App() {
                 const conta = (campo,val) => righe.filter(r=>val==="__vuoto__"?!r[campo]:r[campo]===val).length;
                 const settori = [...new Set(righe.map(r=>r.settore).filter(Boolean))].sort();
                 const visibili = classifRighe().length;
-                const attivi = classifConfF||classifSettF||classifSemF;
+                const attivi = classifConfF||classifSettF||classifSemF||classifSearch;
                 return (
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center",padding:"6px 12px",borderBottom:`1px solid rgba(59,130,246,0.15)`,background:"rgba(59,130,246,0.03)",flexShrink:0}}>
+                    <input value={classifSearch} onChange={e=>setClassifSearch(e.target.value)}
+                      placeholder="🔍 Cerca azienda, sito, settore…"
+                      style={{padding:"3px 8px",fontSize:10,borderRadius:5,minWidth:200,
+                        border:`1px solid ${classifSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
+                        background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
                     <select value={classifConfF} onChange={e=>setClassifConfF(e.target.value)} title="Filtra per confidenza" style={selStyle(!!classifConfF)}>
                       <option value="">Confidenza: tutte</option>
                       {["alta","media","bassa"].map(k=>{
@@ -5315,7 +5335,20 @@ function App() {
                       quanto lavoro resta e per sbrigare in serie i casi ovvi. */}
                   {sbReady&&codeQueue.urlAmbigue.length>0&&(
                     <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",borderBottom:`1px solid ${C.border}`}}>
-                      <span style={{fontSize:11,color:C.muted}}>{codeQueue.urlAmbigue.length} da verificare</span>
+                      {(()=>{
+                        const n = codeQueue.urlAmbigue.filter(r=>cercaAzienda(r,urlSearch)).length;
+                        const tot = codeQueue.urlAmbigue.length;
+                        return <span style={{fontSize:11,color:n<tot?"#93c5fd":C.muted}}>
+                          {n===tot ? `${tot} da verificare` : `${n} di ${tot}`}
+                        </span>;
+                      })()}
+                      {/* La ricerca filtra la tabella; lo strumento a schede continua a
+                          scorrere tutta la coda, perche' vive in un iframe separato. */}
+                      <input value={urlSearch} onChange={e=>setUrlSearch(e.target.value)}
+                        placeholder="🔍 Cerca azienda, sito, città…"
+                        style={{padding:"3px 8px",fontSize:10,borderRadius:5,minWidth:200,
+                          border:`1px solid ${urlSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
+                          background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
                       <button onClick={()=>setUrlViewMode(m=>m==='tabella'?'strumento':'tabella')}
                         style={{marginLeft:"auto",padding:"3px 10px",fontSize:11,cursor:"pointer",borderRadius:5,
                           background:urlViewMode==='tabella'?"rgba(37,99,235,0.15)":"transparent",
@@ -5347,7 +5380,7 @@ function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {[...codeQueue.urlAmbigue].sort((a,b)=>urlSort.col
+                          {codeQueue.urlAmbigue.filter(r=>cercaAzienda(r,urlSearch)).sort((a,b)=>urlSort.col
                               ? confrontaCelle(a[urlSort.col], b[urlSort.col], urlSort.col==="fatturato", urlSort.dir)
                               : 0
                           ).map((az,i)=>{
@@ -5427,7 +5460,21 @@ function App() {
                   <div style={{fontSize:11,color:C.muted,padding:"8px 20px 0",lineHeight:1.5}}>
                     Aziende senza sito web — inserisci l'URL e salva per reinserirle in pipeline
                   </div>
-                  {codeQueue.siti.map(az=>{
+                  <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 20px 0"}}>
+                    <input value={sitiSearch} onChange={e=>setSitiSearch(e.target.value)}
+                      placeholder="🔍 Cerca azienda, città, P.IVA…"
+                      style={{padding:"4px 9px",fontSize:11,borderRadius:5,minWidth:220,
+                        border:`1px solid ${sitiSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
+                        background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
+                    {(()=>{
+                      const n = codeQueue.siti.filter(r=>cercaAzienda(r,sitiSearch)).length;
+                      const tot = codeQueue.siti.length;
+                      return <span style={{fontSize:10,color:n<tot?"#93c5fd":C.muted}}>
+                        {n===tot ? `${tot}` : `${n} di ${tot}`}
+                      </span>;
+                    })()}
+                  </div>
+                  {codeQueue.siti.filter(az=>cercaAzienda(az,sitiSearch)).map(az=>{
                     const searchQ = encodeURIComponent(az.nome + ' sito web ufficiale');
                     const ddgUrl = `https://www.google.com/search?q=${searchQ}`;
                     return (
