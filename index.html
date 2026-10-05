@@ -1338,7 +1338,14 @@ function App() {
       // Si attiva quando: Phantom completato (ref=false), IDs pendenti, utente su Pipeline
       // phantomInVolo calcolato QUI, prima del blocco auto-Phantom che potrebbe settare il ref
       const phantomInVolo = autoPhantomFiringRef.current;
-      if (pendingPhantomHubspotRef.current.length > 0 && !autoPhantomFiringRef.current && MAKE.hubspot && !utenteSuCode) {
+      // Il verdetto NON dipende piu' da autoPhantomFiringRef. Dipenderne creava
+      // un'attesa circolare: il guard si abbassa solo a lotto risolto, il lotto
+      // si risolve solo nel verdetto, il verdetto pretendeva il guard abbassato.
+      // Risultato: il lotto restava appeso per sempre e nel log si vedeva solo
+      // «Pipeline in corso — Phantom auto per classificate in attesa» a ripetizione.
+      // Il cancello ora sono i timbri, che sanno davvero chi ha finito; il guard
+      // torna a fare solo il suo mestiere, cioe' impedire un secondo lancio.
+      if (pendingPhantomHubspotRef.current.length > 0 && MAKE.hubspot && !utenteSuCode) {
         const idsAll = pendingPhantomHubspotRef.current;
         pendingPhantomHubspotRef.current = [];
         // Controlla quali aziende hanno effettivamente linkedin_url (Phantom ha trovato la pagina)
@@ -3579,7 +3586,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.89</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.90</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -4260,6 +4267,27 @@ function App() {
                     <div style={{width:7,height:7,borderRadius:"50%",background:C.green,boxShadow:`0 0 6px ${C.green}`,animation:"pulse 2s infinite"}}/>
                     <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.12em",color:C.muted,textTransform:"uppercase"}}>Log Live</span>
                     <span style={{marginLeft:"auto",fontSize:9,color:C.muted,fontFamily:"'JetBrains Mono',monospace"}}>{log.length}</span>
+                    {/* Il log e' in ordine inverso a schermo: per copiarlo si
+                        rimette in ordine cronologico, che e' come lo si legge
+                        quando lo si incolla da qualche altra parte. */}
+                    <button
+                      onClick={async()=>{
+                        const testo = [...log].reverse()
+                          .map(ev=>`${fmtTime(ev.ts)}\t${ev.tipo}\t${ev.msg}`).join("\n");
+                        try { await navigator.clipboard.writeText(testo); showToast(`✓ ${log.length} righe copiate`); }
+                        catch(e) { showToast("✕ Copia non riuscita: " + e.message); }
+                      }}
+                      disabled={log.length===0}
+                      title="Copia il log negli appunti, in ordine cronologico"
+                      style={{fontSize:9,color:log.length?C.muted:C.border,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"1px 6px",cursor:log.length?"pointer":"default"}}>Copia</button>
+                    <button
+                      onClick={async()=>{
+                        if (!await customConfirm(`Svuotare il log (${log.length} righe)?`)) return;
+                        setLog([]);
+                      }}
+                      disabled={log.length===0}
+                      title="Svuota il log — non tocca dati ne' pipeline"
+                      style={{fontSize:9,color:log.length?C.muted:C.border,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"1px 6px",cursor:log.length?"pointer":"default"}}>Pulisci</button>
                   </div>
                   <div ref={logSidebarRef} style={{overflowY:"auto",flex:1,height:0}}>
                     {log.length===0
