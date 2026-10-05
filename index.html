@@ -143,6 +143,33 @@ function sbBearer() {
   return getSbCreds().key;   // prima del login: serve per raggiungere /auth
 }
 
+// Scarica TUTTE le righe di una query PostgREST, a pagine.
+//
+// PostgREST ne restituisce al massimo 1000 per volta, e il codice compensava
+// mettendo `limit=500` qua e la'. Un limite fisso non e' una protezione: e' una
+// troncatura silenziosa. La query riesce, l'array e' pieno, nessuno segnala
+// niente — e le righe oltre la cinquecentesima semplicemente non esistono per
+// chi legge. Sono gia' costate due difetti: le code di revisione che si
+// accorciavano da sole, e il rilancio del classificatore che ne resettava 500
+// su un numero maggiore.
+//
+// `percorso` e' tutto cio' che segue /rest/v1/ , filtri compresi, SENZA limit
+// e offset. L'ordinamento deve avere un criterio univoco (di solito `id`):
+// senza spareggio Postgres puo' restituire la stessa riga in due pagine e
+// ometterne un'altra.
+async function sbTutte(url, headers, percorso, BATCH = 1000) {
+  let righe = [], offset = 0;
+  for (;;) {
+    const sep = percorso.includes("?") ? "&" : "?";
+    const r = await fetch(`${url}/rest/v1/${percorso}${sep}limit=${BATCH}&offset=${offset}`, {headers});
+    if (!r.ok) return righe;                 // errore: si restituisce quel che c'e'
+    const b = await r.json();
+    righe = righe.concat(b);
+    if (b.length < BATCH) return righe;      // ultima pagina
+    offset += BATCH;
+  }
+}
+
 async function sbGet(table, params={}) {
   const {url,key} = getSbCreds(); if(!url||!key) return null;
   const base = {select:"*",...params};
@@ -1224,15 +1251,19 @@ function App() {
     try {
       const h = {apikey: key, Authorization: `Bearer ${sbBearer()}`, Prefer: "count=exact"};
       const ts = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
-      const [rAll, rLiOk, rAmb, rEB, rNuovo, rHubspot, rClassificata, rLiUpd] = await Promise.all([
+      // Le ultime due non sono conteggi ma elenchi, e da quegli elenchi partono
+      // azioni: il lancio di Phantom e il sync HubSpot. Troncarli a 500
+      // significava lavorare mezzo lotto credendo di averlo finito, quindi si
+      // scaricano a pagine. L'ordinamento per id serve allo spareggio.
+      const [rAll, rLiOk, rAmb, rEB, rNuovo, rHubspot, classificataRows, liUpdRows] = await Promise.all([
         fetch(`${url}/rest/v1/companies?select=id&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.linkedin_ok&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.url_ambigua&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&fonte=eq.Automazione%20Bancadati&linkedin_url_eb=not.is.null&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.nuovo&settore=is.null&limit=1`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.hubspot_sync&limit=1${ts}`, {headers: h}),
-        fetch(`${url}/rest/v1/companies?select=id,nome&stato=eq.classificata&limit=500`, {headers: h}),
-        fetch(`${url}/rest/v1/companies?select=id,nome&stato=eq.linkedin_upd&limit=500${ts}`, {headers: h}),
+        sbTutte(url, h, `companies?select=id,nome&stato=eq.classificata&order=id.asc`),
+        sbTutte(url, h, `companies?select=id,nome&stato=eq.linkedin_upd${ts}&order=id.asc`),
       ]);
       const count = r => parseInt(r.headers.get("content-range")?.split("/")?.[1] ?? "0");
       const az_input    = rAll.ok          ? count(rAll)          : null;
@@ -1241,8 +1272,6 @@ function App() {
       const exec        = rEB.ok          ? count(rEB)           : null;
       const nuovo       = rNuovo.ok       ? count(rNuovo)        : 0;
       const hubspot     = rHubspot.ok     ? count(rHubspot)      : 0;
-      const classificataRows = rClassificata.ok ? await rClassificata.json() : [];
-      const liUpdRows        = rLiUpd.ok        ? await rLiUpd.json()        : [];
       // Log variazioni contatori
       const pc = prevCountersRef.current;
       if (az_input !== null && az_input !== pc.az_input && pc.az_input !== null)
@@ -1599,9 +1628,11 @@ function App() {
       const {url:sbU, key:sbK} = getSbCreds();
       if (sbU && sbK) {
         // Escludi aziende in coda classificazione (bassa/media/Altro/⚠/✗)
-        fetch(`${sbU}/rest/v1/companies?stato=in.(nuovo,sito_updated)&hubspot_id=is.null&settore_confidenza=not.in.(bassa,media)&settore=not.eq.Altro&semaforo_verifica=not.in.(%E2%9A%A0,%E2%9C%97)&select=id&limit=500`, {
-          headers:{apikey:sbK, Authorization:`Bearer ${sbBearer()}`}
-        }).then(rr=>rr.ok?rr.json():[]).then(async arr=>{
+        // A pagine: con limit=500 un rilancio su piu' di cinquecento aziende
+        // ne resettava solo le prime, e le altre restavano indietro in silenzio.
+        sbTutte(sbU, {apikey:sbK, Authorization:`Bearer ${sbBearer()}`},
+          `companies?stato=in.(nuovo,sito_updated)&hubspot_id=is.null&settore_confidenza=not.in.(bassa,media)&settore=not.eq.Altro&semaforo_verifica=not.in.(%E2%9A%A0,%E2%9C%97)&select=id&order=id.asc`
+        ).then(async arr=>{
           const ids = arr.map(x=>x.id);
           rilancioCompanyIdsRef.current = ids;
           // Reset stato a 'nuovo' così Phantom le trova via Edge Function
@@ -3170,10 +3201,10 @@ function App() {
       }
     } else {
       try {
-        const r = await fetch(`${sbUrlF}/rest/v1/contacts?select=id&stato=in.(email_trovata,email_non_trovata)&limit=500`, {
-          headers: {apikey:sbKeyF, Authorization:`Bearer ${sbBearer()}`}
-        });
-        const rows = r.ok ? await r.json() : [];
+        // A pagine: e' l'invio "tutti i contatti pronti", e con il limite a 500
+        // i successivi restavano a terra senza che nulla lo segnalasse.
+        const rows = await sbTutte(sbUrlF, {apikey:sbKeyF, Authorization:`Bearer ${sbBearer()}`},
+          `contacts?select=id&stato=in.(email_trovata,email_non_trovata)&order=id.asc`);
         contactIds = rows.map(x=>x.id);
       } catch(e) { contactIds = []; }
     }
@@ -3181,10 +3212,12 @@ function App() {
     // Leggi dettagli completi per costruire il payload Make
     let contactsPayload = [];
     try {
-      const r = await fetch(`${sbUrlF}/rest/v1/contacts?id=in.(${contactIds.join(",")})&select=id,nome_completo,ruolo,linkedin_url,email,companies(nome,sito_web)&limit=500`, {
-        headers: {apikey:sbKeyF, Authorization:`Bearer ${sbBearer()}`}
-      });
-      const rows = r.ok ? await r.json() : [];
+      // A pagine come l'elenco da cui nasce: adesso che contactIds non e' piu'
+      // troncato a 500, sarebbe questa fetch a tagliare il payload — e Make
+      // riceverebbe meno contatti di quelli che l'utente ha chiesto di inviare,
+      // senza che niente lo segnali.
+      const rows = await sbTutte(sbUrlF, {apikey:sbKeyF, Authorization:`Bearer ${sbBearer()}`},
+        `contacts?id=in.(${contactIds.join(",")})&select=id,nome_completo,ruolo,linkedin_url,email,companies(nome,sito_web)&order=id.asc`);
       contactsPayload = rows.map(c => {
         const nameParts = (c.nome_completo||"").trim().split(/\s+/);
         return {
@@ -3380,14 +3413,12 @@ function App() {
           // nessuno avesse risolto l'URL.
           const STATI_DA_SINCRONIZZARE = "linkedin_upd,settore_aggiornato,linkedin_ko";
           const filtroRun = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
-          const r = await fetch(
-            `${sbU}/rest/v1/companies?select=id&stato=in.(${STATI_DA_SINCRONIZZARE})${filtroRun}&limit=500`,
-            {headers:{apikey:sbK, Authorization:`Bearer ${sbBearer()}`}}
-          );
-          if (r.ok) {
-            const righe = await r.json();
-            if (righe.length) idsDaSincronizzare = righe.map(x => x.id);
-          }
+          // A pagine: su una run grossa il limite a 500 lasciava fuori dal sync
+          // le aziende oltre la cinquecentesima, e la fase si chiudeva lo stesso
+          // dichiarando di aver sincronizzato tutto.
+          const righe = await sbTutte(sbU, {apikey:sbK, Authorization:`Bearer ${sbBearer()}`},
+            `companies?select=id&stato=in.(${STATI_DA_SINCRONIZZARE})${filtroRun}&order=id.asc`);
+          if (righe.length) idsDaSincronizzare = righe.map(x => x.id);
         } catch(e) { /* si prosegue: Make ricadrà sul filtro per stato */ }
       }
     }
@@ -3615,7 +3646,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.93</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.94</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
