@@ -1319,6 +1319,21 @@ function App() {
         })
           .then(r=>r.ok?r.json():[])
           .then(aziende => {
+            // Finche' una delle aziende lanciate e' ancora 'classificata', lo
+            // scenario 1 non l'ha elaborata: Phantom sta ancora lavorando.
+            // Prima questo momento veniva dedotto dal tempo — cinque minuti —
+            // ma Phantom impiega una decina di secondi per azienda, quindi su
+            // un centinaio il verdetto arrivava a un terzo del lavoro: le
+            // aziende venivano marcate linkedin_ko e, quando lo scenario 1
+            // arrivava davvero, non le trovava piu' (cerca per stato
+            // 'classificata') e buttava via le company page gia' trovate.
+            const ancoraInLavorazione = aziende.filter(a => a.stato === 'classificata');
+            if (ancoraInLavorazione.length > 0) {
+              pendingPhantomHubspotRef.current = idsAll;   // si riprova al giro dopo
+              autoPhantomFiringRef.current = true;         // Phantom non ha finito
+              autoPhantomFiredAtRef.current = Date.now();  // rinvia anche la scadenza
+              return;
+            }
             const conUrl   = aziende.filter(a=>a.linkedin_url).map(a=>a.id);
             const senzaUrl = idsAll.filter(id=>!conUrl.includes(id));
             if (conUrl.length > 0) {
@@ -3466,7 +3481,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.87</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.88</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
