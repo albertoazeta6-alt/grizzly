@@ -945,6 +945,12 @@ function App() {
   const rilancioAgenteRef        = React.useRef(false); // un solo rilancio automatico dopo un riavvio dell'App Service
   const classificaAutoRef        = React.useRef(false); // guard anti-doppio per async call Azure (attesa_utente → in_corso)
   const fetchCountersRunningRef  = React.useRef(false); // mutex — evita esecuzioni concorrenti di fetchCounters
+  // Riferimenti stabili alle due funzioni di polling. Servono a far dipendere
+  // i loro useEffect dal *montaggio*, non dall'identita' della callback:
+  // fetchCounters e' una useCallback con deps [runStart, tab, codeSubTab],
+  // quindi cambiava identita' a ogni cambio di scheda e rimontava gli effect.
+  const fetchCountersRef    = React.useRef(null);
+  const fetchSheetStatusRef = React.useRef(null);
   const pendingPhantomHubspotRef = React.useRef([]); // IDs aziende Code-path in attesa di sync HubSpot dopo Phantom
   const lemlistHadContactsRef   = React.useRef(false); // evita auto-complete prima che l'extension carichi i contatti
   const lemlistAutoFiredRef     = React.useRef(false); // guard anti-doppio-lancio avviaLemlist automatico
@@ -2348,21 +2354,35 @@ function App() {
     openImportDati(importTutteRunRef.current ? null : runStart, true);
   }, [counters.az_output, counters.scartati, counters.az_input]);
 
-  // Fetch contatori al mount e ogni 30s
+  // Tiene i ref allineati all'ultima versione delle callback. Questo effect
+  // puo' girare quanto vuole: assegna e basta, non lancia niente.
+  useEffect(() => { fetchCountersRef.current    = fetchCounters;    }, [fetchCounters]);
+  useEffect(() => { fetchSheetStatusRef.current = fetchSheetStatus; }, [fetchSheetStatus]);
+
+  // Avvio: quattro fetch ravvicinate per popolare la schermata mentre c'e' lo splash.
+  // Deps vuote, quindi gira UNA volta sola, al montaggio.
+  // Prima dipendeva da [fetchSheetStatus, fetchCounters]: quelle callback
+  // cambiano identita' a ogni cambio di scheda, quindi a ogni clic su una tab
+  // si riprogrammavano tutte e quattro — piu' la chiamata immediata
+  // dell'intervallo qui sotto, che si rimontava per lo stesso motivo. Cinque
+  // giri di fetchCounters per un clic, ognuno dei quali poteva tentare una
+  // chiamata a Make.
   useEffect(() => {
     const t = setTimeout(() => setSplash(false), 5000);
-    // Durante lo splash esegui fetch aggressivo ogni 1s per i primi 4s
     const syncs = [500, 1500, 2500, 3500].map(delay =>
-      setTimeout(() => { fetchSheetStatus(); fetchCounters(); }, delay)
+      setTimeout(() => { fetchSheetStatusRef.current?.(); fetchCountersRef.current?.(); }, delay)
     );
     return () => { clearTimeout(t); syncs.forEach(clearTimeout); };
-  }, [fetchSheetStatus, fetchCounters]);
+  }, []);
 
+  // Polling regolare. Anche questo si monta una volta sola: l'intervallo chiama
+  // sempre l'ultima versione della callback attraverso il ref, quindi non c'e'
+  // nessun motivo di ricrearlo quando quella cambia.
   useEffect(() => {
-    fetchCounters();
-    const t = setInterval(fetchCounters, 10000);
+    fetchCountersRef.current?.();
+    const t = setInterval(() => fetchCountersRef.current?.(), 10000);
     return () => clearInterval(t);
-  }, [fetchCounters]);
+  }, []);
 
   // Polling badge + contatori Code ogni 15s (indipendente dal tab aperto)
   useEffect(() => {
@@ -3595,7 +3615,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.92</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.93</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
