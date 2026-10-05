@@ -3347,9 +3347,16 @@ function App() {
           // non essendo mai state classificate arriverebbero senza settore ne'
           // icebreaker. Rientreranno quando l'utente avra' inserito il sito dal tab
           // Code e saranno passate dal classificatore.
-          // Lo stato di coda `url_ambigua` viene preservato da Make in scrittura,
-          // altrimenti sincronizzarla la farebbe sparire dalla coda di revisione.
-          const STATI_DA_SINCRONIZZARE = "linkedin_upd,settore_aggiornato,linkedin_ko,url_ambigua";
+          // `url_ambigua` NON va sincronizzata. Su HubSpot il campo LinkedIn deve
+          // contenere l'URL trovato oppure LINKEDIN_KO: un'azienda ancora in coda
+          // non ha ne' l'uno ne' l'altro, e mandarcela significa scrivere un dato
+          // che non e' un esito.
+          // Il commento che stava qui sosteneva che Make preservasse lo stato in
+          // scrittura. Non lo fa: i moduli 250 e 256 dello scenario 2 scrivono
+          // hubspot_sync, e le aziende sparivano dalla coda. Misurato il 5 ottobre
+          // su dieci aziende di collaudo, tutte uscite da url_ambigua senza che
+          // nessuno avesse risolto l'URL.
+          const STATI_DA_SINCRONIZZARE = "linkedin_upd,settore_aggiornato,linkedin_ko";
           const filtroRun = runStart ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
           const r = await fetch(
             `${sbU}/rest/v1/companies?select=id&stato=in.(${STATI_DA_SINCRONIZZARE})${filtroRun}&limit=500`,
