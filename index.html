@@ -919,6 +919,23 @@ function App() {
   const autoNuovoFiredAtRef      = React.useRef(0);      // timestamp trigger auto-classifica (per timeout-retry)
   const autoPhantomFiringRef     = React.useRef(false);  // guard anti-doppio per auto-Phantom da Salva classificazioni
   const autoPhantomFiredAtRef    = React.useRef(0);      // timestamp trigger auto-Phantom (per timeout-retry)
+  // Quanto puo' durare l'attesa di Phantom prima di considerarla persa. Non e'
+  // una costante: Phantom impiega circa dieci secondi per azienda — misurati su
+  // un lotto da cento, sedici minuti — quindi su quattrocento serve piu' di
+  // un'ora. Con il vecchio tetto fisso a cinque minuti il guard cadeva a lavoro
+  // iniziato, il sync HubSpot partiva, riportava le aziende a 'hubspot_sync' e
+  // le company page trovate dopo venivano buttate via.
+  const autoPhantomAttesaRef     = React.useRef(5 * 60 * 1000);
+  const attesaPhantom = n => Math.max(5 * 60 * 1000, (n || 0) * 20 * 1000);
+  // Quando il lotto e' partito davvero. Diverso da autoPhantomFiredAtRef, che
+  // ogni giro di polling viene spostato in avanti per non far scadere il guard:
+  // spostandosi, non puo' misurare nulla. Questo invece si scrive una volta al
+  // lancio e resta fermo, quindi e' l'unico in grado di dire da quanto tempo
+  // stiamo aspettando.
+  const phantomLottoDaRef        = React.useRef(0);
+  // Un lotto dichiarato perso non va ridichiarato a ogni giro: il log diventa
+  // illeggibile e l'avviso perde peso.
+  const phantomLottoPersoRef     = React.useRef(false);
   const hubspotLinkedinUpdFiredAtRef = React.useRef(0);  // timestamp trigger sync linkedin_upd (per timeout-retry)
   const pendingAutoClassificaRef = React.useRef(false);  // pending: classifica da lanciare dopo fine pipeline
   const pendingAutoHubspotRef    = React.useRef(false);  // pending: hubspot da lanciare dopo fine pipeline
@@ -1295,11 +1312,23 @@ function App() {
       const useEffectGestiraPhantom = classifFaseStato === 'completato'
         && !['in_corso','completato'].includes(companyFaseStato)
         && lsKeyCompany && !localStorage.getItem(lsKeyCompany);
-      if (autoPhantomFiringRef.current && Date.now() - autoPhantomFiredAtRef.current > TRIGGER_TIMEOUT) {
+      // La scadenza non e' piu' un verdetto. Scaduta l'attesa, l'unica cosa che
+      // il tempo autorizza a concludere e' «di questo lotto non si sa piu'
+      // niente» — e la conclusione la tira il blocco qui sotto, che ha in mano
+      // i timbri e i nomi. Qui si lascia cadere solo il guard quando non c'e'
+      // nessun lotto in attesa di verdetto, altrimenti resterebbe alzato per
+      // sempre dopo un lancio andato a vuoto.
+      if (autoPhantomFiringRef.current
+          && pendingPhantomHubspotRef.current.length === 0
+          && Date.now() - autoPhantomFiredAtRef.current > autoPhantomAttesaRef.current) {
         autoPhantomFiringRef.current = false;
+        pushLog("warn", `⚠ Phantom non ha dato segno di vita entro ${Math.round(autoPhantomAttesaRef.current/60000)} minuti e non risulta nessun lotto in attesa — guard rilasciato`);
       }
-      if (classificataRows.length === 0) {
-        // Phantom completato → reset ref (incondizionato)
+      if (classificataRows.length === 0 && pendingPhantomHubspotRef.current.length === 0) {
+        // Attenzione: «non ci sono piu' aziende in classificata» NON significa
+        // «Phantom ha finito» — e' la deduzione che ha causato il guasto del
+        // 5 ottobre. Vale solo quando non c'e' nessun lotto in attesa di
+        // verdetto, cioe' quando non c'e' proprio niente da aspettare.
         if (autoPhantomFiringRef.current) {
           autoPhantomFiringRef.current = false;
           pendingAutoHubspotRef.current = false; // permette al sync URL ambigue di riprendere
@@ -1314,28 +1343,72 @@ function App() {
         pendingPhantomHubspotRef.current = [];
         // Controlla quali aziende hanno effettivamente linkedin_url (Phantom ha trovato la pagina)
         // Quelle senza URL → linkedin_ko, NON mandate a HubSpot
-        fetch(`${url}/rest/v1/companies?id=in.(${idsAll.join(',')})&select=id,linkedin_url,stato`, {
+        fetch(`${url}/rest/v1/companies?id=in.(${idsAll.join(',')})&select=id,nome,linkedin_url,stato,phantom_inviato_il,phantom_esito_il`, {
           headers:{apikey:key, Authorization:`Bearer ${sbBearer()}`}
         })
           .then(r=>r.ok?r.json():[])
           .then(aziende => {
-            // Finche' una delle aziende lanciate e' ancora 'classificata', lo
-            // scenario 1 non l'ha elaborata: Phantom sta ancora lavorando.
-            // Prima questo momento veniva dedotto dal tempo — cinque minuti —
-            // ma Phantom impiega una decina di secondi per azienda, quindi su
-            // un centinaio il verdetto arrivava a un terzo del lavoro: le
-            // aziende venivano marcate linkedin_ko e, quando lo scenario 1
-            // arrivava davvero, non le trovava piu' (cerca per stato
-            // 'classificata') e buttava via le company page gia' trovate.
-            const ancoraInLavorazione = aziende.filter(a => a.stato === 'classificata');
-            if (ancoraInLavorazione.length > 0) {
+            // Un'azienda ha finito il giro di Phantom quando lo scenario 1 ha
+            // scritto phantom_esito_il *dopo* il phantom_inviato_il del blocco
+            // corrente. E' una dichiarazione di chi ha fatto il lavoro, non una
+            // deduzione di chi guarda da fuori.
+            //
+            // Prima si guardava stato === 'classificata'. Sembrava equivalente
+            // e non lo era: `stato` lo scrivono anche il sync HubSpot e la
+            // webapp, quindi un'azienda poteva uscire da 'classificata' senza
+            // che Phantom l'avesse sfiorata. Il 5 ottobre e' andata cosi' —
+            // il sync e' partito a meta' lavoro, la webapp non ha piu' visto
+            // nessuna 'classificata', ha dichiarato finito e ha marcato
+            // linkedin_ko 34 aziende che erano solo in coda. Questi due timbri
+            // invece li scrive un attore ciascuno e non servono a nient'altro.
+            // Date.parse e non il confronto fra stringhe: PostgREST puo'
+            // restituire un numero variabile di decimali sui secondi
+            // (".1+00:00" contro ".123+00:00") e in quel caso l'ordine
+            // alfabetico non coincide con l'ordine cronologico.
+            const risolta = a => {
+              if (!a.phantom_esito_il) return false;
+              if (!a.phantom_inviato_il) return true;
+              return Date.parse(a.phantom_esito_il) >= Date.parse(a.phantom_inviato_il);
+            };
+            const inLavorazione = aziende.filter(a => !risolta(a));
+            if (inLavorazione.length > 0) {
+              // Scaduta l'attesa, il lotto si considera abbandonato — non
+              // risolto. Le aziende restano dove sono, con il loro stato e il
+              // loro timbro di partenza, e si vedono nel log con nome e
+              // cognome: l'utente decide se rilanciarle. Nessun linkedin_ko
+              // scritto per scadenza, mai: un timer non sa se Phantom ha
+              // cercato e non ha trovato, o se non ha proprio cercato.
+              const attesa = Date.now() - (phantomLottoDaRef.current || 0);
+              if (phantomLottoDaRef.current && attesa > autoPhantomAttesaRef.current) {
+                if (!phantomLottoPersoRef.current) {
+                  phantomLottoPersoRef.current = true;
+                  const nomi = inLavorazione.slice(0, 15).map(a => a.nome || a.id).join(", ");
+                  const altre = inLavorazione.length > 15 ? ` (+${inLavorazione.length - 15})` : "";
+                  pushLog("warn", `⚠ Phantom: ${inLavorazione.length} aziend${inLavorazione.length===1?"a":"e"} senza esito dopo ${Math.round(attesa/60000)} minuti — lasciate invariate, da rilanciare: ${nomi}${altre}`);
+                }
+                // Le aziende che un esito ce l'hanno non vanno buttate con le
+                // altre: restano in coda e al giro successivo, essendo ormai
+                // tutte risolte, passano dritte al verdetto.
+                const risolte = aziende.filter(risolta).map(a => a.id);
+                pendingPhantomHubspotRef.current = risolte;
+                autoPhantomFiringRef.current = false;
+                phantomLottoDaRef.current = 0;   // l'orologio riguardava il lotto, che non esiste piu'
+                return;
+              }
               pendingPhantomHubspotRef.current = idsAll;   // si riprova al giro dopo
               autoPhantomFiringRef.current = true;         // Phantom non ha finito
               autoPhantomFiredAtRef.current = Date.now();  // rinvia anche la scadenza
               return;
             }
+            // Lotto chiuso: l'orologio dell'abbandono si ferma, altrimenti
+            // resterebbe acceso e farebbe scadere il lotto successivo.
+            phantomLottoDaRef.current    = 0;
+            phantomLottoPersoRef.current = false;
             const conUrl   = aziende.filter(a=>a.linkedin_url).map(a=>a.id);
-            const senzaUrl = idsAll.filter(id=>!conUrl.includes(id));
+            // Solo le aziende che lo scenario 1 ha davvero lavorato senza
+            // trovare nulla. Prima si partiva da idsAll, cioe' da tutto il
+            // lotto: ci finiva dentro anche chi non era mai stato letto.
+            const senzaUrl = aziende.filter(a=>!a.linkedin_url).map(a=>a.id);
             if (conUrl.length > 0) {
               pushLog("info", `↗ Sync HubSpot post-Phantom (${conUrl.length} aziend${conUrl.length===1?"a":"e"} con URL LinkedIn)`);
               fetch(`${url}/rest/v1/companies?id=in.(${conUrl.join(',')})`, {
@@ -1368,6 +1441,7 @@ function App() {
           // Imposta guard solo se ci sono aziende reali — evita di bloccare trigger successivi
           autoPhantomFiringRef.current = true;
           autoPhantomFiredAtRef.current = Date.now();
+          autoPhantomAttesaRef.current  = attesaPhantom(ids.length);
           rilancioCompanyIdsRef.current = ids;
           pendingPhantomHubspotRef.current = ids; // salva per sync HubSpot post-Phantom
           fetchAzSenzaSitoRef.current?.();
@@ -1470,6 +1544,24 @@ function App() {
         return;
       }
       pushLog("ok", `✓ Phantom avviato — ${resData.companies} aziende`);
+      // Il blocco lo decide la Edge Function (ordine suo, limite suo, BLOCCO=400):
+      // quello che la webapp credeva di mandare puo' non coincidere. Si aspettano
+      // gli ID che la funzione dichiara di aver davvero messo nel CSV.
+      if (Array.isArray(resData.ids) && resData.ids.length) {
+        pendingPhantomHubspotRef.current = resData.ids;
+        // L'orologio dell'abbandono parte da qui, una volta sola, e dal numero
+        // vero di aziende nel CSV — non da quello che la webapp aveva in mano.
+        phantomLottoDaRef.current    = Date.now();
+        phantomLottoPersoRef.current = false;
+        autoPhantomAttesaRef.current = attesaPhantom(resData.ids.length);
+        autoPhantomFiringRef.current  = true;
+        autoPhantomFiredAtRef.current = Date.now();
+        if (resData.timbrate === false) {
+          // Senza timbro il controllo di completamento e' cieco: meglio dirlo
+          // subito che scoprirlo quando le aziende restano appese.
+          pushLog("warn", "⚠ phantom_inviato_il non scritto — il controllo di fine Phantom non puo' funzionare su questo blocco");
+        }
+      }
       setFaseS("company","in_corso",{iniziato:new Date().toISOString(),dettaglio:"Phantom in esecuzione..."});
       sbWritePipelineState("company","in_corso","Phantom in esecuzione...");
       showToast("✓ Company Page avviato");
@@ -2429,6 +2521,8 @@ function App() {
     pendingAutoHubspotRef.current = false;
     rilancioCompanyIdsRef.current = [];
     pendingPhantomHubspotRef.current = [];
+    phantomLottoDaRef.current = 0;
+    phantomLottoPersoRef.current = false;
     // Pulisci tutti i flag localStorage di run precedenti (evita strascichi se Supabase è stato resettato)
     Object.keys(localStorage).filter(k => k.startsWith('grizzly_company_fired_') || k.startsWith('grizzly_hubspot_fired_')).forEach(k => localStorage.removeItem(k));
     setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
@@ -2975,9 +3069,13 @@ function App() {
         body: JSON.stringify({stato:"classificata"})
       });
     } catch(e) { showToast("✕ Errore aggiornamento stato: " + e.message); return; }
-    // 2. Configura i ref per il rilancio selettivo
+    // 2. Configura i ref per il rilancio selettivo.
+    // Sono valori provvisori: la Edge Function puo' restituire un sottoinsieme
+    // (BLOCCO, aziende senza sito scartate) e fetchAzSenzaSito li riscrive con
+    // l'elenco vero, facendo partire da li' l'orologio dell'abbandono.
     autoPhantomFiringRef.current = true;   // blocca sync HubSpot finché Phantom non completa
     autoPhantomFiredAtRef.current = Date.now();
+    phantomLottoPersoRef.current = false;
     rilancioCompanyIdsRef.current = ids;
     pendingPhantomHubspotRef.current = ids;
     pushLog("info", `🔄 Rilancio Phantom su ${ids.length} aziend${ids.length===1?"a":"e"} selezionat${ids.length===1?"a":"e"}`);
@@ -3481,7 +3579,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.88</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.89</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
