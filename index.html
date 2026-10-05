@@ -1427,15 +1427,17 @@ function App() {
                 .catch(()=>{});
             }
             if (senzaUrl.length > 0) {
-              pushLog("warn", `⚠ Phantom non ha trovato LinkedIn per ${senzaUrl.length} aziend${senzaUrl.length===1?"a":"e"} → linkedin_ko (sync HubSpot con url="linkedin_ko")`);
-              fetch(`${url}/rest/v1/companies?id=in.(${senzaUrl.join(',')})`, {
-                method:'PATCH',
-                headers:{apikey:key, Authorization:`Bearer ${sbBearer()}`, 'Content-Type':'application/json', Prefer:'return=minimal'},
-                body: JSON.stringify({stato:'linkedin_ko'})
-              }).catch(()=>{});
-              // Sync HubSpot anche per linkedin_ko — passa url="linkedin_ko" come marcatore filtrabile
-              callMake(MAKE.hubspot, {secret:MAKE_SECRET, runId:runId||"", runStart:runStart||"", companyIds:senzaUrl, source:"linkedin_ko"}, "Aggiornamento HubSpot — LinkedIn non trovato")
-                .catch(()=>{});
+              // Nessuna scrittura, e nessun sync. Phantom che non trova la
+              // company page non e' un verdetto: lo scenario 1 le ha gia' messe
+              // in `url_ambigua`, dove restano per il confronto con i dati
+              // EasyBusiness. `linkedin_ko` lo decide l'utente dal Review Tool
+              // premendo "Nessuna" (riga ~1927), ed e' da li' che parte il sync.
+              //
+              // Prima qui si scriveva linkedin_ko e si sincronizzava subito:
+              // la coda veniva scavalcata, la verifica EasyBusiness non avveniva
+              // mai e su HubSpot finiva un esito che nessuno aveva stabilito.
+              // E' l'origine dei 34 linkedin_ko sbagliati del 5 ottobre.
+              pushLog("info", `⚠ Phantom non ha trovato LinkedIn per ${senzaUrl.length} aziend${senzaUrl.length===1?"a":"e"} — restano in coda URL Ambigui per la verifica`);
             }
           })
           .catch(()=>{}); // errore silenzioso — la pipeline continua
@@ -3593,7 +3595,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.90</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.92</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
