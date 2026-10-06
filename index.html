@@ -1430,8 +1430,9 @@ function App() {
       }
       // Sync HubSpot post-Phantom per aziende Code-path — separato dal reset del ref
       // Si attiva quando: Phantom completato (ref=false), IDs pendenti, utente su Pipeline
-      // phantomInVolo calcolato QUI, prima del blocco auto-Phantom che potrebbe settare il ref
-      const phantomInVolo = autoPhantomFiringRef.current;
+      // NB: il sync HubSpot piu' in basso NON usa questa variabile ma rilegge
+      // il ref al momento dell'uso. Qui si conserva solo il valore d'ingresso,
+      // perche' serve a decidere se il verdetto post-Phantom puo' partire.
       // Il verdetto NON dipende piu' da autoPhantomFiringRef. Dipenderne creava
       // un'attesa circolare: il guard si abbassa solo a lotto risolto, il lotto
       // si risolve solo nel verdetto, il verdetto pretendeva il guard abbassato.
@@ -1555,8 +1556,15 @@ function App() {
       }
 
       // Sync HubSpot per URL ambigue confermate manualmente (stato=linkedin_upd)
-      // Aspetta anche se auto-Phantom è in volo (altrimenti gira in parallelo a Phantom)
-      // phantomInVolo è già calcolato sopra (prima del blocco auto-Phantom)
+      //
+      // `phantomOra` si rilegge QUI, non si usa la fotografia scattata prima
+      // del blocco auto-Phantom. Con quella, se Phantom partiva nello stesso
+      // giro di polling il valore risultava ancora `false` e il sync partiva
+      // lo stesso: la condizione che doveva separarli li faceva convivere.
+      // Visto il 6 ottobre alle 14:32:18 — auto-Phantom su 2 aziende e sync
+      // HubSpot su 101 avviati nello stesso secondo.
+      const phantomOra = autoPhantomFiringRef.current;
+      //
       // Il guard NON si abbassa piu' per scadenza di un timer.
       //
       // Prima bastavano cinque minuti e ripartiva, qualunque cosa fosse
@@ -1583,7 +1591,7 @@ function App() {
         pushLog("error", `✕ Sync HubSpot: ${liUpdRows.length} aziend${liUpdRows.length===1?"a":"e"} ferm${liUpdRows.length===1?"a":"e"} in linkedin_upd da ${Math.round(ATTESA_SYNC_HUBSPOT/60000)} minuti — lo scenario 2 non le sta spostando. Controlla le email di errore; per ritentare usa Forza Aggiornamento HubSpot.`);
       }
       else if (!hubspotLinkedinUpdFiringRef.current && MAKE.hubspot && !utenteSuCode) {
-        if (!pipelineInCorso && !phantomInVolo) {
+        if (!pipelineInCorso && !phantomOra) {
           hubspotLinkedinUpdFiringRef.current = true;
           hubspotLinkedinUpdFiredAtRef.current = Date.now();
           pendingAutoHubspotRef.current = false;
@@ -1594,7 +1602,7 @@ function App() {
           // NON resettare il ref su .finally() — si resetta solo quando liUpdRows torna a 0 (Make ha processato le aziende)
         } else if (!pendingAutoHubspotRef.current) {
           pendingAutoHubspotRef.current = true;
-          const motivo = phantomInVolo ? "Phantom in corso" : "Pipeline in corso";
+          const motivo = phantomOra ? "Phantom in corso" : "Pipeline in corso";
           pushLog("info", `⏳ ${motivo} — sync HubSpot URL ambigue in attesa`);
         }
       }
@@ -3729,7 +3737,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.97</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.98</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
