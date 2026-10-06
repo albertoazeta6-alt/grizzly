@@ -1004,7 +1004,15 @@ function App() {
   // Un lotto dichiarato perso non va ridichiarato a ogni giro: il log diventa
   // illeggibile e l'avviso perde peso.
   const phantomLottoPersoRef     = React.useRef(false);
-  const hubspotLinkedinUpdFiredAtRef = React.useRef(0);  // timestamp trigger sync linkedin_upd (per timeout-retry)
+  const hubspotLinkedinUpdFiredAtRef = React.useRef(0);  // quando e' partito il sync linkedin_upd
+  // Segnala una volta sola che il sync e' fermo, invece di ripetere l'avviso a
+  // ogni giro di polling: un messaggio ogni dieci secondi non e' un avviso, e'
+  // rumore, e dopo mezz'ora nel log non si trova piu' nient'altro.
+  const hubspotLinkedinUpdBloccoRef = React.useRef(false);
+  // Quanto si aspetta prima di dichiarare fermo il sync. Non fa ripartire
+  // niente: serve solo a dirlo. Dieci minuti sono abbondanti per un lotto
+  // grosso e stretti abbastanza da accorgersene nella stessa sessione.
+  const ATTESA_SYNC_HUBSPOT = 10 * 60 * 1000;
   const pendingAutoClassificaRef = React.useRef(false);  // pending: classifica da lanciare dopo fine pipeline
   const pendingAutoHubspotRef    = React.useRef(false);  // pending: hubspot da lanciare dopo fine pipeline
   const rilanciClassificatoreRef = React.useRef(null);   // ref stabile a rilanciClassificatore
@@ -1296,13 +1304,17 @@ function App() {
       // azioni: il lancio di Phantom e il sync HubSpot. Troncarli a 500
       // significava lavorare mezzo lotto credendo di averlo finito, quindi si
       // scaricano a pagine. L'ordinamento per id serve allo spareggio.
-      const [rAll, rLiOk, rAmb, rEB, rNuovo, rHubspot, classificataRows, liUpdRows] = await Promise.all([
+      const [rAll, rLiOk, rAmb, rEB, rNuovo, rHubspot, rHsErrore, classificataRows, liUpdRows] = await Promise.all([
         fetch(`${url}/rest/v1/companies?select=id&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.linkedin_ok&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.url_ambigua&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&fonte=eq.Automazione%20Bancadati&linkedin_url_eb=not.is.null&limit=1${ts}`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.nuovo&settore=is.null&limit=1`, {headers: h}),
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.hubspot_sync&limit=1${ts}`, {headers: h}),
+        // Le aziende che lo scenario 2 ha dovuto scartare. Vanno contate e
+        // annunciate: `hubspot_errore` le toglie dalla coda — che e' lo scopo —
+        // ma senza un avviso uscirebbero anche dalla vista.
+        fetch(`${url}/rest/v1/companies?select=id&stato=eq.hubspot_errore&limit=1`, {headers: h}),
         sbTutte(url, h, `companies?select=id,nome&stato=eq.classificata&order=id.asc`),
         sbTutte(url, h, `companies?select=id,nome&stato=eq.linkedin_upd${ts}&order=id.asc`),
       ]);
@@ -1321,7 +1333,13 @@ function App() {
         pushLog("ok", `✓ Company page trovate: ${az_output}${scartati ? ` · ${scartati} ambigue` : ""}`);
       if (exec !== null && exec !== pc.exec && exec > 0 && pc.exec !== null)
         pushLog("info", `📋 EasyBusiness con LinkedIn: ${exec}`);
-      prevCountersRef.current = {az_input, az_output, exec, scartati};
+      // Un'azienda scartata dallo scenario 2 non si fa piu' viva da sola: non
+      // e' in nessuna coda e nessun automatismo la riprende. Se il numero
+      // cresce bisogna dirlo, altrimenti resta un dato che nessuno guarda.
+      const hsErrore = rHsErrore.ok ? count(rHsErrore) : null;
+      if (hsErrore !== null && pc.hsErrore !== null && pc.hsErrore !== undefined && hsErrore > pc.hsErrore)
+        pushLog("error", `✕ ${hsErrore - pc.hsErrore} aziend${hsErrore - pc.hsErrore === 1 ? "a scartata" : "e scartate"} dallo scenario 2 (totale in errore: ${hsErrore}) — le trovi col filtro "Errore HubSpot" in Import Dati`);
+      prevCountersRef.current = {az_input, az_output, exec, scartati, hsErrore};
       setCounters({az_input, az_output, exec, scartati, mail_ok: null, mail_no: null});
       if (az_output) azOutputRef.current = az_output;
 
@@ -1539,10 +1557,31 @@ function App() {
       // Sync HubSpot per URL ambigue confermate manualmente (stato=linkedin_upd)
       // Aspetta anche se auto-Phantom è in volo (altrimenti gira in parallelo a Phantom)
       // phantomInVolo è già calcolato sopra (prima del blocco auto-Phantom)
-      if (hubspotLinkedinUpdFiringRef.current && Date.now() - hubspotLinkedinUpdFiredAtRef.current > TRIGGER_TIMEOUT) {
-        hubspotLinkedinUpdFiringRef.current = false; // timeout reset → retry
+      // Il guard NON si abbassa piu' per scadenza di un timer.
+      //
+      // Prima bastavano cinque minuti e ripartiva, qualunque cosa fosse
+      // successo. Se lo scenario 2 girava ma non riusciva a spostare le aziende
+      // fuori da `linkedin_upd` — ed e' esattamente quello che faceva, perche'
+      // il bundle fallito veniva scartato prima del PATCH sullo stato — la coda
+      // non si svuotava mai, il guard cadeva ogni cinque minuti, la webapp
+      // richiedeva, la deduplica bloccava, e ogni trenta minuti ne passava una.
+      // Fra il 5 e il 6 ottobre: quindici esecuzioni da 814 operazioni, circa
+      // 12.000 crediti, otto ore, zero aziende avanzate di un passo.
+      //
+      // Ora si abbassa solo quando la coda si svuota davvero. Se resta alzato,
+      // vuol dire che il lavoro non e' andato a buon fine: il posto giusto dove
+      // dirlo e' il log, non un nuovo tentativo automatico. Per ritentare c'e'
+      // "Forza Aggiornamento HubSpot", che e' esente dalla deduplica.
+      if (liUpdRows.length === 0) {
+        hubspotLinkedinUpdFiringRef.current = false;   // coda vuota: lavoro finito
+        hubspotLinkedinUpdBloccoRef.current = false;   // riarma l'avviso
       }
-      if (liUpdRows.length === 0) { hubspotLinkedinUpdFiringRef.current = false; } // rows esaurite → reset guard
+      else if (hubspotLinkedinUpdFiringRef.current
+               && !hubspotLinkedinUpdBloccoRef.current
+               && Date.now() - hubspotLinkedinUpdFiredAtRef.current > ATTESA_SYNC_HUBSPOT) {
+        hubspotLinkedinUpdBloccoRef.current = true;    // una volta sola, non a ogni giro
+        pushLog("error", `✕ Sync HubSpot: ${liUpdRows.length} aziend${liUpdRows.length===1?"a":"e"} ferm${liUpdRows.length===1?"a":"e"} in linkedin_upd da ${Math.round(ATTESA_SYNC_HUBSPOT/60000)} minuti — lo scenario 2 non le sta spostando. Controlla le email di errore; per ritentare usa Forza Aggiornamento HubSpot.`);
+      }
       else if (!hubspotLinkedinUpdFiringRef.current && MAKE.hubspot && !utenteSuCode) {
         if (!pipelineInCorso && !phantomInVolo) {
           hubspotLinkedinUpdFiringRef.current = true;
@@ -2617,6 +2656,7 @@ function App() {
     autoNuovoFiringRef.current = false;
     autoPhantomFiringRef.current = false;
     hubspotLinkedinUpdFiringRef.current = false;
+    hubspotLinkedinUpdBloccoRef.current = false;
 
     pendingAutoClassificaRef.current = false;
     pendingAutoHubspotRef.current = false;
@@ -3689,7 +3729,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.95</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.97</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -4701,6 +4741,14 @@ function App() {
                           {k:"linkedin_ok",      label:"LinkedIn ok",        col:"#10b981"},
                           {k:"linkedin_upd",     label:"LinkedIn conf.",     col:"#38bdf8"},
                           {k:"linkedin_ko",      label:"LinkedIn KO",        col:"#f87171"},
+                          // Dal 6 ottobre lo scenario 2, quando un modulo HubSpot
+                          // fallisce, scrive questo stato PRIMA di scartare il
+                          // bundle: cosi' l'azienda esce dalla coda invece di
+                          // restarci e farsi richiedere all'infinito.
+                          // Senza questo filtro pero' sarebbe uno stato cieco —
+                          // fuori da ogni coda e invisibile — e le aziende
+                          // sparirebbero in silenzio.
+                          {k:"hubspot_errore",   label:"Errore HubSpot",     col:"#ef4444"},
                           {k:"contatti_trovati", label:"Contatti trovati",   col:"#10b981"},
                         ];
                         return (
@@ -4875,6 +4923,9 @@ function App() {
                                       url_ambigua: C.yellow,
                                       sito_mancante: C.yellow,
                                       linkedin_ko: C.muted,
+                                      // Rosso pieno: non e' una coda in attesa,
+                                      // e' una lavorazione andata male.
+                                      hubspot_errore: C.red,
                                     }[row.stato] || C.muted;
                                     return (
                                       <tr key={row.id} onClick={()=>setImportSelected(prev=>{const s=new Set(prev);s.has(row.id)?s.delete(row.id):s.add(row.id);return s;})} style={{borderBottom:`1px solid rgba(59,130,246,0.07)`,background:importSelected.has(row.id)?"rgba(59,130,246,0.15)":i%2===0?"transparent":"rgba(59,130,246,0.03)",cursor:"pointer"}}>

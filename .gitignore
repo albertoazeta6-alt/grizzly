@@ -2,3 +2,10 @@
 *
 !index.html
 !.gitignore
+# `.nojekyll` dice a GitHub Pages di pubblicare i file cosi' come sono, senza
+# passarli per Jekyll. Serve perche' Jekyll interpreta `{{ ... }}` e `{% ... %}`
+# come proprio linguaggio di template, e index.html e' pieno di JSX e di
+# template literal JavaScript che usano le stesse parentesi: basta una
+# combinazione che Jekyll consideri sintassi malformata e il build fallisce.
+# Senza questa eccezione il file verrebbe ignorato come tutto il resto.
+!.nojekyll
