@@ -1343,7 +1343,15 @@ function App() {
         // ma senza un avviso uscirebbero anche dalla vista.
         fetch(`${url}/rest/v1/companies?select=id&stato=eq.hubspot_errore&limit=1`, {headers: h}),
         sbTutte(url, h, `companies?select=id,nome&stato=eq.classificata&order=id.asc`),
-        sbTutte(url, h, `companies?select=id,nome&stato=eq.linkedin_upd${ts}&order=id.asc`),
+        // SENZA il filtro per data. La coda di sincronizzazione e' definita da
+        // `stato = linkedin_upd`, non da quando l'azienda e' stata creata:
+        // incrociare i due criteri fa sparire lavoro reale. Con `creato_il >=
+        // runStart` le aziende di import precedenti erano invisibili, la coda
+        // risultava vuota e non venivano sincronizzate mai — nemmeno premendo
+        // qualcosa, perche' non comparivano da nessuna parte.
+        // Accertato il 6 ottobre: 20 aziende ferme in linkedin_upd dal 21-24
+        // settembre, in attesa da due settimane senza che nulla lo segnalasse.
+        sbTutte(url, h, `companies?select=id,nome&stato=eq.linkedin_upd&order=id.asc`),
       ]);
       const count = r => parseInt(r.headers.get("content-range")?.split("/")?.[1] ?? "0");
       const az_input    = rAll.ok          ? count(rAll)          : null;
@@ -3807,7 +3815,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.01</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.02</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
