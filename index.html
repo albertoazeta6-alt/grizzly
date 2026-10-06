@@ -3548,15 +3548,37 @@ function App() {
     if (edits.sito_web !== undefined) edits.sito_web = normalizeSitoWeb(edits.sito_web);
     // Se la company era sito_mancante e l'utente ha aggiornato dati, marcala sito_updated
     const curRow = importDati.rows.find(r=>r.id===id);
+    // Un sito nuovo invalida la classificazione precedente, e va azzerata.
+    //
+    // Un'azienda parcheggiata in `sito_mancante` un settore ce l'ha comunque —
+    // quasi sempre `Altro` — assegnato dal classificatore quando non c'era
+    // nulla da leggere. Il classificatore pero' seleziona per `settore IS NULL`:
+    // finche' quel settore inventato resta li', l'azienda non verra' mai
+    // ripresa, e correggere l'URL non serve a niente.
+    //
+    // Misurato il 6 ottobre su dodici aziende: azzerato il settore, nove hanno
+    // ottenuto una classificazione vera con confidenza alta — Antincendio,
+    // Costruttore, Carrelli, Impianti, Manutenzione — dove prima c'era `Altro`.
+    // Si azzera anche l'icebreaker: era stato scritto sullo stesso nulla.
+    const sitoNuovo = edits.sito_web !== undefined && edits.sito_web
+                      && edits.sito_web !== curRow?.sito_web;
+    const azzera = sitoNuovo ? {
+      settore: null, settore_confidenza: null, settore_motivazione: null,
+      settore_suggerito: null, semaforo_verifica: null, note_verifica: null,
+      icebreaker: null, classificato_il: null,
+    } : {};
     const statoOverride = curRow?.stato === 'sito_mancante' ? {stato:'sito_updated'} : {};
-    const ok = await sbUpdate("companies", {id}, {...edits, ...statoOverride, aggiornato_il: new Date().toISOString()});
+    const ok = await sbUpdate("companies", {id}, {...edits, ...azzera, ...statoOverride, aggiornato_il: new Date().toISOString()});
     if (ok) {
       setImportDati(p=>({
         ...p,
-        rows: p.rows.map(r => r.id===id ? {...r, ...edits, ...statoOverride} : r),
+        rows: p.rows.map(r => r.id===id ? {...r, ...edits, ...azzera, ...statoOverride} : r),
         edits: Object.fromEntries(Object.entries(p.edits).filter(([k])=>k!==String(id)))
       }));
-      showToast("Salvato");
+      if (sitoNuovo) {
+        pushLog("info", `↺ ${curRow?.nome || id}: sito aggiornato — classificazione azzerata, verra' rifatta sul sito nuovo`);
+        showToast("Salvato — da riclassificare");
+      } else showToast("Salvato");
     }
   };
   const closeSheet = () => setEmbedSheet(null);
@@ -3848,7 +3870,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.06</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.07</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -5657,8 +5679,18 @@ function App() {
           const salvaSito = async (companyId) => {
             const sito = normalizeSitoWeb((codeSitoEdit[companyId]||"").trim());
             if(!sito) return;
-            // Reset settore=null per forzare riclassificazione con il nuovo sito
-            const ok = await sbUpdate("companies",{id:companyId},{sito_web:sito, stato:"nuovo", settore:null, settore_confidenza:null, settore_motivazione:null, semaforo_verifica:null, aggiornato_il:new Date().toISOString()});
+            // Reset settore=null per forzare riclassificazione con il nuovo sito.
+            // Si azzerano anche icebreaker, settore_suggerito, note_verifica e
+            // classificato_il: erano tutti scritti quando il sito non si poteva
+            // leggere, quindi descrivono un'azienda che nessuno aveva visto.
+            // Lasciarne anche uno solo significa portarsi dietro una frase
+            // inventata accanto a una classificazione nuova e vera.
+            const ok = await sbUpdate("companies",{id:companyId},{
+              sito_web:sito, stato:"nuovo",
+              settore:null, settore_confidenza:null, settore_motivazione:null,
+              settore_suggerito:null, semaforo_verifica:null, note_verifica:null,
+              icebreaker:null, classificato_il:null,
+              aggiornato_il:new Date().toISOString()});
             if(ok){
               setCodeQueue(q=>({...q, siti:q.siti.filter(c=>c.id!==companyId)}));
               setCodeSitoEdit(e=>{const n={...e};delete n[companyId];return n;});
