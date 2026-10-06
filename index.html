@@ -1004,6 +1004,15 @@ function App() {
   // Un lotto dichiarato perso non va ridichiarato a ogni giro: il log diventa
   // illeggibile e l'avviso perde peso.
   const phantomLottoPersoRef     = React.useRef(false);
+  // Le aziende di un lotto dichiarato abbandonato. Non vanno ripescate
+  // dall'auto-avvio: restano 'classificata', quindi senza questo elenco il
+  // blocco che cerca le classificate le rilancerebbe dieci secondi dopo averle
+  // mollate, e cosi' via ogni cinque minuti — un ciclo che consuma lanci di
+  // Phantom e, peggio, tiene il guard sempre alzato affamando il sync HubSpot,
+  // che aspetta che Phantom sia fermo. Visto il 6 ottobre alle 14:45.
+  // Si svuota solo con un rilancio manuale o con una run nuova: riprovare e'
+  // una decisione dell'utente, non un riflesso della pipeline.
+  const phantomAbbandonateRef    = React.useRef(new Set());
   const hubspotLinkedinUpdFiredAtRef = React.useRef(0);  // quando e' partito il sync linkedin_upd
   // Segnala una volta sola che il sync e' fermo, invece di ripetere l'avviso a
   // ogni giro di polling: un messaggio ogni dieci secondi non e' un avviso, e'
@@ -1482,11 +1491,15 @@ function App() {
               // cercato e non ha trovato, o se non ha proprio cercato.
               const attesa = Date.now() - (phantomLottoDaRef.current || 0);
               if (phantomLottoDaRef.current && attesa > autoPhantomAttesaRef.current) {
+                // Fuori dall'auto-avvio: altrimenti, restando 'classificata',
+                // verrebbero rilanciate al giro successivo e il lotto
+                // abbandonato ricomincerebbe da capo all'infinito.
+                inLavorazione.forEach(a => phantomAbbandonateRef.current.add(a.id));
                 if (!phantomLottoPersoRef.current) {
                   phantomLottoPersoRef.current = true;
                   const nomi = inLavorazione.slice(0, 15).map(a => a.nome || a.id).join(", ");
                   const altre = inLavorazione.length > 15 ? ` (+${inLavorazione.length - 15})` : "";
-                  pushLog("warn", `⚠ Phantom: ${inLavorazione.length} aziend${inLavorazione.length===1?"a":"e"} senza esito dopo ${Math.round(attesa/60000)} minuti — lasciate invariate, da rilanciare: ${nomi}${altre}`);
+                  pushLog("warn", `⚠ Phantom: ${inLavorazione.length} aziend${inLavorazione.length===1?"a":"e"} senza esito dopo ${Math.round(attesa/60000)} minuti — lasciate invariate e non piu' riprese in automatico. Per ritentare selezionale in Import Dati e premi 🔄 Phantom: ${nomi}${altre}`);
                 }
                 // Le aziende che un esito ce l'hanno non vanno buttate con le
                 // altre: restano in coda e al giro successivo, essendo ormai
@@ -1538,8 +1551,12 @@ function App() {
           .catch(()=>{}); // errore silenzioso — la pipeline continua
       }
       else if (!autoPhantomFiringRef.current && !pipelineInCorso && !useEffectGestiraPhantom && !utenteSuCode && !runInitializingRef.current) {
-        const ids  = classificataRows.map(r => r.id);
-        const nomi = classificataRows.map(r => r.nome).join(", ");
+        // Si escludono le aziende di un lotto gia' dichiarato abbandonato:
+        // restano 'classificata', quindi senza questo filtro rientrerebbero
+        // nel lotto successivo e il ciclo ricomincerebbe.
+        const candidate = classificataRows.filter(r => !phantomAbbandonateRef.current.has(r.id));
+        const ids  = candidate.map(r => r.id);
+        const nomi = candidate.map(r => r.nome).join(", ");
         if (ids.length > 0) {
           pushLog("info", `↺ Auto-avvio Phantom (${ids.length} aziend${ids.length===1?"a":"e"} classificat${ids.length===1?"a":"e"}): ${nomi}`);
           // Imposta guard solo se ci sono aziende reali — evita di bloccare trigger successivi
@@ -2672,6 +2689,7 @@ function App() {
     pendingPhantomHubspotRef.current = [];
     phantomLottoDaRef.current = 0;
     phantomLottoPersoRef.current = false;
+    phantomAbbandonateRef.current = new Set();   // run nuova: si riparte da zero
     // Pulisci tutti i flag localStorage di run precedenti (evita strascichi se Supabase è stato resettato)
     Object.keys(localStorage).filter(k => k.startsWith('grizzly_company_fired_') || k.startsWith('grizzly_hubspot_fired_')).forEach(k => localStorage.removeItem(k));
     setUrls(DEFAULT_URLS.map(u=>({...u,stato:"pending"})));
@@ -3227,6 +3245,10 @@ function App() {
     autoPhantomFiringRef.current = true;   // blocca sync HubSpot finché Phantom non completa
     autoPhantomFiredAtRef.current = Date.now();
     phantomLottoPersoRef.current = false;
+    // Il rilancio manuale e' la decisione esplicita che riabilita un'azienda
+    // abbandonata: la si toglie dall'elenco, altrimenti l'auto-avvio
+    // continuerebbe a saltarla anche dopo che l'utente ha chiesto di riprovare.
+    ids.forEach(id => phantomAbbandonateRef.current.delete(id));
     rilancioCompanyIdsRef.current = ids;
     pendingPhantomHubspotRef.current = ids;
     pushLog("info", `🔄 Rilancio Phantom su ${ids.length} aziend${ids.length===1?"a":"e"} selezionat${ids.length===1?"a":"e"}`);
@@ -3737,7 +3759,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.98</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v4.99</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
