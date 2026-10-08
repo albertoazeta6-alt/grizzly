@@ -763,7 +763,7 @@ function App() {
   const [settingEdit, setSettingEdit] = useState({}); // {chiave: valore_editato}
   // Code di Revisione
   const [codeQueue, setCodeQueue] = useState({siti:[], urlAmbigue:[], contatti:[], rilanciaReady:false, loading:false, loaded:false});
-  const [queueCounts, setQueueCounts] = useState({siti:null, urlAmbigue:null, contatti:null, bassaConf:null, mediaConf:null, classifDaRevedere:null, loaded:false});
+  const [queueCounts, setQueueCounts] = useState({siti:null, urlAmbigue:null, contatti:null, bassaConf:null, mediaConf:null, classifDaRevedere:null, classifMaiVerif:null, loaded:false});
   const [codeSitoEdit, setCodeSitoEdit] = useState({}); // {company_id: url_string}
   const [sitoPreview, setSitoPreview] = useState(null); // company id con preview aperta
   const [codeUrlEdit, setCodeUrlEdit] = useState({});   // {company_id: linkedin_url}
@@ -798,10 +798,24 @@ function App() {
   // e col solo criterio sulla confidenza restava invisibile.
   // Lo stesso criterio del conteggio lato server in fetchQueueCounts: se i due
   // divergono, il badge annuncia un numero di casi che la lista poi non mostra.
+  //
+  // Scritto come `confidenza !== 'alta'` il criterio diceva una cosa diversa da
+  // quella voluta: includeva anche le righe senza confidenza. Sono 3.268, tutte
+  // migrate da HubSpot il 24 settembre 2026 — hanno settore e icebreaker ma
+  // nessuna motivazione, nessun `classificato_il` e nessun semaforo, perche'
+  // risalgono a prima che quelle colonne esistessero. Il badge ne contava 296,
+  // la lista 3.486. «Senza confidenza» non vuol dire «confidenza scarsa»: sono
+  // lavorazioni di un'altra epoca, e stanno nella loro coda (classifMaiVerif).
   const daRivedere = r =>
-    r.settore_confidenza !== 'alta' ||
+    r.settore_confidenza === 'bassa' || r.settore_confidenza === 'media' ||
     r.semaforo_verifica === '✗' || r.semaforo_verifica === '⚠' ||
     r.settore === 'Altro';
+
+  // Le migrate del 24 settembre — settore presente, nessuno l'ha mai giudicato —
+  // non sono una coda di revisione ma un arretrato: si contano a parte
+  // (queueCounts.classifMaiVerif) e nella barra filtri del Classificatore si
+  // isolano con Semaforo → «non verificate». L'agente oggi non le riprende,
+  // perche' pesca solo dove `settore IS NULL`.
   const cercaAzienda = (r, q) => {
     if (!q) return true;
     // Niente motivazioni ne' icebreaker: sono testi lunghi dove quasi ogni
@@ -2019,15 +2033,19 @@ function App() {
       try { const r = await fetch(`${url}/rest/v1/${endpoint}`,{headers:h}); const cr = r.headers.get("content-range")||"0/0"; return parseInt(cr.split("/")[1]||"0"); }
       catch { return null; }
     };
-    const [siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere] = await Promise.all([
+    const [siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, classifMaiVerif] = await Promise.all([
       cnt("companies?stato=eq.sito_mancante&select=id&limit=1"),
       cnt("companies?stato=eq.url_ambigua&select=id&limit=1"),
       Promise.resolve(0),
       cnt("companies?settore_confidenza=eq.bassa&select=id&limit=1"),
       cnt("companies?settore_confidenza=eq.media&select=id&limit=1"),
       cnt("companies?or=(settore_confidenza.in.(bassa,media),settore.eq.Altro,semaforo_verifica.in.(%E2%9A%A0,%E2%9C%97))&settore=not.is.null&select=id&limit=1"),
+      // Arretrato: settore scritto, ma nessuno l'ha mai giudicato. Sono le
+      // migrate del 24 settembre. Tenute fuori dalla coda di revisione perche'
+      // non sono casi dubbi: sono casi non esaminati. Due cose diverse.
+      cnt("companies?settore=not.is.null&settore_confidenza=is.null&semaforo_verifica=is.null&select=id&limit=1"),
     ]);
-    setQueueCounts({siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, loaded:true});
+    setQueueCounts({siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, classifMaiVerif, loaded:true});
   }, []);
 
   // carica contatori quando il run è attivo
@@ -3879,7 +3897,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.08</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.09</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -4276,8 +4294,12 @@ function App() {
                       {[
                         {label:"Da revisionare",     sub:"conf. bassa", val:queueCounts.bassaConf, color:C.yellow},
                         {label:"Verifica a campione", sub:"conf. media", val:queueCounts.mediaConf, color:C.purple},
+                        // Arretrato, non coda: settore scritto e mai giudicato.
+                        // Sta qui sotto, a tutta riga, proprio per non farsi
+                        // scambiare per lavoro del giorno.
+                        {label:"Mai verificate", sub:"migrate, senza semaforo", val:queueCounts.classifMaiVerif, color:C.muted, pieno:true},
                       ].map((k,i)=>(
-                        <div key={i} style={{background:C.bg,border:`1px solid ${C.borderHi}`,borderRadius:6,padding:"8px 10px"}}>
+                        <div key={i} style={{background:C.bg,border:`1px solid ${C.borderHi}`,borderRadius:6,padding:"8px 10px",gridColumn:k.pieno?"1 / -1":undefined}}>
                           <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:4}}>
                             <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase"}}>{k.label}</div>
                             <div style={{fontSize:8,color:C.muted,opacity:0.7}}>{k.sub}</div>
