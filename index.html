@@ -763,7 +763,7 @@ function App() {
   const [settingEdit, setSettingEdit] = useState({}); // {chiave: valore_editato}
   // Code di Revisione
   const [codeQueue, setCodeQueue] = useState({siti:[], urlAmbigue:[], contatti:[], rilanciaReady:false, loading:false, loaded:false});
-  const [queueCounts, setQueueCounts] = useState({siti:null, urlAmbigue:null, contatti:null, bassaConf:null, mediaConf:null, classifDaRevedere:null, classifMaiVerif:null, loaded:false});
+  const [queueCounts, setQueueCounts] = useState({siti:null, urlAmbigue:null, contatti:null, bassaConf:null, mediaConf:null, classifDaRevedere:null, classifMaiVerif:null, codaScraper:null, loaded:false});
   const [codeSitoEdit, setCodeSitoEdit] = useState({}); // {company_id: url_string}
   const [sitoPreview, setSitoPreview] = useState(null); // company id con preview aperta
   const [codeUrlEdit, setCodeUrlEdit] = useState({});   // {company_id: linkedin_url}
@@ -2033,7 +2033,7 @@ function App() {
       try { const r = await fetch(`${url}/rest/v1/${endpoint}`,{headers:h}); const cr = r.headers.get("content-range")||"0/0"; return parseInt(cr.split("/")[1]||"0"); }
       catch { return null; }
     };
-    const [siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, classifMaiVerif] = await Promise.all([
+    const [siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, classifMaiVerif, codaScraper] = await Promise.all([
       cnt("companies?stato=eq.sito_mancante&select=id&limit=1"),
       cnt("companies?stato=eq.url_ambigua&select=id&limit=1"),
       Promise.resolve(0),
@@ -2050,8 +2050,11 @@ function App() {
       // migrate del 24 settembre. Tenute fuori dalla coda di revisione perche'
       // non sono casi dubbi: sono casi non esaminati. Due cose diverse.
       cnt("companies?settore=not.is.null&settore_confidenza=is.null&semaforo_verifica=is.null&select=id&limit=1"),
+      // Quante aziende aspettano lo Scraper. Senza questo numero la coda e'
+      // invisibile: la riempi, ti distrai, e non sai piu' se e' stata lavorata.
+      cnt("companies?scraper_coda_il=not.is.null&select=id&limit=1"),
     ]);
-    setQueueCounts({siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, classifMaiVerif, loaded:true});
+    setQueueCounts({siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, classifMaiVerif, codaScraper, loaded:true});
   }, []);
 
   // carica contatori quando il run è attivo
@@ -3373,6 +3376,43 @@ function App() {
     setImportSelected(new Set());
   }, [importSelected, getSbCreds, customConfirm, pushLog, showToast]);
 
+  // Lo Scraper, lasciando vuota la casella Company, si caricava da solo le
+  // prime 200 aziende in `linkedin_ok`: il blocco lo sceglieva lui e qualunque
+  // filtro impostato qui — settore, fatturato, regione — veniva ignorato.
+  // Questo pulsante scrive la coda vera: `scraper_coda_il` timbrato sulle
+  // aziende scelte da chi guarda i dati. Lo Scraper legge quelle, e solo
+  // quelle, e azzera il timbro quando ha finito (migration v14).
+  const mettiInCodaScraper = async () => {
+    if (importSelected.size === 0) { showToast("⚠ Nessuna azienda selezionata"); return; }
+    const sel = importDati.rows.filter(r => importSelected.has(r.id));
+    // Solo le pagine azienda. Un profilo personale o un indirizzo malformato
+    // farebbe lavorare lo Scraper su qualcosa che non e' un'azienda — ed e'
+    // esattamente da li' che sono arrivati i diciotto dirigenti di 3M.
+    const buoni  = sel.filter(r => /linkedin\.com\/company\/[^/?#]+/i.test(r.linkedin_url || ""));
+    const scarti = sel.length - buoni.length;
+    if (!buoni.length) { showToast("⚠ Nessuna pagina LinkedIn valida nella selezione"); return; }
+    if (scarti && !await customConfirm(
+      `${buoni.length} aziende hanno una pagina LinkedIn valida.\n` +
+      `${scarti} verranno saltate perche' l'indirizzo manca o non e' una pagina azienda.\n\nProcedo?`)) return;
+    const {url:sbUrl, key:sbKey} = getSbCreds();
+    if (!sbUrl || !sbKey) { showToast("⚠ Supabase non configurato"); return; }
+    const ids = buoni.map(r => r.id);
+    try {
+      const r = await fetch(`${sbUrl}/rest/v1/companies?id=in.(${ids.join(",")})`, {
+        method:"PATCH",
+        headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, "Content-Type":"application/json", Prefer:"return=minimal"},
+        body: JSON.stringify({scraper_coda_il: new Date().toISOString()})
+      });
+      if (!r.ok && r.status !== 204) throw new Error(`HTTP ${r.status}`);
+      showToast(`✓ ${buoni.length} aziende in coda per lo Scraper`);
+      pushLog("ok", `⧉ ${buoni.length} aziende messe in coda per lo Scraper${scarti ? ` — ${scarti} saltate (pagina LinkedIn mancante o non valida)` : ""}. Apri lo Scraper e premi Avvia lasciando vuota la casella Company.`);
+      fetchQueueCounts();
+    } catch(e) {
+      showToast("✕ Errore scrittura coda");
+      pushLog("error", `✕ Coda Scraper: ${e.message}`);
+    }
+  };
+
   const deleteImportSelected = async () => {
     const ids = importSelected.size > 0 ? [...importSelected] : importDati.rows.map(r=>r.id);
     if (!ids.length) return;
@@ -3910,7 +3950,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.12</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.14</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -4291,6 +4331,10 @@ function App() {
                         {label:"Siti mancanti", val:queueCounts.siti,       color:queueCounts.siti>0?C.orange:C.green},
                         {label:"URL LN ambigui",val:queueCounts.urlAmbigue, color:queueCounts.urlAmbigue>0?C.orange:C.green},
                         {label:"Contatti",      val:queueCounts.contatti,   color:queueCounts.contatti>0?C.purple:C.green},
+                        // La coda dello Scraper: aziende scelte a mano e non
+                        // ancora lavorate. Lo Scraper azzera il timbro man mano,
+                        // quindi questo numero scende da solo fino a zero.
+                        {label:"Coda Scraper",  val:queueCounts.codaScraper, color:queueCounts.codaScraper>0?"#fdba74":C.green},
                       ].map((k,i)=>(
                         <div key={i} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px",textAlign:"center"}}>
                           <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",marginBottom:4}}>{k.label}</div>
@@ -4905,6 +4949,8 @@ function App() {
                           {importSelected.size>0&&<button onClick={cercaEmailAziendali} title="Cerca l'indirizzo email sul sito delle aziende selezionate" style={{fontSize:10,fontWeight:700,color:"#67e8f9",background:"rgba(6,182,212,0.12)",border:"1px solid rgba(6,182,212,0.3)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>✉ Cerca info ({importSelected.size})</button>}
                           {importSelected.size>0&&<button onClick={sincronizzaSelezionateHubspot} title="Manda queste aziende allo scenario HubSpot, qualunque sia il loro stato" style={{fontSize:10,fontWeight:700,color:"#5eead4",background:"rgba(20,184,166,0.12)",border:"1px solid rgba(20,184,166,0.3)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>⇪ Aziende a HubSpot ({importSelected.size})</button>}
                           {importSelected.size>0&&<button onClick={rilanciPhantomSelezionate} style={{fontSize:10,fontWeight:700,color:"#86efac",background:"rgba(34,197,94,0.12)",border:"1px solid rgba(34,197,94,0.3)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🔄 Phantom ({importSelected.size})</button>}
+                          {importSelected.size>0&&<button onClick={mettiInCodaScraper} title="Mette queste aziende nella coda dello Scraper: aprendolo e premendo Avvia lavorera' esattamente queste, invece di prendersi da solo un blocco da 200"
+                            style={{fontSize:10,fontWeight:700,color:"#fdba74",background:"rgba(249,115,22,0.12)",border:"1px solid rgba(249,115,22,0.35)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>⧉ In coda Scraper ({importSelected.size})</button>}
                           <button onClick={deleteImportSelected} style={{fontSize:10,fontWeight:700,color:"#fff",color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🗑 {importSelected.size>0?`Elimina (${importSelected.size})`:"Elimina"}</button>
                           <button onClick={()=>openImportDati(runStart)} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>⟳ Aggiorna</button>
                           <button onClick={()=>setImportFullscreen(f=>!f)} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}} title={importFullscreen?"Esci da schermo intero":"Schermo intero"}>{importFullscreen?"⤡":"⤢"}</button>
