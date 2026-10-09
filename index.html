@@ -3590,10 +3590,103 @@ function App() {
       pushLog("info", `↩ ${ids.length} contatti rimossi dalla coda email`);
       showToast(`↩ ${ids.length} contatti rimossi dalla coda email`);
     } else {
-      pushLog("ok", `✉ ${ids.length} contatti messi in coda per ricerca email — avvia step 2 nell'estensione`);
-      showToast(`✉ ${ids.length} contatti in coda — premi "2. Cerca email buyer persona selezionate da Grizzly" nell'estensione`);
+      pushLog("ok", `✉ ${ids.length} contatti messi in coda per ricerca email — premi "▶ Avvia ricerca"`);
+      showToast(`✉ ${ids.length} contatti in coda — ora premi "▶ Avvia ricerca"`);
     }
   };
+
+  // La ricerca vera. Prima la faceva l'estensione, che per farlo doveva restare
+  // aperta: due fornitori su tre rispondono in modo asincrono e vanno
+  // interrogati piu' volte, quindi un contatto puo' prendere quasi un minuto.
+  // Ora la fa l'agente in sottofondo, come la classificazione.
+  //
+  // Senza selezione lavora tutta la coda `enrichment_richiesto`: e' la coda che
+  // il pulsante qui accanto riempie, ed e' dichiarata nel database — non dedotta
+  // da un limite scelto da chi legge.
+  const avviaRicercaEmailPersone = useCallback(async () => {
+    const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
+    if (!base) { showToast("⚠ URL Agente Azure non configurato"); return; }
+    const ids = contattiSelected.size > 0 ? [...contattiSelected] : null;
+    const inCoda = contattiRun.rows.filter(r => r.stato === "enrichment_richiesto").length;
+    const quanti = ids ? ids.length : inCoda;
+    if (!quanti) { showToast("⚠ Nessun contatto in coda per la ricerca email"); return; }
+    if (!await customConfirm(
+      `Avviare la ricerca email su ${quanti} contatt${quanti===1?"o":"i"}?\n\n` +
+      `L'agente interroga Dropcontact, poi Lemlist, poi Apollo, e si ferma al primo che risponde.\n` +
+      `Ogni contatto puo' richiedere fino a un minuto, e ogni ricerca consuma crediti.`)) return;
+
+    try {
+      const r = await fetch(`${base}/email-persona/avvia`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(ids ? {contactIds: ids} : {})
+      });
+      // Un 404 qui significa agente non aggiornato. Senza questo controllo la
+      // risposta sarebbe comunque un JSON valido e l'avvio verrebbe raccontato
+      // come riuscito.
+      if (!r.ok) {
+        const dettaglio = r.status === 404
+          ? "l'agente Azure non ha l'endpoint /email-persona — va aggiornato e riavviato"
+          : `l'agente ha risposto ${r.status}`;
+        pushLog("error", `✕ Ricerca email non avviata: ${dettaglio}`);
+        showToast(`✕ ${dettaglio}`);
+        return;
+      }
+      const data = await r.json().catch(() => ({}));
+      if (data.status === "già_in_corso") { showToast("⚠ Ricerca email già in esecuzione"); return; }
+      if (data.status !== "avviato") {
+        pushLog("error", `✕ Risposta inattesa dall'agente: ${JSON.stringify(data).slice(0,120)}`);
+        showToast("✕ Risposta inattesa dall'agente");
+        return;
+      }
+      pushLog("ok", `▶ Ricerca email avviata su ${quanti} contatt${quanti===1?"o":"i"}`);
+      showToast(`✓ Ricerca email avviata (${quanti})`);
+      setContattiSelected(new Set());
+      avviaPollingEmailPersone(base);
+    } catch(e) { showToast("✕ Errore avvio ricerca email: " + e.message); }
+  }, [sbSettings, contattiSelected, contattiRun, customConfirm, pushLog, showToast]);
+
+  // Il polling riporta anche la resa dei singoli fornitori. E' il dato che
+  // prima non esisteva: si pagavano tre abbonamenti senza sapere quale
+  // producesse risultati.
+  const emailPersonaPollRef = React.useRef(null);
+  const avviaPollingEmailPersone = useCallback((base) => {
+    if (emailPersonaPollRef.current) clearInterval(emailPersonaPollRef.current);
+    emailPersonaPollRef.current = setInterval(async () => {
+      try {
+        const r = await fetch(`${base}/email-persona/stato`);
+        if (!r.ok) return;
+        const sj = await r.json();
+        const u = sj?.ultimo_run || {};
+        if (sj.in_corso) {
+          pushLog("info", `⟳ Ricerca email: ${u.processati||0}/${u.totale||"?"} · ${u.trovate||0} trovate${u.nome_corrente?` · ${u.nome_corrente}`:""}`);
+          return;
+        }
+        clearInterval(emailPersonaPollRef.current); emailPersonaPollRef.current = null;
+        if (u.errore_fatale) {
+          pushLog("error", `✕ Ricerca email interrotta: ${u.errore_fatale}`);
+          return;
+        }
+        if (u.fase === "nessun fornitore attivo") {
+          // Dirlo invece di marcare i contatti come «non trovata», che sarebbe
+          // una bugia: nessuno li ha davvero cercati.
+          pushLog("error", "✕ Nessun fornitore attivo: controlla le chiavi su Azure e gli interruttori in Impostazioni");
+          return;
+        }
+        if (u.fase === "completato") {
+          pushLog("ok", `✓ Ricerca email conclusa — ${u.trovate||0} trovate su ${u.totale||0}`);
+          const perF = u.per_fornitore || {};
+          const resa = Object.entries(perF).filter(([,n]) => n > 0).map(([f,n]) => `${f} ${n}`);
+          if (resa.length) pushLog("info", `⬡ Chi le ha trovate: ${resa.join(" · ")}`);
+          const scarti = [];
+          if (u.non_trovate) scarti.push(`${u.non_trovate} senza esito`);
+          if (u.saltati_dati_insufficienti) scarti.push(`${u.saltati_dati_insufficienti} saltati per dati insufficienti`);
+          if (u.errori_scrittura) scarti.push(`${u.errori_scrittura} cercati ma non salvati`);
+          if (scarti.length) pushLog("warn", `⬡ ${scarti.join(" · ")}`);
+          fetchContattiRun();
+        }
+      } catch(e) { /* l'agente puo' riavviarsi: si riprova al giro dopo */ }
+    }, 5000);
+  }, [pushLog, fetchContattiRun]);
 
   const saveContattoSettore = async (companyId, settore) => {
     const {url:sbUrl, key:sbKey} = getSbCreds();
@@ -3950,7 +4043,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.14</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.15</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -4127,6 +4220,27 @@ function App() {
             <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
               <SectionHead title="AGENTE AZURE"/>
               <SettingRow chiave="azure_agent_url" label="URL Agente" placeholder="https://azcompanysearch-....azurewebsites.net" {...sr}/>
+            </div>
+
+            {/* RICERCA EMAIL — quali fornitori interrogare.
+                Qui stanno solo gli interruttori, mai le chiavi: queste
+                impostazioni vivono in una tabella che la pagina legge dal
+                browser, quindi tutto cio' che e' scritto qui e' leggibile da
+                chiunque apra Grizzly. Le chiavi stanno fra le variabili
+                d'ambiente dell'agente su Azure, e di li' non escono.
+                Serve a spegnere un fornitore che ha esaurito i crediti:
+                l'agente rilegge questi valori a ogni avvio di ricerca. */}
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16}}>
+              <SectionHead title="RICERCA EMAIL — FORNITORI"/>
+              <div style={{padding:"8px 14px",fontSize:10,color:C.muted,lineHeight:1.5,borderBottom:`1px solid ${C.border}`}}>
+                Si interrogano in quest'ordine, fermandosi al primo che risponde:
+                <b> Dropcontact → Lemlist → Apollo</b>. Scrivi <code>si</code> o <code>no</code>.
+                Spegnerne uno serve quando ha finito i crediti. Le chiavi non stanno qui
+                ma fra le variabili d'ambiente dell'agente.
+              </div>
+              <SettingRow chiave="email_usa_dropcontact" label="1 · Dropcontact" placeholder="si" {...sr}/>
+              <SettingRow chiave="email_usa_lemlist"     label="2 · Lemlist"     placeholder="si" {...sr}/>
+              <SettingRow chiave="email_usa_apollo"      label="3 · Apollo"      placeholder="si" {...sr}/>
             </div>
 
 {/* WEBHOOK MAKE */}
@@ -4738,7 +4852,24 @@ function App() {
                             );
                           })()}
                           <button onClick={deleteSelected} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>🗑 {contattiSelected.size>0?`Elimina (${contattiSelected.size})`:"Elimina"}</button>
-                          <button onClick={richiestaEnrichment} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#7c3aed,#8b5cf6)",border:"none",borderRadius:5,cursor:"pointer"}}>✉ Cerca email{contattiSelected.size>0?` (${contattiSelected.size})`:""}</button>
+                          <button onClick={richiestaEnrichment} title="Mette i contatti in coda per la ricerca email (o li toglie, se ci sono già)" style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#7c3aed,#8b5cf6)",border:"none",borderRadius:5,cursor:"pointer"}}>✉ In coda email{contattiSelected.size>0?` (${contattiSelected.size})`:""}</button>
+                          {/* La ricerca vera. Il conteggio mostra la coda, non la
+                              selezione: senza selezione e' quello che verra'
+                              lavorato, ed e' bene vederlo prima di premere. */}
+                          {(()=>{
+                            const inCoda = contattiRun.rows.filter(r=>r.stato==="enrichment_richiesto").length;
+                            const n = contattiSelected.size > 0 ? contattiSelected.size : inCoda;
+                            return (
+                              <button onClick={avviaRicercaEmailPersone} disabled={!n}
+                                title={n ? "Avvia la ricerca sull'agente: Dropcontact, poi Lemlist, poi Apollo. Consuma crediti."
+                                         : "Nessun contatto in coda: usa prima «In coda email»"}
+                                style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",
+                                  background: n ? "linear-gradient(135deg,#059669,#10b981)" : "rgba(100,116,139,0.35)",
+                                  border:"none",borderRadius:5,cursor: n ? "pointer" : "not-allowed"}}>
+                                ▶ Avvia ricerca{n?` (${n})`:""}
+                              </button>
+                            );
+                          })()}
                           {/* Invio manuale a HubSpot + Lemlist. L'auto-invio copre il caso
                               normale, ma senza un comando esplicito i contatti di un secondo
                               giro restavano bloccati senza via d'uscita. Senza selezione manda
