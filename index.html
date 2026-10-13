@@ -3563,23 +3563,45 @@ function App() {
     const {url:sbUrl, key:sbKey} = getSbCreds();
     if (!sbUrl || !sbKey) return;
     const sbHdr = {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`};
-    const TERMINAL = new Set(["inviato","email_trovata","email_non_trovata","trovato"]);
+    // Terminale per *questo* invio, non per la fase precedente (v5.17).
+    //
+    // Qui c'erano anche email_trovata, email_non_trovata e trovato. Ma quelli
+    // sono gli esiti della ricerca email: dicono che il contatto e' pronto a
+    // partire, non che e' partito. Con loro dentro, un lotto appena uscito
+    // dalla ricerca risultava gia' concluso al secondo giro di polling —
+    // venti secondi — e il contatore fotografava i pochi che avevano fatto in
+    // tempo a girare. Il resto arrivava dopo, senza nessuno che guardasse.
+    //
+    // Il payload comprende anche i contatti senza email (vanno in campagna
+    // LinkedIn), quindi ci si aspetta che *tutti* arrivino a inviato. Gli unici
+    // esiti di questo passaggio sono inviato e scartato.
+    const TERMINAL = new Set(["inviato","scartato"]);
     const statiPrecedenti = {};
     const STATI_LABEL = {inviato:"✓ Inviato a HubSpot + Lemlist", email_trovata:"Email trovata", email_non_trovata:"Email non trovata", trovato:"Trovato"};
     let attempts = 0;
     const maxAttempts = 60; // 60 × 10s = 10 min
+    // Ultima fotografia vista dal polling: serve a dire, allo scadere del
+    // tempo, quanti sono arrivati e dove sono fermi gli altri. Un timeout che
+    // dice solo "controlla a mano" costringe a rifare da capo il conto.
+    let ultimeRighe = [];
     pushLog("info", `⏳ Monitoraggio avanzamento ${contactIds.length} contatti...`);
     const pollTimer = setInterval(async () => {
       attempts++;
       if (attempts > maxAttempts) {
         clearInterval(pollTimer);
-        pushLog("warn", "⏱ Timeout monitoraggio (10 min) — controlla HubSpot/Lemlist manualmente");
+        const arrivati = ultimeRighe.filter(r=>r.stato==="inviato").length;
+        const fermi = {};
+        ultimeRighe.filter(r=>!TERMINAL.has(r.stato)).forEach(r=>{ fermi[r.stato]=(fermi[r.stato]||0)+1; });
+        const dettaglio = Object.entries(fermi).map(([s,n])=>`${n} in ${s}`).join(" · ");
+        pushLog("warn", `⏱ Timeout monitoraggio (10 min) — ${arrivati}/${contactIds.length} arrivati a HubSpot + Lemlist${dettaglio?` · fermi: ${dettaglio}`:""}`);
+        pushLog("warn", "⬡ Il monitoraggio si e' fermato, lo scenario puo' essere ancora in corso — ricontrolla fra qualche minuto");
         return;
       }
       try {
         const r = await fetch(`${sbUrl}/rest/v1/contacts?id=in.(${contactIds.join(",")})&select=id,nome_completo,stato`, {headers:sbHdr});
         if (!r.ok) return;
         const rows = await r.json();
+        ultimeRighe = rows;
         let allDone = true;
         rows.forEach(row => {
           const prev = statiPrecedenti[row.id];
@@ -3599,7 +3621,13 @@ function App() {
         if (allDone && attempts > 1) {
           clearInterval(pollTimer);
           const inviati = rows.filter(r=>r.stato==="inviato").length;
-          pushLog("ok", `✓ Completato — ${inviati}/${contactIds.length} inviati a HubSpot + Lemlist`);
+          const scartati = rows.filter(r=>r.stato==="scartato").length;
+          // Se Supabase ha restituito meno righe di quante ne abbiamo mandate,
+          // il conto non torna e va detto: un "x/y" costruito su una lettura
+          // parziale sembra una perdita di contatti che non c'e' stata.
+          const mancanti = contactIds.length - rows.length;
+          pushLog("ok", `✓ Completato — ${inviati}/${contactIds.length} inviati a HubSpot + Lemlist${scartati?` · ${scartati} scartati`:""}`);
+          if (mancanti > 0) pushLog("warn", `⬡ ${mancanti} contatti non riletti da Supabase: il conteggio sopra e' parziale`);
           setContattiSelected(new Set());
         }
       } catch(e) { /* ignora errori di rete transitori */ }
@@ -4090,7 +4118,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.16</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.17</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
