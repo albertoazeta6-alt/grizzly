@@ -564,6 +564,53 @@ const SettingRow = ({chiave,label,tipo="text",placeholder="",settingEdit,setSett
   );
 };
 
+// Interruttore acceso/spento per le impostazioni che valgono solo `si` o `no`.
+//
+// Prima erano campi di testo come tutti gli altri, e avevano due difetti. Il
+// primo e' che bisognava indovinare cosa scrivere. Il secondo e' peggio:
+// l'agente considera spento solo un elenco chiuso di parole, quindi un refuso
+// — «ni», «nope», «No!» — lasciava il fornitore acceso **senza dirlo**, e si
+// continuava a spendere crediti credendo di averlo fermato.
+// Due pulsanti tolgono il problema alla radice: i valori possibili sono due,
+// e li scrive il codice.
+const SettingToggle = ({chiave,label,nota,settingEdit,setSettingEdit,sbSettings,setSbSettings,sbSaving,setSbSaving,showToast}) => {
+  const val = (sbSettings[chiave]||"").trim().toLowerCase();
+  // Coerente con l'agente: spento solo se lo dice esplicitamente, altrimenti
+  // acceso. Un valore mai impostato significa «attivo», che e' il
+  // comportamento di un'installazione nuova.
+  const acceso = !["0","false","no","off","spento"].includes(val);
+  const saving = !!sbSaving[chiave];
+  const C2 = {green:"#22c55e",greenDim:"rgba(34,197,94,0.12)",red:"#f87171",redDim:"rgba(248,113,113,0.12)",border:"#1e2a3a",text:"#cbd5e1",muted:"#4b5e78"};
+  const scrivi = async (nuovo) => {
+    if (saving) return;
+    setSbSaving(s=>({...s,[chiave]:true}));
+    const ok = await saveSetting(chiave, nuovo);
+    if(ok){ setSbSettings(s=>({...s,[chiave]:nuovo})); setSettingEdit(s=>{const n={...s};delete n[chiave];return n;}); if(showToast) showToast(nuovo==="si"?"✓ Attivato":"✓ Disattivato"); }
+    else if(showToast) showToast("⚠ Errore salvataggio — controlla connessione Supabase","#f59e0b");
+    setSbSaving(s=>({...s,[chiave]:false}));
+  };
+  const bottone = (etichetta, attivo, colore, colFondo, nuovo) => (
+    <button onClick={()=>scrivi(nuovo)} disabled={saving}
+      style={{padding:"4px 14px",fontSize:10,fontWeight:700,borderRadius:3,cursor:saving?"wait":"pointer",
+        color: attivo ? colore : C2.muted,
+        background: attivo ? colFondo : "transparent",
+        border:`1px solid ${attivo ? colore : C2.border}`}}>{etichetta}</button>
+  );
+  return (
+    <div className="hovrow" style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",borderBottom:"1px solid #1e2a3a"}}>
+      <div style={{width:200,flexShrink:0}}>
+        <div style={{fontSize:11,color:C2.text}}>{label}</div>
+        {nota&&<div style={{fontSize:9,color:C2.muted,marginTop:1}}>{nota}</div>}
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        {bottone("Attivo",  acceso,  C2.green, C2.greenDim, "si")}
+        {bottone("Spento", !acceso,  C2.red,   C2.redDim,   "no")}
+      </div>
+      {saving&&<span style={{fontSize:9,color:C2.muted}}>…</span>}
+    </div>
+  );
+};
+
 const Tag = ({color,bg,children,onClick}) => (
   <span onClick={onClick} style={{display:"inline-flex",alignItems:"center",padding:"2px 7px",borderRadius:3,fontSize:10,fontWeight:600,letterSpacing:"0.05em",color,background:bg,whiteSpace:"nowrap",cursor:onClick?"pointer":"default"}}>{children}</span>
 );
@@ -4043,7 +4090,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.15</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.16</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -4234,13 +4281,14 @@ function App() {
               <SectionHead title="RICERCA EMAIL — FORNITORI"/>
               <div style={{padding:"8px 14px",fontSize:10,color:C.muted,lineHeight:1.5,borderBottom:`1px solid ${C.border}`}}>
                 Si interrogano in quest'ordine, fermandosi al primo che risponde:
-                <b> Dropcontact → Lemlist → Apollo</b>. Scrivi <code>si</code> o <code>no</code>.
-                Spegnerne uno serve quando ha finito i crediti. Le chiavi non stanno qui
-                ma fra le variabili d'ambiente dell'agente.
+                <b> Dropcontact → Lemlist → Apollo</b>. Spegnerne uno serve quando ha
+                finito i crediti. Vale dalla ricerca successiva: quella in corso ha già
+                letto la configurazione all'avvio. Le chiavi non stanno qui ma fra le
+                variabili d'ambiente dell'agente.
               </div>
-              <SettingRow chiave="email_usa_dropcontact" label="1 · Dropcontact" placeholder="si" {...sr}/>
-              <SettingRow chiave="email_usa_lemlist"     label="2 · Lemlist"     placeholder="si" {...sr}/>
-              <SettingRow chiave="email_usa_apollo"      label="3 · Apollo"      placeholder="si" {...sr}/>
+              <SettingToggle chiave="email_usa_dropcontact" label="1 · Dropcontact" nota="primo tentativo" {...sr}/>
+              <SettingToggle chiave="email_usa_lemlist"     label="2 · Lemlist"     nota="se Dropcontact non trova" {...sr}/>
+              <SettingToggle chiave="email_usa_apollo"      label="3 · Apollo"      nota="ultimo tentativo" {...sr}/>
             </div>
 
 {/* WEBHOOK MAKE */}
