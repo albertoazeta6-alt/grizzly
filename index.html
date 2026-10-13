@@ -3460,6 +3460,34 @@ function App() {
     }
   };
 
+  // Cancella a blocchi, controllando ogni risposta.
+  //
+  // Tutti gli id finivano in un solo `?id=in.(...)`: con trecento id l'URL
+  // supera i duemila caratteri e il server puo' rifiutarlo. Il 13 ottobre 2026
+  // una cancellazione di circa trecento contatti ne ha tolti 108 e lasciati
+  // gli altri, senza che niente lo segnalasse — la lista a schermo li aveva
+  // gia' fatti sparire tutti.
+  //
+  // Restituisce {ok, cancellati, errore}. Si ferma al primo blocco rifiutato
+  // invece di proseguire: meglio sapere che si e' fatto a meta' e quanto,
+  // piuttosto che tirare dritto e scoprirlo dopo.
+  const sbCancellaABlocchi = async (tabella, ids, sbUrl, sbKey, dimensione = 100) => {
+    let cancellati = 0;
+    for (let i = 0; i < ids.length; i += dimensione) {
+      const blocco = ids.slice(i, i + dimensione);
+      const r = await fetch(`${sbUrl}/rest/v1/${tabella}?id=in.(${blocco.join(",")})`, {
+        method: "DELETE",
+        headers: {apikey: sbKey, Authorization: `Bearer ${sbBearer()}`, Prefer: "return=minimal"}
+      });
+      if (!r.ok) {
+        const dettaglio = await r.text().catch(() => "");
+        return {ok: false, cancellati, errore: `${r.status}${dettaglio ? ` — ${dettaglio.slice(0,200)}` : ""}`};
+      }
+      cancellati += blocco.length;
+    }
+    return {ok: true, cancellati, errore: null};
+  };
+
   const deleteImportSelected = async () => {
     const ids = importSelected.size > 0 ? [...importSelected] : importDati.rows.map(r=>r.id);
     if (!ids.length) return;
@@ -3468,13 +3496,26 @@ function App() {
     const {url:sbUrl, key:sbKey} = getSbCreds();
     if (!sbUrl || !sbKey) return;
     try {
-      await fetch(`${sbUrl}/rest/v1/companies?id=in.(${ids.join(",")})`, {
-        method:"DELETE", headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"return=minimal"}
-      });
-      setImportDati(p=>({...p, rows:p.rows.filter(r=>!ids.includes(r.id))}));
+      // L'esito va letto. Un rifiuto del database — permessi, token scaduto,
+      // vincolo — non lancia un'eccezione: la richiesta HTTP e' arrivata e ha
+      // risposto "no". Senza questo controllo il catch non scatta, le righe
+      // spariscono dalla vista e il toast dice "eliminate": poi si ricarica la
+      // pagina e sono tutte li'. Vedi il gemello in deleteSelected.
+      const esito = await sbCancellaABlocchi("companies", ids, sbUrl, sbKey);
+      const fatti = ids.slice(0, esito.cancellati);
+      if (fatti.length) setImportDati(p=>({...p, rows:p.rows.filter(r2=>!fatti.includes(r2.id))}));
       setImportSelected(new Set());
-      showToast(`✓ ${ids.length} aziende eliminate`);
-    } catch(e){ showToast("✕ Errore eliminazione"); }
+      if (!esito.ok) {
+        pushLog("error", `✕ Eliminazione interrotta: ${esito.cancellati} aziende su ${ids.length} cancellate, poi il database ha rifiutato (${esito.errore})`);
+        showToast(`✕ Cancellate ${esito.cancellati}/${ids.length}`);
+        return;
+      }
+      pushLog("ok", `🗑 ${esito.cancellati} aziende eliminate dal database`);
+      showToast(`✓ ${esito.cancellati} aziende eliminate`);
+    } catch(e){
+      pushLog("error", `✕ Eliminazione fallita — ${e.message}`);
+      showToast("✕ Errore eliminazione");
+    }
   };
 
   const deleteSelected = async () => {
@@ -3485,12 +3526,32 @@ function App() {
     const {url:sbUrl, key:sbKey} = getSbCreds();
     if (!sbUrl || !sbKey) return;
     try {
-      await fetch(`${sbUrl}/rest/v1/contacts?id=in.(${ids.join(",")})`, {
-        method:"DELETE", headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"return=minimal"}
-      });
-      setContattiRun(p=>({...p, rows:p.rows.filter(r=>!ids.includes(r.id))}));
+      // Come in deleteImportSelected: l'esito va letto. Prima la lista locale
+      // veniva ripulita comunque, quindi un rifiuto del database si
+      // manifestava solo al ricaricamento della pagina — con i contatti
+      // tornati tutti al loro posto e il lavoro di selezione da rifare.
+      const esito = await sbCancellaABlocchi("contacts", ids, sbUrl, sbKey);
+      const fatti = ids.slice(0, esito.cancellati);
+      // Solo quelli davvero cancellati spariscono dalla lista. Quelli rimasti
+      // restano anche selezionati, cosi' si puo' riprovare senza rifare la
+      // selezione da capo.
+      if (fatti.length) {
+        setContattiRun(p=>({...p, rows:p.rows.filter(r2=>!fatti.includes(r2.id))}));
+        setContattiSelected(p=>new Set([...p].filter(id=>!fatti.includes(id))));
+      }
+      if (!esito.ok) {
+        pushLog("error", `✕ Eliminazione interrotta: ${esito.cancellati} contatti su ${ids.length} cancellati, poi il database ha rifiutato (${esito.errore})`);
+        pushLog("warn", "⬡ I contatti non cancellati sono rimasti selezionati: puoi riprovare senza rifare la selezione");
+        showToast(`✕ Cancellati ${esito.cancellati}/${ids.length}`);
+        return;
+      }
       setContattiSelected(new Set());
-    } catch(e){ showToast("✕ Errore eliminazione"); }
+      pushLog("ok", `🗑 ${esito.cancellati} contatt${esito.cancellati===1?"o eliminato":"i eliminati"} dal database`);
+      showToast(`✓ ${esito.cancellati} eliminati`);
+    } catch(e){
+      pushLog("error", `✕ Eliminazione fallita — ${e.message}`);
+      showToast("✕ Errore eliminazione");
+    }
   };
 
   const avviaLemlist = async () => {
@@ -4142,7 +4203,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.18</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.19</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
