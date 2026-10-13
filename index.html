@@ -1786,9 +1786,13 @@ function App() {
               if (!f || ps.stato === f.stato) return;
               const label = FASE_LABELS[ps.fase] || ps.fase;
               const det = ps.dettaglio ? ` — ${ps.dettaglio}` : "";
-              if (ps.stato === "completato") pushLog("ok", `✓ ${label} completato${det}`);
-              else if (ps.stato === "in_corso") pushLog("info", `▶ ${label} avviato${det}`);
-              else if (ps.stato === "errore") pushLog("error", `✕ ${label} errore${det}`);
+              // Terzo argomento: l'ora in cui il fatto e' accaduto, non quella
+              // in cui lo stiamo rileggendo. E' `aggiornato_il` della riga di
+              // pipeline_state, cioe' il timbro di chi ha fatto il lavoro.
+              const quando = ps.aggiornato_il || undefined;
+              if (ps.stato === "completato") pushLog("ok", `✓ ${label} completato${det}`, quando);
+              else if (ps.stato === "in_corso") pushLog("info", `▶ ${label} avviato${det}`, quando);
+              else if (ps.stato === "errore") pushLog("error", `✕ ${label} errore${det}`, quando);
             });
             setFasi(prev => prev.map(f => {
               const ps = pmap[f.id];
@@ -2761,7 +2765,21 @@ function App() {
     return () => clearInterval(t);
   }, [fasi, dipLastChange]);
 
-  const pushLog   = (tipo,msg) => setLog(p=>[{ts:new Date().toISOString(),tipo,msg},...p.slice(0,99)]);
+  // `quando` serve agli eventi RICOSTRUITI: quelli che la webapp rilegge da
+  // pipeline_state dopo un reload e che sono accaduti prima, magari un'ora
+  // prima. Senza, venivano scritti con l'ora della rilettura e dopo un F5 il
+  // log mostrava una fila di righe tutte nello stesso minuto.
+  //
+  // Non e' solo estetica: il log e' la prima cosa che si guarda quando si
+  // ricostruisce un guasto, e un orario sbagliato manda a cercare nel punto
+  // sbagliato dei registri di Make o di Azure.
+  //
+  // La lista si riordina per orario vero, decrescente: altrimenti un evento
+  // vecchio inserito adesso comparirebbe in cima a quelli nuovi.
+  const pushLog = (tipo, msg, quando) => setLog(p => {
+    const voce = {ts: quando || new Date().toISOString(), tipo, msg, ricostruito: !!quando};
+    return [voce, ...p].sort((a,b) => (b.ts || "").localeCompare(a.ts || "")).slice(0,100);
+  });
   const showToast = (msg,color=C.green) => { setToast({msg,color}); setTimeout(()=>setToast(null),3000); };
   const setFaseS  = (id,stato,extra={}) => setFasi(p=>p.map(f=>f.id===id?{...f,stato,...extra}:f));
   const setLoad   = (k,v) => setLoading(p=>({...p,[k]:v}));
@@ -3842,6 +3860,17 @@ function App() {
           if (u.saltati_dati_insufficienti) scarti.push(`${u.saltati_dati_insufficienti} saltati per dati insufficienti`);
           if (u.errori_scrittura) scarti.push(`${u.errori_scrittura} cercati ma non salvati`);
           if (scarti.length) pushLog("warn", `⬡ ${scarti.join(" · ")}`);
+
+          // Riga a parte, e non fra gli scarti: un'email «gia' presente» e'
+          // stata trovata ed e' giusta — sta solo su un'altra riga della
+          // stessa azienda, cioe' la stessa persona entrata due volte.
+          // Metterla insieme ai fallimenti faceva sembrare rotta la ricerca
+          // quando il rotto erano i dati: il 13 ottobre 2026 ha portato a
+          // cercare il difetto dalla parte sbagliata per venti minuti.
+          if (u.gia_presenti) {
+            pushLog("info", `⬡ ${u.gia_presenti} email gia' presenti su un altro contatto della stessa azienda — righe doppie, non errori`);
+            pushLog("info", "⬡ Sono persone entrate due volte: vanno unite, e nel frattempo non vengono ricercate di nuovo");
+          }
           fetchContattiRun();
         }
       } catch(e) { /* l'agente puo' riavviarsi: si riprova al giro dopo */ }
@@ -4203,7 +4232,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.19</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.20</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -4945,7 +4974,10 @@ function App() {
                           <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"6px 10px",borderBottom:`1px solid ${C.border}`}}>
                             <div style={{width:12,height:12,borderRadius:"50%",background:`${ec.c}18`,border:`1px solid ${ec.c}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:6,color:ec.c,flexShrink:0,marginTop:2}}>{ec.icon}</div>
                             <div style={{flex:1,minWidth:0}}>
-                              <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:8,color:C.muted,display:"block",marginBottom:1}}>{fmtTime(ev.ts)}</span>
+                              <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:8,color:C.muted,display:"block",marginBottom:1}}>
+                                {fmtTime(ev.ts)}
+                                {ev.ricostruito && <span title="Evento riletto da pipeline_state dopo un ricaricamento: l'orario e' quello in cui e' accaduto davvero" style={{marginLeft:5,opacity:.7}}>⟲</span>}
+                              </span>
                               <span style={{fontSize:10,color:ev.tipo==="error"?C.red:ev.tipo==="attesa"?C.orange:ev.tipo==="warn"?C.yellow:C.text,lineHeight:1.4,wordBreak:"break-word"}}>{ev.msg}</span>
                             </div>
                           </div>
