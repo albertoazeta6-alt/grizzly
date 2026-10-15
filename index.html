@@ -906,11 +906,11 @@ function App() {
   // ancora propagato nella closure di chi l'ha chiesta.
   const importDatiRowsRef = React.useRef([]);
   useEffect(() => { importDatiRowsRef.current = importDati.rows||[]; }, [importDati.rows]);
-  // v5.22 — lo stesso specchio per i contatti. Serve a «Da elenco» nel tab
-  // Leads: dopo aver ricaricato tutte le run, le righe nuove non sono ancora
-  // nello stato di React, e cercarle li' le farebbe risultare mancanti.
+  // v5.22 — lo stesso specchio per i contatti, per «Da elenco» nel tab Leads.
+  // Il ref si puo' dichiarare qui, ma l'effetto che lo tiene aggiornato NO:
+  // legge `contattiRun`, che nasce centinaia di righe piu' sotto. Sta subito
+  // dopo quella dichiarazione — vedi «specchio di contattiRun».
   const contattiRowsRef = React.useRef([]);
-  useEffect(() => { contattiRowsRef.current = contattiRun.rows||[]; }, [contattiRun.rows]);
   const [importSelected, setImportSelected] = useState(new Set());
   const [importStatoFilter, setImportStatoFilter] = useState(new Set()); // filtro stati Ricerca Aziende — vuoto = mostra tutto
   const [importSearch, setImportSearch] = useState(""); // ricerca libera in Ricerca Aziende
@@ -1055,6 +1055,13 @@ function App() {
   const [icebreakerOpen, setIcebreakerOpen] = useState(null); // row.id con testo espanso
   const [genIceId, setGenIceId] = useState(null); // row.id in generazione icebreaker, null se idle
   const [contattiRun, setContattiRun] = useState({rows:[], loading:false});
+  // specchio di contattiRun — v5.24.
+  // Nella v5.23 questo effetto stava in cima, accanto a quello di importDati, e
+  // leggeva `contattiRun` prima che esistesse: `Cannot read properties of
+  // undefined (reading 'rows')` durante il primo render di App, schermo nero.
+  // Babel compilava senza lamentarsi, perche' e' un errore di esecuzione e non
+  // di sintassi: la prova «il JSX compila» non poteva vederlo.
+  useEffect(() => { contattiRowsRef.current = contattiRun.rows||[]; }, [contattiRun.rows]);
   // Vista sui contatti: solo quelli della run corrente oppure tutto il database.
   // Serve un ref oltre allo stato perche' il refresh automatico ogni 10 secondi
   // gira fuori dal ciclo di render e leggerebbe un valore vecchio, riportando
@@ -4345,7 +4352,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.23</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.24</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
