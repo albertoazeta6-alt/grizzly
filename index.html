@@ -1124,6 +1124,11 @@ function App() {
   const pendingPhantomHubspotRef = React.useRef([]); // IDs aziende Code-path in attesa di sync HubSpot dopo Phantom
   const lemlistHadContactsRef   = React.useRef(false); // evita auto-complete prima che l'extension carichi i contatti
   const lemlistAutoFiredRef     = React.useRef(false); // guard anti-doppio-lancio avviaLemlist automatico
+  // v5.21 — vero finche' l'agente sta cercando le email. L'auto-invio non puo'
+  // partire finche' e' alzata: il 14 ottobre 2026 e' partito su 1 contatto di 6
+  // mentre la ricerca stava ancora girando, e i 5 trovati dopo non sono mai
+  // stati inviati. La sorgente e' /email-persona/stato, non la tabella contatti.
+  const ricercaEmailInCorsoRef  = React.useRef(false);
   const runInitializingRef      = React.useRef(false); // blocca auto-starts durante inizializzazione Nuova Run
   // Larghezza sidebar log — trascinabile, ricordata fra le sessioni
   const LOG_W_MIN = 260, LOG_W_MAX = 900, LOG_W_DEFAULT = 420;
@@ -2721,6 +2726,25 @@ function App() {
       }
     }
     // Auto-invio HubSpot+Lemlist: quando ricerca email terminata e ci sono contatti da inviare
+    //
+    // v5.21 — PRIMA DI TUTTO: se l'agente sta ancora cercando, non si decide niente.
+    //
+    // `inCoda === 0` NON vuol dire "ricerca finita". Quando si lancia la ricerca
+    // con dei contatti SELEZIONATI, `avviaRicercaEmailPersone` manda gli id
+    // espliciti e scavalca la coda: quei contatti non sono mai stati in
+    // `enrichment_richiesto` (STATI_AVANZABILI accetta anche `trovato`), quindi
+    // inCoda e' zero dal primo istante e per tutto il run.
+    //
+    // Il 14 ottobre 2026, su 6 contatti selezionati a mano, la condizione
+    // `pronti > 0 && inCoda === 0` e' diventata vera al primo esito — 52 secondi
+    // dopo l'avvio. L'auto-invio e' partito su 1 contatto; gli altri 5, trovati
+    // nei 98 secondi successivi, sono rimasti fermi su `email_trovata` senza che
+    // nulla lo segnalasse. E il guard `if (inCoda > 0) autoFired = false` non si
+    // riarmava mai, perche' aspettava un inCoda che non sarebbe mai salito.
+    //
+    // L'unica fonte che sa se la ricerca e' finita e' /email-persona/stato.
+    // La prova e' in grizzly/test_autoinvio_email.js, che rigioca quel log.
+    if (ricercaEmailInCorsoRef.current) return;
     const inCoda     = rows.filter(r => r.stato === "enrichment_richiesto").length;
     const pronti     = rows.filter(r => r.stato === "email_trovata" || r.stato === "email_non_trovata").length;
     // La guardia impedisce il doppio invio dello stesso gruppo, ma va riarmata
@@ -3816,6 +3840,11 @@ function App() {
         showToast("✕ Risposta inattesa dall'agente");
         return;
       }
+      // v5.21 — alza la sicura PRIMA di loggare l'avvio. Da qui in poi
+      // l'auto-invio e' bloccato: la abbassa solo il polling, quando l'agente
+      // dichiara concluso il run.
+      ricercaEmailInCorsoRef.current = true;
+      lemlistAutoFiredRef.current = false;
       pushLog("ok", `▶ Ricerca email avviata su ${quanti} contatt${quanti===1?"o":"i"}`);
       showToast(`✓ Ricerca email avviata (${quanti})`);
       setContattiSelected(new Set());
@@ -3829,10 +3858,24 @@ function App() {
   const emailPersonaPollRef = React.useRef(null);
   const avviaPollingEmailPersone = useCallback((base) => {
     if (emailPersonaPollRef.current) clearInterval(emailPersonaPollRef.current);
+    // v5.21 — se l'agente smette di rispondere, la sicura sull'auto-invio non
+    // puo' restare alzata per sempre: bloccherebbe ogni invio futuro in
+    // silenzio, che e' il difetto che stiamo togliendo, non uno da aggiungere.
+    // Dopo un minuto di silenzio la si abbassa, ma dicendolo.
+    let muto = 0;
+    const MUTO_MAX = 12; // 12 x 5s = 1 minuto
     emailPersonaPollRef.current = setInterval(async () => {
       try {
         const r = await fetch(`${base}/email-persona/stato`);
-        if (!r.ok) return;
+        if (!r.ok) {
+          if (++muto >= MUTO_MAX) {
+            clearInterval(emailPersonaPollRef.current); emailPersonaPollRef.current = null;
+            ricercaEmailInCorsoRef.current = false;
+            pushLog("warn", "⬡ L'agente non risponde da un minuto: smetto di seguire la ricerca. Controlla il log dell'agente e, se le email sono state trovate, invia i contatti a mano.");
+          }
+          return;
+        }
+        muto = 0;
         const sj = await r.json();
         const u = sj?.ultimo_run || {};
         if (sj.in_corso) {
@@ -3840,6 +3883,9 @@ function App() {
           return;
         }
         clearInterval(emailPersonaPollRef.current); emailPersonaPollRef.current = null;
+        // Da qui in poi il run e' concluso, comunque sia andato: la sicura si
+        // abbassa su TUTTI e tre gli esiti, non solo su quello buono.
+        ricercaEmailInCorsoRef.current = false;
         if (u.errore_fatale) {
           pushLog("error", `✕ Ricerca email interrotta: ${u.errore_fatale}`);
           return;
@@ -3873,7 +3919,16 @@ function App() {
           }
           fetchContattiRun();
         }
-      } catch(e) { /* l'agente puo' riavviarsi: si riprova al giro dopo */ }
+      } catch(e) {
+        // L'agente puo' riavviarsi: si riprova al giro dopo. Ma se tace troppo
+        // a lungo vale la stessa regola di sopra — meglio una sicura abbassata
+        // con un avviso che una alzata per sempre senza che nessuno lo sappia.
+        if (++muto >= MUTO_MAX) {
+          clearInterval(emailPersonaPollRef.current); emailPersonaPollRef.current = null;
+          ricercaEmailInCorsoRef.current = false;
+          pushLog("warn", "⬡ L'agente non risponde da un minuto: smetto di seguire la ricerca. Controlla il log dell'agente e, se le email sono state trovate, invia i contatti a mano.");
+        }
+      }
     }, 5000);
   }, [pushLog, fetchContattiRun]);
 
@@ -4232,7 +4287,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.20</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.21</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
