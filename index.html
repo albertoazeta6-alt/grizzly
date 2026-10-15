@@ -922,6 +922,21 @@ function App() {
   // comunque selezionate per mandarle a HubSpot.
   // La scelta si ricorda fra una sessione e l'altra: chi lavora sulle aziende
   // storiche non deve rimetterla a ogni apertura.
+  // v5.23 — «Pronte per lo Scraper»: la domanda operativa vera, che prima
+  // richiedeva di rifare a mano il ragionamento ogni volta.
+  //
+  // Un'azienda e' pronta quando tutte e quattro sono vere:
+  //   1. stato = linkedin_ok        — la pagina LinkedIn e' stata verificata
+  //   2. hs_lifecyclestage = lead   — su HubSpot NON e' una trattativa ne' un cliente
+  //   3. hs_contatti = 0            — nessuno l'ha ancora lavorata, nemmeno fuori da Grizzly
+  //   4. non ha gia' contatti nostri in Supabase
+  //
+  // Le condizioni 2 e 3 esistono dal 15/10/2026: prima quel dato non c'era, e
+  // le code erano cieche sullo stato commerciale. Misurato quel giorno: delle
+  // 1.967 linkedin_ok, 293 erano oltre lead (284 opportunity, 3 customer) e
+  // 1.108 avevano gia' contatti su HubSpot. Mandarle tutte al Phantom avrebbe
+  // significato fare prospecting su trattative aperte e su clienti acquisiti.
+  const [importPronteScraper, setImportPronteScraper] = useState(false);
   const [importInCoda, setImportInCoda] = useState(() => {
     try { return localStorage.getItem("grizzly_filtro_in_coda") === "1"; } catch { return false; }
   });
@@ -972,7 +987,19 @@ function App() {
     if (r.semaforo_verifica === "✗") return true;
     return false;
   };
+  const ePronta = r =>
+    r.stato === "linkedin_ok" &&
+    r.hs_lifecyclestage === "lead" &&
+    // `hs_contatti` NULL significa "non si sa", non "nessuno": su alcune schede
+    // HubSpot non espone affatto num_associated_contacts. Senza questo controllo
+    // Number(null)===0 le farebbe passare per vergini — la stessa confusione fra
+    // zero e sconosciuto che ha prodotto meta' dei difetti di questa settimana.
+    r.hs_contatti !== null && r.hs_contatti !== undefined &&
+    Number(r.hs_contatti) === 0 &&
+    /linkedin\.com\/company\//i.test(r.linkedin_url || "");
+
   const applicaFiltriImport = rows => (rows||[]).filter(r =>
+    (!importPronteScraper || ePronta(r)) &&
     (!importInCoda || eInCoda(r)) &&
     (importStatoFilter.size === 0 || importStatoFilter.has(r.stato)) &&
     (!importSettoreFilter || (importSettoreFilter === "__vuoto__" ? !r.settore : r.settore === importSettoreFilter)) &&
@@ -3117,7 +3144,7 @@ function App() {
         // la stessa riga in due pagine e ometterne un'altra. Il risultato erano
         // chiavi duplicate nella tabella, e React con chiavi duplicate mostra
         // righe che il filtro ha gia' escluso.
-        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,settore_confidenza,semaforo_verifica,fatturato,icebreaker${filter}&order=creato_il.desc,id.desc&limit=${BATCH}&offset=${offset}`, {
+        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,settore_confidenza,semaforo_verifica,fatturato,icebreaker,partita_iva,hs_lifecyclestage,hs_contatti${filter}&order=creato_il.desc,id.desc&limit=${BATCH}&offset=${offset}`, {
           headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"count=none"}
         });
         const batch = r.ok ? await r.json() : [];
@@ -3614,7 +3641,8 @@ function App() {
       // doppione, e se l'email e' la stessa HubSpot rifiuta l'intera operazione
       // (l'email e' un identificatore unico fra i contatti). Meglio escluderli
       // qui e dirlo, invece di far fallire lo scenario.
-      const statoDi = id => (contattiRun.rows.find(r => r.id === id) || {}).stato;
+      const rigaDi  = id => (contattiRun.rows.find(r => r.id === id) || {});
+      const statoDi = id => rigaDi(id).stato;
       const giaInviati = [...contattiSelected].filter(id => statoDi(id) === "inviato");
 
       // Senza la ricerca email alle spalle, un contatto non puo' essere
@@ -3627,9 +3655,26 @@ function App() {
       // operazioni Make per niente.
       //
       // Si escludono qui, prima di mandarli: Make non deve nemmeno vederli.
-      const PRONTI = new Set(["email_trovata", "email_non_trovata"]);
+      //
+      // v5.23 — la condizione guarda il DATO, non piu' solo lo stato.
+      //
+      // Le due rotte del router sono "email_non_trovata" e "ha un'email": un
+      // contatto con l'email imboccherebbe la seconda, qualunque sia il suo
+      // stato. La versione precedente ammetteva solo gli stati email_trovata /
+      // email_non_trovata, quindi bloccava chi l'email ce l'aveva gia' ma era
+      // rimasto in `trovato` — email arrivate dallo scraper o inserite a mano.
+      // Per sbloccarli bisognava lanciare una ricerca email inutile, che
+      // consuma crediti per cercare qualcosa che era gia' li'.
+      //
+      // Il divieto per chi NON ha l'email resta intatto: e' quello che il 13
+      // ottobre 2026 ha fatto sparire 105 contatti su 130 dentro un ramo del
+      // router che non esiste, senza errori e senza stato scritto.
+      const inviabile = id => {
+        const r = rigaDi(id);
+        return !!r.email || r.stato === "email_non_trovata";
+      };
       const nonCercati = [...contattiSelected].filter(id =>
-        !giaInviati.includes(id) && !PRONTI.has(statoDi(id)));
+        !giaInviati.includes(id) && !inviabile(id));
 
       contactIds = [...contattiSelected].filter(id =>
         !giaInviati.includes(id) && !nonCercati.includes(id));
@@ -3653,12 +3698,18 @@ function App() {
       try {
         // A pagine: e' l'invio "tutti i contatti pronti", e con il limite a 500
         // i successivi restavano a terra senza che nulla lo segnalasse.
+        // v5.23 — stessa regola del ramo con selezione: inviabile chi HA
+        // l'email, piu' chi e' email_non_trovata. Prima qui si filtrava per
+        // solo stato, quindi "manda tutti i pronti" saltava i contatti con
+        // l'email gia' in mano rimasti in `trovato`. Le due vie devono dire la
+        // stessa cosa, o il pulsante si comporta in due modi diversi a seconda
+        // che tu abbia selezionato qualcosa o no.
         const rows = await sbTutte(sbUrlF, {apikey:sbKeyF, Authorization:`Bearer ${sbBearer()}`},
-          `contacts?select=id&stato=in.(email_trovata,email_non_trovata)&order=id.asc`);
+          `contacts?select=id&stato=neq.inviato&or=(email.not.is.null,stato.eq.email_non_trovata)&order=id.asc`);
         contactIds = rows.map(x=>x.id);
       } catch(e) { contactIds = []; }
     }
-    if (!contactIds.length) { pushLog("warn","⬡ Invio annullato: nessun contatto selezionato né in stato email_trovata/email_non_trovata"); showToast("⚠ Nessun contatto da processare"); return; }
+    if (!contactIds.length) { pushLog("warn","⬡ Invio annullato: nessun contatto selezionato, e nessuno con l'email o in email_non_trovata"); showToast("⚠ Nessun contatto da processare"); return; }
     // Leggi dettagli completi per costruire il payload Make
     let contactsPayload = [];
     try {
@@ -4294,7 +4345,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.22</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.23</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -5471,6 +5522,38 @@ function App() {
                                   }
                                 }
                               }} C={C}/>
+                            {/* v5.23 — risponde alla domanda «quali mando al Phantom?».
+                                Accende da solo tutte le run: le pronte stanno sparse,
+                                non nella sola run corrente. */}
+                            {(()=>{
+                              const n = applicaFiltriImport
+                                ? (importDati.rows||[]).filter(ePronta).length : 0;
+                              return (
+                                <button onClick={async ()=>{
+                                    const attiva = !importPronteScraper;
+                                    setImportPronteScraper(attiva);
+                                    if (attiva) {
+                                      setImportInCoda(false);
+                                      setImportStatoFilter(new Set());
+                                      if (!importTutteRunRef.current) {
+                                        importTutteRunRef.current = true;
+                                        setImportTutteRun(true);
+                                        await openImportDati(null);
+                                      }
+                                    }
+                                  }}
+                                  title={"Solo le aziende su cui ha senso lanciare lo Scraper adesso:\n" +
+                                         "LinkedIn verificato, su HubSpot sono ancora «lead», e non le ha\n" +
+                                         "mai lavorate nessuno — ne' Grizzly ne' il commerciale.\n" +
+                                         "Esclude trattative aperte, clienti, e chi ha gia' contatti sul CRM."}
+                                  style={{padding:"3px 10px",fontSize:10,fontWeight:700,borderRadius:5,cursor:"pointer",whiteSpace:"nowrap",
+                                    color: importPronteScraper ? "#fff" : "#fdba74",
+                                    background: importPronteScraper ? "rgba(249,115,22,0.35)" : "rgba(249,115,22,0.10)",
+                                    border: `1px solid ${importPronteScraper ? "rgba(249,115,22,0.7)" : "rgba(249,115,22,0.3)"}`}}>
+                                  ⧉ Pronte per lo Scraper{importPronteScraper&&n?` (${n})`:""}
+                                </button>
+                              );
+                            })()}
                             <input value={importSearch} onChange={e=>setImportSearch(e.target.value)}
                               placeholder="🔍 Cerca azienda, sito, città…"
                               onClick={e=>e.stopPropagation()}
@@ -5491,7 +5574,7 @@ function App() {
                                     {filtrato ? `${n} di ${tot}` : `${tot} aziend${tot===1?"a":"e"}`}
                                   </span>
                                   {filtrato&&(
-                                  <button onClick={()=>{setImportStatoFilter(new Set());setImportSettoreFilter("");setImportConfFilter("");setImportSearch("");setImportInCoda(false);}}
+                                  <button onClick={()=>{setImportStatoFilter(new Set());setImportSettoreFilter("");setImportConfFilter("");setImportSearch("");setImportInCoda(false);setImportPronteScraper(false);}}
                                     style={{padding:"3px 8px",borderRadius:5,border:"1px solid rgba(148,163,184,0.2)",background:"transparent",color:"#64748b",cursor:"pointer",fontSize:10}}>
                                     ✕ Azzera filtri
                                   </button>)}
