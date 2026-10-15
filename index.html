@@ -1168,6 +1168,10 @@ function App() {
   // mentre la ricerca stava ancora girando, e i 5 trovati dopo non sono mai
   // stati inviati. La sorgente e' /email-persona/stato, non la tabella contatti.
   const ricercaEmailInCorsoRef  = React.useRef(false);
+  // v5.25 — gli id dei contatti su cui la ricerca email sta lavorando.
+  // L'auto-invio li usa come ambito: senza, mandava tutti gli idonei del
+  // database invece dei soli appena cercati.
+  const lottoRicercaRef         = React.useRef(null);
   const runInitializingRef      = React.useRef(false); // blocca auto-starts durante inizializzazione Nuova Run
   // Larghezza sidebar log — trascinabile, ricordata fra le sessioni
   const LOG_W_MIN = 260, LOG_W_MAX = 900, LOG_W_DEFAULT = 420;
@@ -2794,9 +2798,54 @@ function App() {
     if (inCoda > 0) lemlistAutoFiredRef.current = false;
     if (lemlistAutoFiredRef.current) return;
     if (pronti > 0 && inCoda === 0) {
+      // v5.25 — l'auto-invio riguarda SOLO i contatti del lotto appena cercato.
+      // Prima chiamava avviaLemlist() senza argomenti, che rastrellava tutti
+      // gli idonei del database: il 15/10 su 6 contatti cercati ne sono partiti
+      // 22. Se per qualche motivo non sappiamo qual era il lotto, non si
+      // inventa un ambito: si dice che l'invio va fatto a mano.
+      const lotto = lottoRicercaRef.current;
+      if (!Array.isArray(lotto) || !lotto.length) {
+        pushLog("warn", "⬡ Ricerca conclusa, ma non so su quali contatti: l'auto-invio non parte. Selezionali e invia a mano.");
+        return;
+      }
+      // v5.25 — l'auto-invio NON tocca le aziende oltre `lead`.
+      //
+      // Il 15/10/2026 tre contatti di PRISMA e Reggiana Ascensori, entrambe in
+      // `opportunity`, sono finiti in una sequenza di prospecting. Il filtro
+      // «Pronte per lo Scraper» protegge la porta d'ingresso — quali aziende
+      // lavorare — ma all'uscita, al momento dell'invio, non c'era nulla.
+      //
+      // La scelta e' deliberatamente asimmetrica: qui si ESCLUDE, perche'
+      // nessuno sta guardando; nell'invio manuale (sotto) si AVVERTE e si
+      // lascia passare, perche' c'e' una persona che decide. Un automatismo
+      // deve essere piu' prudente di una mano.
+      const oltreLead = r => {
+        const st = r.companies?.hs_lifecyclestage;
+        return st && st !== "lead";
+      };
+      const delLotto = rows
+        .filter(r => lotto.includes(r.id))
+        .filter(r => r.stato === "email_trovata" || r.stato === "email_non_trovata");
+      const inTrattativa = delLotto.filter(oltreLead);
+      const daInviare = delLotto.filter(r => !oltreLead(r)).map(r => r.id);
+      if (inTrattativa.length) {
+        pushLog("warn", `⬡ ${inTrattativa.length} contatt${inTrattativa.length===1?"o escluso":"i esclusi"} dall'auto-invio: l'azienda su HubSpot e' oltre «lead»`);
+        for (const r of inTrattativa.slice(0, 6)) {
+          pushLog("info", `⬡ ${r.nome_completo || "(senza nome)"} — ${r.companies?.nome || "?"} (${r.companies.hs_lifecyclestage})`);
+        }
+        pushLog("info", "⬡ Se vuoi mandarli comunque, selezionali e usa «Contatti a HubSpot + Lemlist»");
+      }
+      if (!daInviare.length) {
+        pushLog("warn", "⬡ Ricerca conclusa: nessuno dei contatti cercati e' pronto per l'invio.");
+        return;
+      }
       lemlistAutoFiredRef.current = true;
-      pushLog("ok", `✓ Ricerca email terminata — auto-invio ${pronti} contatti a HubSpot + Lemlist`);
-      avviaLemlist();
+      const esclusi = pronti - daInviare.length;
+      pushLog("ok", `✓ Ricerca email terminata — auto-invio ${daInviare.length} contatt${daInviare.length===1?"o":"i"} a HubSpot + Lemlist`);
+      if (esclusi > 0) {
+        pushLog("info", `⬡ Altri ${esclusi} contatti sono pronti ma NON fanno parte di questa ricerca: restano fermi, inviali tu quando vuoi`);
+      }
+      avviaLemlist(daInviare);
     }
   };
 
@@ -3216,7 +3265,7 @@ function App() {
       // Su tutto il database i contatti superano il mezzo migliaio: con il
       // limite della run si perderebbero per strada senza alcun avviso.
       const quanti = contattiTutteRunRef.current ? 1000 : 300;
-      const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,tipo,email_origine,company_id,companies(nome,settore,sito_web,fatturato)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato)${ts}&order=creato_il.desc,id.desc&limit=${quanti}`, {
+      const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,tipo,email_origine,company_id,companies(nome,settore,sito_web,fatturato,hs_lifecyclestage)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato)${ts}&order=creato_il.desc,id.desc&limit=${quanti}`, {
         headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}
       });
       if (!r.ok) return;
@@ -3241,7 +3290,7 @@ function App() {
       if (!sbUrl || !sbKey) { setContattiRun(p=>({...p, loading:false})); return; }
       const ts = (runStart && !contattiTutteRunRef.current) ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
       const quanti = contattiTutteRunRef.current ? 1000 : 300;
-      const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,tipo,email_origine,company_id,companies(nome,settore,sito_web,fatturato)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato)${ts}&order=creato_il.desc,id.desc&limit=${quanti}`, {
+      const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,tipo,email_origine,company_id,companies(nome,settore,sito_web,fatturato,hs_lifecyclestage)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato)${ts}&order=creato_il.desc,id.desc&limit=${quanti}`, {
         headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}
       });
       const rows = r.ok ? await r.json() : [];
@@ -3637,13 +3686,29 @@ function App() {
     }
   };
 
-  const avviaLemlist = async () => {
+  // `soloQuesti` — v5.25. L'auto-invio passa gli id del lotto appena lavorato.
+  //
+  // PERCHE'. Il 15/10/2026 Alberto ha cercato l'email su 6 contatti e ne sono
+  // partiti 22. L'auto-invio non aveva ambito: a ricerca finita chiamava
+  // l'invio su TUTTI gli idonei del database. Finche' "idoneo" voleva dire
+  // «stato email_trovata» il mucchio era piccolo; allargata la regola a «ha
+  // un'email» (v5.23, task #117), si e' allargato anche il raggio di
+  // un'azione automatica. Fra i 16 in piu' ce n'erano 3 di aziende in
+  // `opportunity`: prospecting dentro trattative aperte.
+  //
+  // Una cosa e' decidere CHI si puo' inviare, un'altra e' decidere QUANTI ne
+  // parte da soli. Il primo e' un criterio, il secondo e' un ambito, e vanno
+  // tenuti separati.
+  const avviaLemlist = async (soloQuesti = null) => {
     if (!MAKE.cercaEmail) { pushLog("error","✕ Invio annullato: webhook 'Carica Contatti Trovati' non configurato in Impostazioni"); showToast("⚠ Webhook 'Carica Contatti' non configurato nelle impostazioni"); return; }
     // Fetcha i dettagli completi dei contatti selezionati da Supabase
     const {url:sbUrlF, key:sbKeyF} = getSbCreds();
     if (!sbUrlF || !sbKeyF) { pushLog("error","✕ Invio annullato: credenziali Supabase mancanti"); showToast("⚠ Credenziali Supabase mancanti"); return; }
     let contactIds;
-    if (contattiSelected.size > 0) {
+    if (Array.isArray(soloQuesti)) {
+      contactIds = soloQuesti;
+      pushLog("info", `⬡ Invio limitato ai ${contactIds.length} contatti appena lavorati`);
+    } else if (contattiSelected.size > 0) {
       // Un contatto gia' "inviato" e' gia' su HubSpot: rimandarlo fa creare un
       // doppione, e se l'email e' la stessa HubSpot rifiuta l'intera operazione
       // (l'email e' un identificatore unico fra i contatti). Meglio escluderli
@@ -3688,6 +3753,20 @@ function App() {
 
       if (giaInviati.length) {
         pushLog("warn", `⬡ ${giaInviati.length} contatt${giaInviati.length===1?"o gia' inviato escluso":"i gia' inviati esclusi"} dall'invio`);
+      }
+      // v5.25 — qui si AVVERTE, non si blocca. L'auto-invio invece esclude.
+      // La differenza e' voluta: li' non c'e' nessuno che guarda, qui ci sei tu
+      // e puoi avere una ragione per scrivere a un contatto di un'azienda in
+      // trattativa. Quello che non deve succedere e' che accada senza saperlo.
+      const inTrattativa = [...contattiSelected]
+        .filter(id => !giaInviati.includes(id))
+        .map(id => rigaDi(id))
+        .filter(r => r.companies?.hs_lifecyclestage && r.companies.hs_lifecyclestage !== "lead");
+      if (inTrattativa.length) {
+        pushLog("warn", `⚠ ${inTrattativa.length} contatt${inTrattativa.length===1?"o appartiene":"i appartengono"} ad aziende oltre «lead» su HubSpot — li mando lo stesso perche' li hai scelti tu`);
+        for (const r of inTrattativa.slice(0, 8)) {
+          pushLog("info", `⚠ ${r.nome_completo || "(senza nome)"} — ${r.companies?.nome || "?"} (${r.companies.hs_lifecyclestage})`);
+        }
       }
       if (nonCercati.length) {
         pushLog("warn", `⬡ ${nonCercati.length} contatt${nonCercati.length===1?"o escluso: la ricerca email non e' ancora stata fatta" : "i esclusi: la ricerca email non e' ancora stata fatta"}`);
@@ -3910,6 +3989,12 @@ function App() {
       // dichiara concluso il run.
       ricercaEmailInCorsoRef.current = true;
       lemlistAutoFiredRef.current = false;
+      // Il lotto: gli id espliciti se c'era una selezione, altrimenti la coda
+      // `enrichment_richiesto` cosi' com'e' adesso — che e' esattamente cio'
+      // che l'agente andra' a lavorare.
+      lottoRicercaRef.current = ids
+        ? [...ids]
+        : contattiRun.rows.filter(r => r.stato === "enrichment_richiesto").map(r => r.id);
       pushLog("ok", `▶ Ricerca email avviata su ${quanti} contatt${quanti===1?"o":"i"}`);
       showToast(`✓ Ricerca email avviata (${quanti})`);
       setContattiSelected(new Set());
@@ -4352,7 +4437,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.24</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.25</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
