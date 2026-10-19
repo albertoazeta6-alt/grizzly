@@ -658,6 +658,16 @@ async function processEasybusinessFile(file){
     if(targetByNorm[nc]){mapping[col]=targetByNorm[nc];}
     else if(EB_ALIASES[nc]){mapping[col]=EB_ALIASES[nc];}
   }
+  // Le colonne che il mapper non riconosce venivano buttate senza dirlo. Non e'
+  // teorico: nel file del 5/10/2026 "Fatturato" non entrava perche' qui si
+  // cerca "Fatturato lordo", e con lui sparivano Telefono, Email Generica e
+  // Classificazione — nove colonne su quindici, zero avvisi. Chi importa deve
+  // poter vedere cosa resta fuori PRIMA di accorgersene a valle su un campo vuoto.
+  const colonneIgnorate = Object.keys(raw[0])
+    .filter(c => !c.startsWith('__') && !mapping[c]);
+  // Quali colonne attese non sono state trovate nel file: l'altra meta' della
+  // stessa domanda, e quella che spiega un campo NULL su tutte le righe.
+  const targetMancanti = EB_TARGET.filter(t => !Object.values(mapping).includes(t));
   const n=raw.length;
   const output=raw.map((row,i)=>{
     const out={};
@@ -669,7 +679,8 @@ async function processEasybusinessFile(file){
   const ws2=XLSX.utils.json_to_sheet(output,{header:[...EB_TARGET,'__row_n','__row_total']});
   const csv='﻿'+XLSX.utils.sheet_to_csv(ws2);
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
-  return {blob, rowCount:n, mappedCols:Object.keys(mapping).length, rows:output};
+  return {blob, rowCount:n, righeTotali:rawAll.length, righeVuote:rawAll.length-n,
+          mappedCols:Object.keys(mapping).length, colonneIgnorate, targetMancanti, rows:output};
 }
 
 // SETTORI caricati dinamicamente da Supabase (vedi useState settori)
@@ -3039,8 +3050,12 @@ function App() {
         setFaseS("import","in_corso",{dettaglio:"Elaborazione file..."});
         sbWritePipelineState("import","in_corso","Elaborazione file...");
         pushLog("info","⚙ Mapping colonne EasyBusiness...");
-        const {blob, rowCount, mappedCols, rows: parsedRows} = await processEasybusinessFile(csvFile);
+        const {blob, rowCount, righeTotali, righeVuote, mappedCols,
+               colonneIgnorate, targetMancanti, rows: parsedRows} = await processEasybusinessFile(csvFile);
         pushLog("ok",`✓ ${rowCount} aziende — ${mappedCols} colonne mappate`);
+        if(righeVuote>0) pushLog("warn",`⚠ ${righeVuote} righe del file erano vuote e non vengono considerate (${righeTotali} lette in tutto)`);
+        if(colonneIgnorate.length) pushLog("warn",`⚠ Colonne del file che NON vengono importate: ${colonneIgnorate.join(", ")}`);
+        if(targetMancanti.length)  pushLog("warn",`⚠ Campi attesi e non trovati nel file: ${targetMancanti.join(", ")}`);
 
         // Dedup check su Supabase
         let sitiFnd = new Set(), piveFnd = new Set();
@@ -3114,7 +3129,8 @@ function App() {
             };
             const ebProv  = r => String(ebCol(r,"Regione/provincia")).replace(/[()]/g,"").trim() || null;
 
-            const records = nuove.map(r=>({
+            const mappate = nuove.map(r=>({
+              __riga:            r["__row_n"] ?? null,
               nome:              String(ebCol(r,"Ragione sociale")).trim(),
               sito_web:          ebSito(r),
               linkedin_url_eb:   ebLi(r) || null,  // candidato grezzo EB — da verificare con Phantom
@@ -3130,22 +3146,52 @@ function App() {
               numero_dipendenti: String(ebCol(r,"Numero dipendenti per fascia")).trim() || null,
               stato:             ebSito(r) ? "nuovo" : "sito_mancante",
               fonte:             "Automazione Bancadati",
-            })).filter(r=>r.nome);
+            }));
 
-            // Inserisce in chunk da 100 — ignora duplicati per nome (unique constraint)
-            const CHUNK = 100; let ok = true;
-            for(let i=0; i<records.length && ok; i+=CHUNK) {
-              ok = await sbInsert("companies", records.slice(i, i+CHUNK), {onConflict:"nome,partita_iva"});
+            // Questo scarto prima stava attaccato alla map come `.filter(r=>r.nome)`
+            // e non lasciava traccia: una riga che perdeva la ragione sociale nella
+            // mappatura spariva qui, mentre il messaggio di esito continuava a dire
+            // "nuove.length importate". Il numero dichiarato non era il numero
+            // scritto, ed e' esattamente il difetto che ha reso invisibili le righe
+            // perse nel caricamento del 5/10/2026.
+            const scartateSenzaNome = mappate.filter(r=>!r.nome);
+            const records = mappate.filter(r=>r.nome).map(({__riga, ...resto})=>resto);
+            if(scartateSenzaNome.length){
+              const righe = scartateSenzaNome.map(r=>r.__riga).filter(Boolean).join(", ");
+              pushLog("error",`✕ ${scartateSenzaNome.length} righe scartate: ragione sociale vuota dopo la mappatura${righe?` (righe ${righe})`:""}`);
             }
+
+            // Inserisce in chunk da 100. Il conteggio e' per blocco e non per
+            // intenzione: se un blocco fallisce il ciclo si ferma, e senza questo
+            // contatore non si saprebbe quante righe erano gia' entrate.
+            const CHUNK = 100; let ok = true, scritte = 0;
+            for(let i=0; i<records.length && ok; i+=CHUNK) {
+              const blocco = records.slice(i, i+CHUNK);
+              ok = await sbInsert("companies", blocco, {onConflict:"nome,partita_iva"});
+              if(ok) scritte += blocco.length;
+            }
+            // RENDICONTO. Il totale deve tornare: letto = vuote + duplicate +
+            // scartate + inviate. Se non torna, lo dice invece di tacere.
+            const quadra = rowCount === (rowCount-nuove.length) + scartateSenzaNome.length + records.length;
+            pushLog(quadra?"info":"error",
+              `▣ Rendiconto import — lette ${rowCount} · gia' in DB ${rowCount-nuove.length} · `+
+              `scartate ${scartateSenzaNome.length} · inviate ${records.length} · scritte ${scritte}`+
+              (quadra?"":"  ⚠ I CONTI NON TORNANO"));
             if(ok) {
-              pushLog("ok",`✓ ${nuove.length} aziende importate in Supabase`);
-              setFaseS("import","completato",{dettaglio:`${nuove.length} nuove · ${rowCount-nuove.length} duplicate`});
-              sbWritePipelineState("import","completato",`${nuove.length} nuove · ${rowCount-nuove.length} duplicate`);
+              // "scritte" sono le righe accettate dalla chiamata, non per forza le
+              // righe create: onConflict su (nome, partita_iva) assorbe in silenzio
+              // chi collide con una riga gia' presente. Detto, invece che sottinteso.
+              pushLog("ok",`✓ ${scritte} aziende inviate a Supabase senza errori`);
+              if(scritte !== nuove.length)
+                pushLog("warn",`⚠ Ne erano state contate ${nuove.length} come nuove: la differenza e' negli scarti qui sopra`);
+              setFaseS("import","completato",{dettaglio:`${scritte} scritte · ${rowCount-nuove.length} duplicate · ${scartateSenzaNome.length} scartate`});
+              sbWritePipelineState("import","completato",`${scritte} scritte · ${rowCount-nuove.length} duplicate · ${scartateSenzaNome.length} scartate`);
               setRunView('run_attuale'); openImportDati(runStartLocal); // apre su Run Attuale
               // Il Phantom parte dopo la classificazione (via useEffect su classificaFase=completato)
             } else {
-              pushLog("error","✕ Errore scrittura Supabase — verifica credenziali");
-              setFaseS("import","errore",{dettaglio:"Errore Supabase"});
+              pushLog("error",`✕ Errore scrittura Supabase dopo ${scritte} righe su ${records.length} — le restanti NON sono state inviate`);
+              setFaseS("import","errore",{dettaglio:`Interrotto: ${scritte}/${records.length} scritte`});
+              sbWritePipelineState("import","errore",`Interrotto: ${scritte}/${records.length} scritte`);
             }
           } else {
             pushLog("warn","⬡ Tutte le aziende sono già in DB — nessuna importazione");
@@ -4437,7 +4483,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.25</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.26</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
