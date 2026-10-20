@@ -297,7 +297,7 @@ function normSito(s){
 // con qualche centinaio di siti un solo or=(...) viene rifiutato dal server.
 async function checkDedup(sitiArr, pivaArr) {
   const {url,key} = getSbCreds();
-  const out = {sitiFnd: new Set(), piveFnd: new Set(), errore: null};
+  const out = {sitiFnd: new Set(), piveFnd: new Set(), errore: null, righeEsaminate: 0, pagine: 0};
   if(!url||!key){ out.errore = "credenziali Supabase mancanti"; return out; }
 
   const siti = [...new Set(sitiArr.filter(Boolean).map(normSito).filter(Boolean))];
@@ -316,18 +316,53 @@ async function checkDedup(sitiArr, pivaArr) {
     return r.json();
   };
 
+  // Scarica TUTTE le righe che corrispondono, non le prime PAGINA.
+  //
+  // Prima qui c'era un `&limit=1000` secco. PostgREST restituiva le prime mille
+  // e basta: nessun errore, nessun segnale, un risultato parziale
+  // indistinguibile da uno completo. Le righe oltre il millesimo non finivano
+  // nei Set, quindi i duplicati che rappresentavano risultavano "non trovati"
+  // e l'azienda veniva inserita una seconda volta.
+  //
+  // E' il difetto OPPOSTO a quello delle righe perse all'import: quello faceva
+  // sparire aziende, questo ne CREA di doppie. Ed era facile da innescare,
+  // perche' il confronto sui siti e' per sottostringa: un dominio corto e
+  // comune come "lift.it" pesca sunlift.it, elevatorlift.it e compagnia, quindi
+  // un blocco di 40 siti puo' restituire molte piu' di 40 righe.
+  //
+  // L'ordine su id serve perche' senza un criterio stabile le pagine si
+  // sovrappongono o saltano righe — stesso motivo per cui lo fa loadCodeQueue
+  // qui sotto.
+  const PAGINA = 1000;
+  const interrogaTutte = async (base, etichetta) => {
+    let righe = [], offset = 0;
+    for(;;){
+      const pagina = await interroga(`${base}&order=id.asc&limit=${PAGINA}&offset=${offset}`, etichetta);
+      out.pagine++;
+      righe = righe.concat(pagina);
+      if(pagina.length < PAGINA) break;          // ultima pagina: era piu' corta del limite
+      offset += PAGINA;
+      // Rete di sicurezza: meglio fermarsi dicendolo che girare all'infinito su
+      // una query sbagliata. Il database ha ~4.000 aziende, quindi questo tetto
+      // non si raggiunge mai per vie normali.
+      if(offset > 100000) throw new Error(`${etichetta}: oltre ${offset} righe, interrotto per sicurezza`);
+    }
+    out.righeEsaminate += righe.length;
+    return righe;
+  };
+
   try {
     for(let i=0; i<siti.length; i+=BLOCCO){
       const parte = siti.slice(i, i+BLOCCO);
       const orFilter = parte.map(s=>`sito_web.ilike.*${encodeURIComponent(s)}*`).join(',');
-      const righe = await interroga(
-        `${url}/rest/v1/companies?select=sito_web&or=(${orFilter})&limit=1000`, "siti");
+      const righe = await interrogaTutte(
+        `${url}/rest/v1/companies?select=id,sito_web&or=(${orFilter})`, "siti");
       righe.forEach(row => { const n = normSito(row.sito_web); if(n) out.sitiFnd.add(n); });
     }
     for(let i=0; i<pive.length; i+=BLOCCO){
       const parte = pive.slice(i, i+BLOCCO).map(p=>`"${encodeURIComponent(p)}"`);
-      const righe = await interroga(
-        `${url}/rest/v1/companies?select=partita_iva&partita_iva=in.(${parte.join(",")})&limit=1000`, "partite IVA");
+      const righe = await interrogaTutte(
+        `${url}/rest/v1/companies?select=id,partita_iva&partita_iva=in.(${parte.join(",")})`, "partite IVA");
       righe.forEach(row => out.piveFnd.add(String(row.partita_iva).trim()));
     }
   } catch(e) {
@@ -361,7 +396,10 @@ async function loadCodeQueue() {
       // sito_web e motivazione servono perche' in questa coda non ci sono piu'
       // solo aziende senza sito: da v4.79 ci finisce anche chi ha un indirizzo
       // che non risponde, e per correggerlo bisogna vedere qual e'.
-      tutte(`companies?stato=eq.sito_mancante&select=id,nome,citta,partita_iva,sito_web,settore,settore_motivazione`),
+      // fatturato: serve all'ordinamento e alla soglia (#83). Senza, questa coda
+      // si lavorerebbe ancora in ordine di data mentre il valore e' concentrato
+      // in poche righe — 34 aziende su 115 valgono il 96% del totale.
+      tutte(`companies?stato=eq.sito_mancante&select=id,nome,citta,partita_iva,sito_web,settore,settore_motivazione,fatturato`),
       tutte(`companies?stato=eq.url_ambigua&select=id,nome,sito_web,linkedin_url,linkedin_url_pb,citta,settore,fatturato`),
       Promise.resolve([]),
     ]);
@@ -482,6 +520,19 @@ const numFatturato = v => {
 // Confronto usato da tutte le tabelle ordinabili. I vuoti finiscono sempre in
 // fondo, in entrambe le direzioni: una cella senza dato non e' "il piu' piccolo",
 // e' assente — vederla in cima quando si cerca il fatturato piu' alto confonde.
+// Filtro per soglia di fatturato, usato dalle code.
+//
+// Le righe SENZA fatturato non superano mai la soglia — e dev'essere cosi':
+// un fatturato assente non e' "zero", e trattarlo come zero o come infinito
+// sarebbe inventare. Sono pero' tantissime (422 su 592 in url_ambigua al
+// 20/10/2026, il 71%), quindi chi usa il filtro deve SAPERE quante ne sta
+// mettendo da parte: e' il chiamante a doverlo scrivere, e lo fa.
+const superaSoglia = (valore, soglia) => {
+  if (!soglia) return true;                 // nessuna soglia: passa tutto
+  const n = numFatturato(valore);
+  return n !== null && n >= soglia;
+};
+
 const confrontaCelle = (av, bv, numerico, dir) => {
   const aVuoto = av === null || av === undefined || av === "";
   const bVuoto = bv === null || bv === undefined || bv === "";
@@ -906,7 +957,16 @@ function App() {
   const [classifApprovati, setClassifApprovati] = useState({rows:[], loading:false, loaded:false});
   const [classifViewMode,  setClassifViewMode]  = useState('split'); // 'split' | 'tabella'
   const [urlViewMode,      setUrlViewMode]      = useState('strumento'); // 'strumento' | 'tabella'
-  const [urlSort,          setUrlSort]          = useState({col:null, dir:'asc'});
+  // Le code partono ordinate per fatturato decrescente, non per data.
+  // Il valore e' concentratissimo: al 20/10/2026 su url_ambigua 95 aziende su
+  // 592 (il 16%) valgono 716 milioni su 802, cioe' l'89% del totale; su
+  // sito_mancante 34 su 115 valgono il 96%. Lavorare dall'alto copre quasi
+  // tutto il valore commerciale in una frazione del tempo.
+  const [urlSort,          setUrlSort]          = useState({col:'fatturato', dir:'desc'});
+  // Soglia di fatturato per le code. 0 = nessuna soglia, si vede tutto.
+  // Chi sta sotto NON viene nascosto in silenzio: la barra dice sempre quante
+  // righe la soglia sta escludendo e quante non hanno il fatturato.
+  const [sogliaFatt,       setSogliaFatt]       = useState(0);
   const [classifCorreggi, setClassifCorreggi] = useState({id:null, settore:''}); // correzione inline settore
   const [counters, setCounters] = useState({az_input:null, az_output:null, exec:null, scartati:null, mail_ok:null, mail_no:null});
   const azOutputRef = React.useRef(0); // ref stabile per evitare loop in fetchUrlSheet
@@ -3084,6 +3144,10 @@ function App() {
           setDedupResult({nuove: newCount, duplicate: dupCount, totale: rowCount});
           if(dupCount>0) pushLog("ok",`⬡ Dedup: ${newCount} nuove · ${dupCount} già in DB (invio solo le nuove)`);
           else           pushLog("ok",`⬡ Dedup: tutte le ${rowCount} aziende sono nuove`);
+          // Quanto ha davvero guardato il controllo duplicati. Prima si fermava
+          // alle prime 1.000 righe per blocco senza dirlo: un dedup parziale e
+          // un dedup completo producevano lo stesso messaggio.
+          pushLog("info",`⬡ Dedup: esaminate ${dedup.righeEsaminate} righe del database in ${dedup.pagine} pagine`);
         }
 
         // ── Importa direttamente su Supabase ────────────────────────────────
@@ -3276,7 +3340,9 @@ function App() {
       let allRows = [], offset = 0, done = false;
       while (!done) {
         // Stesso spareggio su id della tabella Aziende: vedi openImportDati.
-        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,citta,stato,settore,icebreaker,linkedin_url&order=creato_il.desc,id.desc&limit=${BATCH}&offset=${offset}`, {
+        // hubspot_id serve alla colonna «HubSpot»: senza, la colonna direbbe
+        // "no" a tutte le righe, che e' peggio di non averla.
+        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,citta,stato,settore,icebreaker,linkedin_url,hubspot_id&order=creato_il.desc,id.desc&limit=${BATCH}&offset=${offset}`, {
           headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"count=none"}
         });
         const batch = r.ok ? await r.json() : [];
@@ -4483,7 +4549,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.26</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.27</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -6217,6 +6283,14 @@ function App() {
             {label:"LinkedIn",   k:null},
             {label:"Città",      k:"citta"},
             {label:"Stato",      k:"stato"},
+            // «stato» rispondeva a due domande in una: dove sei arrivata nella
+            // pipeline, e ti conosce HubSpot. Lo stato hubspot_sync diceva la
+            // seconda cancellando la prima, e oggi vale per 1.011 aziende su
+            // 4.005 — un quarto del database senza posizione nella pipeline.
+            // Questa colonna separa le due domande senza aggiungere un dato
+            // nuovo da tenere allineato: si deduce da hubspot_id, quindi non
+            // puo' andare fuori sincrono con la realta'.
+            {label:"HubSpot",    k:"hubspot_id"},
             {label:"Settore",    k:"settore"},
             {label:"Icebreaker", k:null},
           ];
@@ -6316,6 +6390,11 @@ function App() {
                                         <td style={{padding:"5px 10px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.linkedin_url?<a href={row.linkedin_url} target="_blank" rel="noopener noreferrer" style={{color:"#60a5fa",textDecoration:"none",fontSize:9}}>LinkedIn ↗</a>:"—"}</td>
                                         <td style={{padding:"5px 10px",color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.citta||"—"}</td>
                                         <td style={{padding:"5px 10px",whiteSpace:"nowrap"}}><span style={{color:stCfg.color,fontWeight:600,fontSize:9}}>{stCfg.label||row.stato}</span></td>
+                                        <td style={{padding:"5px 10px",whiteSpace:"nowrap"}} title={row.hubspot_id ? `id HubSpot ${row.hubspot_id}` : "mai arrivata su HubSpot"}>
+                                          {row.hubspot_id
+                                            ? <a href={`https://app-eu1.hubspot.com/contacts/145447510/record/0-2/${row.hubspot_id}`} target="_blank" rel="noopener noreferrer" style={{color:"#4ade80",textDecoration:"none",fontWeight:700,fontSize:9}}>● sì ↗</a>
+                                            : <span style={{color:"#f87171",fontWeight:700,fontSize:9}}>○ no</span>}
+                                        </td>
                                         <td style={{padding:"5px 10px",color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.settore||"—"}</td>
                                         <td style={{padding:"5px 10px",color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontStyle:row.icebreaker?"normal":"italic",fontSize:9}} title={row.icebreaker||""}>{row.icebreaker||"—"}</td>
                                       </tr>
@@ -6552,12 +6631,34 @@ function App() {
                   {sbReady&&codeQueue.urlAmbigue.length>0&&(
                     <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",borderBottom:`1px solid ${C.border}`}}>
                       {(()=>{
-                        const n = codeQueue.urlAmbigue.filter(r=>cercaAzienda(r,urlSearch)).length;
-                        const tot = codeQueue.urlAmbigue.length;
+                        const tot     = codeQueue.urlAmbigue.length;
+                        const cercate = codeQueue.urlAmbigue.filter(r=>cercaAzienda(r,urlSearch));
+                        const n       = cercate.filter(r=>superaSoglia(r.fatturato, sogliaFatt)).length;
+                        // Quante la soglia sta mettendo da parte, e quante di
+                        // quelle sono senza fatturato: chi filtra deve vedere
+                        // cosa resta fuori, non scoprirlo per caso.
+                        const sottoSoglia = cercate.length - n;
+                        const senzaFatt   = cercate.filter(r=>numFatturato(r.fatturato)===null).length;
                         return <span style={{fontSize:11,color:n<tot?"#93c5fd":C.muted}}>
                           {n===tot ? `${tot} da verificare` : `${n} di ${tot}`}
+                          {sogliaFatt>0 && sottoSoglia>0 &&
+                            <span style={{color:"#fbbf24",marginLeft:6}}>
+                              · {sottoSoglia} sotto soglia{senzaFatt>0?`, di cui ${senzaFatt} senza fatturato`:""}
+                            </span>}
                         </span>;
                       })()}
+                      {/* La soglia non nasconde: mette da parte, e lo dice qui sopra. */}
+                      <select value={sogliaFatt} onChange={e=>setSogliaFatt(Number(e.target.value))}
+                        title="Mostra solo le aziende sopra questo fatturato"
+                        style={{padding:"3px 6px",fontSize:10,borderRadius:5,cursor:"pointer",
+                          border:`1px solid ${sogliaFatt?"#fbbf24":"rgba(148,163,184,0.2)"}`,
+                          background:"rgba(15,23,42,0.6)",color:sogliaFatt?"#fbbf24":C.muted,outline:"none"}}>
+                        <option value={0}>€ qualsiasi</option>
+                        <option value={500000}>≥ 500 mila</option>
+                        <option value={1000000}>≥ 1 milione</option>
+                        <option value={2000000}>≥ 2 milioni</option>
+                        <option value={5000000}>≥ 5 milioni</option>
+                      </select>
                       {/* La ricerca filtra la tabella; lo strumento a schede continua a
                           scorrere tutta la coda, perche' vive in un iframe separato. */}
                       <input value={urlSearch} onChange={e=>setUrlSearch(e.target.value)}
@@ -6596,7 +6697,10 @@ function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {codeQueue.urlAmbigue.filter(r=>cercaAzienda(r,urlSearch)).sort((a,b)=>urlSort.col
+                          {codeQueue.urlAmbigue
+                            .filter(r=>cercaAzienda(r,urlSearch))
+                            .filter(r=>superaSoglia(r.fatturato, sogliaFatt))
+                            .sort((a,b)=>urlSort.col
                               ? confrontaCelle(a[urlSort.col], b[urlSort.col], urlSort.col==="fatturato", urlSort.dir)
                               : 0
                           ).map((az,i)=>{
@@ -6682,22 +6786,54 @@ function App() {
                       style={{padding:"4px 9px",fontSize:11,borderRadius:5,minWidth:220,
                         border:`1px solid ${sitiSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
                         background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
+                    {/* Stessa soglia della coda URL Ambigui: un solo comando per
+                        entrambe, cosi' non si deve ricordare dove si era messa. */}
+                    <select value={sogliaFatt} onChange={e=>setSogliaFatt(Number(e.target.value))}
+                      title="Mostra solo le aziende sopra questo fatturato"
+                      style={{padding:"3px 6px",fontSize:10,borderRadius:5,cursor:"pointer",
+                        border:`1px solid ${sogliaFatt?"#fbbf24":"rgba(148,163,184,0.2)"}`,
+                        background:"rgba(15,23,42,0.6)",color:sogliaFatt?"#fbbf24":C.muted,outline:"none"}}>
+                      <option value={0}>€ qualsiasi</option>
+                      <option value={500000}>≥ 500 mila</option>
+                      <option value={1000000}>≥ 1 milione</option>
+                      <option value={2000000}>≥ 2 milioni</option>
+                      <option value={5000000}>≥ 5 milioni</option>
+                    </select>
                     {(()=>{
-                      const n = codeQueue.siti.filter(r=>cercaAzienda(r,sitiSearch)).length;
-                      const tot = codeQueue.siti.length;
+                      const tot     = codeQueue.siti.length;
+                      const cercate = codeQueue.siti.filter(r=>cercaAzienda(r,sitiSearch));
+                      const n       = cercate.filter(r=>superaSoglia(r.fatturato, sogliaFatt)).length;
+                      const sottoSoglia = cercate.length - n;
+                      const senzaFatt   = cercate.filter(r=>numFatturato(r.fatturato)===null).length;
                       return <span style={{fontSize:10,color:n<tot?"#93c5fd":C.muted}}>
                         {n===tot ? `${tot}` : `${n} di ${tot}`}
+                        {sogliaFatt>0 && sottoSoglia>0 &&
+                          <span style={{color:"#fbbf24",marginLeft:6}}>
+                            · {sottoSoglia} sotto soglia{senzaFatt>0?`, di cui ${senzaFatt} senza fatturato`:""}
+                          </span>}
                       </span>;
                     })()}
                   </div>
-                  {codeQueue.siti.filter(az=>cercaAzienda(az,sitiSearch)).map(az=>{
+                  {codeQueue.siti
+                    .filter(az=>cercaAzienda(az,sitiSearch))
+                    .filter(az=>superaSoglia(az.fatturato, sogliaFatt))
+                    // Dal piu' grosso al piu' piccolo, i senza-fatturato in fondo.
+                    .sort((a,b)=>confrontaCelle(a.fatturato, b.fatturato, true, 'desc'))
+                    .map(az=>{
                     const searchQ = encodeURIComponent(az.nome + ' sito web ufficiale');
                     const ddgUrl = `https://www.google.com/search?q=${searchQ}`;
                     return (
                     <div key={az.id} className="hovrow" style={{display:"flex",alignItems:"center",gap:12,padding:"10px 20px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
                       <div style={{flex:"0 0 220px"}}>
                         <div style={{fontSize:12,fontWeight:600,color:C.textHi,marginBottom:2}}>{az.nome}</div>
-                        <div style={{fontSize:10,color:C.muted}}>{az.citta||"—"}{az.partita_iva?` · P.IVA ${az.partita_iva}`:""}</div>
+                        {/* Il fatturato si vede, perche' ora la coda e' ordinata
+                            per fatturato: un criterio invisibile confonde. */}
+                        <div style={{fontSize:10,color:C.muted}}>
+                          {az.citta||"—"}{az.partita_iva?` · P.IVA ${az.partita_iva}`:""}
+                          {numFatturato(az.fatturato)!==null
+                            ? <span style={{color:"#fbbf24",marginLeft:4}}>· {fmtFatturato(az.fatturato)}</span>
+                            : <span style={{marginLeft:4,fontStyle:"italic"}}>· fatturato non noto</span>}
+                        </div>
                         {/* Un sito gia' presente qui vuol dire che non risponde:
                             va mostrato, altrimenti non si sa cosa correggere. */}
                         {az.sito_web&&(
