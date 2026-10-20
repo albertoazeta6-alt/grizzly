@@ -1107,7 +1107,12 @@ function App() {
     (contattiStatoFilter.size === 0 || contattiStatoFilter.has(r.stato)) &&
     cercaInContatto(r, contattiSearch)
   );
-  const [importColWidths, setImportColWidths] = useState({0:220,1:110,2:140,3:110,4:100,5:100,6:140,7:52,8:200}); // larghezze colonne Ricerca Aziende (px)
+  // Larghezze colonne Ricerca Aziende (px). Gli indici seguono la POSIZIONE in
+  // tabella, quindi inserendo una colonna vanno rinumerati tutti quelli dopo:
+  // l'indice 6 e' «HubSpot», aggiunto il 20/10/2026 fra Stato e Settore.
+  // 0 Azienda · 1 Sito · 2 LinkedIn · 3 Citta · 4 Fatturato · 5 Stato
+  // 6 HubSpot · 7 Settore · 8 Conf. · 9 Icebreaker
+  const [importColWidths, setImportColWidths] = useState({0:220,1:110,2:140,3:110,4:100,5:100,6:64,7:140,8:52,9:200});
   const importResizingRef = React.useRef(null); // {colIdx, startX, startWidth}
   const [leadsColWidths, setLeadsColWidths] = useState({0:160,1:140,2:140,3:130,4:120,5:90,6:160,7:90}); // larghezze colonne Leads (px)
   const leadsResizingRef = React.useRef(null);
@@ -3325,7 +3330,9 @@ function App() {
         // la stessa riga in due pagine e ometterne un'altra. Il risultato erano
         // chiavi duplicate nella tabella, e React con chiavi duplicate mostra
         // righe che il filtro ha gia' escluso.
-        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,settore_confidenza,semaforo_verifica,fatturato,icebreaker,partita_iva,hs_lifecyclestage,hs_contatti${filter}&order=creato_il.desc,id.desc&limit=${BATCH}&offset=${offset}`, {
+        // hubspot_id: serve alla colonna «HubSpot». Senza, direbbe "no" a tutte
+        // le righe — una colonna che mente e' peggio di una che manca.
+        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,settore_confidenza,semaforo_verifica,fatturato,icebreaker,partita_iva,hs_lifecyclestage,hs_contatti,hubspot_id${filter}&order=creato_il.desc,id.desc&limit=${BATCH}&offset=${offset}`, {
           headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"count=none"}
         });
         const batch = r.ok ? await r.json() : [];
@@ -4564,7 +4571,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.28</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.29</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -5818,6 +5825,10 @@ function App() {
                                       {label:"Città",key:"citta"},
                                       {label:"Fatturato",key:"fatturato"},
                                       {label:"Stato",key:"stato"},
+                                      // Stessa colonna derivata della tabella Database (#118):
+                                      // «stato» dice dove sei nella pipeline, questa dice se
+                                      // HubSpot ti conosce. Due domande, due colonne.
+                                      {label:"HubSpot",key:"hubspot_id"},
                                       {label:"Settore",key:"settore"},
                                       {label:"Conf.",key:"settore_confidenza"},
                                       {label:"Icebreaker",key:"icebreaker"},
@@ -5907,6 +5918,12 @@ function App() {
                                         <td style={{padding:"5px 10px",color:C.muted,fontSize:9,whiteSpace:"nowrap"}}>{fmtFatturato(row.fatturato)}</td>
                                         <td style={{padding:"5px 10px",whiteSpace:"nowrap"}}>
                                           <span style={{fontSize:8,fontWeight:700,color:statiColor,textTransform:"uppercase",letterSpacing:"0.05em"}}>{row.stato||"—"}</span>
+                                        </td>
+                                        <td style={{padding:"5px 10px",whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}
+                                          title={row.hubspot_id ? `id HubSpot ${row.hubspot_id}` : "mai arrivata su HubSpot"}>
+                                          {row.hubspot_id
+                                            ? <a href={`https://app-eu1.hubspot.com/contacts/145447510/record/0-2/${row.hubspot_id}`} target="_blank" rel="noopener noreferrer" style={{color:"#4ade80",textDecoration:"none",fontWeight:700,fontSize:9}}>● sì ↗</a>
+                                            : <span style={{color:"#f87171",fontWeight:700,fontSize:9}}>○ no</span>}
                                         </td>
                                         <td style={{padding:"4px 8px",minWidth:130}} onClick={e=>e.stopPropagation()}>
                                           {(()=>{
