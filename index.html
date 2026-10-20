@@ -6820,13 +6820,12 @@ function App() {
               )}
               {/* ── SITI MANCANTI ── */}
               {sbReady&&codeQueue.siti.length>0&&(
-                {/* flexShrink:0 NON e' decorativo. Il contenitore qui sopra e'
-                    una colonna flex che scorre: senza questo, la scheda viene
-                    SCHIACCIATA per stare nell'altezza disponibile invece di
-                    traboccare, e il suo overflow:"hidden" taglia le righe in
-                    fondo. Risultato: la barra di scorrimento non compare mai e
-                    meta' coda e' irraggiungibile.
-                    Segnalato da Alberto il 20/10/2026: "la lista non scorre". */}
+                // flexShrink:0 NON e' decorativo. Il contenitore qui sopra e' una
+                // colonna flex che scorre: senza, la scheda viene SCHIACCIATA per
+                // stare nell'altezza disponibile invece di traboccare, e il suo
+                // overflow:"hidden" taglia le righe in fondo. La barra di
+                // scorrimento non compare mai e meta' coda e' irraggiungibile.
+                // Segnalato da Alberto il 20/10/2026: "la lista non scorre".
                 <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:16,flexShrink:0}}>
                   <QueueHeader icon="🌐" title="Siti web mancanti" count={codeQueue.siti.length} color={C.yellow}/>
                   <div style={{fontSize:11,color:C.muted,padding:"8px 20px 0",lineHeight:1.5}}>
