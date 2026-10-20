@@ -533,6 +533,21 @@ const superaSoglia = (valore, soglia) => {
   return n !== null && n >= soglia;
 };
 
+// Le voci della soglia stanno qui una volta sola: le code che le usano sono
+// due e un elenco copiato finisce per divergere.
+const SOGLIE_FATTURATO = [
+  {v: 0,       l: "€ qualsiasi"},
+  {v: 500000,  l: "≥ 500 mila"},
+  {v: 1000000, l: "≥ 1 milione"},
+  {v: 2000000, l: "≥ 2 milioni"},
+  {v: 5000000, l: "≥ 5 milioni"},
+];
+// La tendina aperta NON la disegna la pagina: la disegna il sistema operativo,
+// su sfondo chiaro. Senza un colore esplicito le voci ereditano quello del
+// <select>, scelto per la barra scura, e si leggono chiaro su chiaro.
+// Segnalato da Alberto il 20/10/2026 con la schermata alla mano.
+const STILE_OPZIONE = {background: "#0f172a", color: "#e2e8f0"};
+
 const confrontaCelle = (av, bv, numerico, dir) => {
   const aVuoto = av === null || av === undefined || av === "";
   const bVuoto = bv === null || bv === undefined || bv === "";
@@ -4549,7 +4564,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.27</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.28</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -6653,11 +6668,9 @@ function App() {
                         style={{padding:"3px 6px",fontSize:10,borderRadius:5,cursor:"pointer",
                           border:`1px solid ${sogliaFatt?"#fbbf24":"rgba(148,163,184,0.2)"}`,
                           background:"rgba(15,23,42,0.6)",color:sogliaFatt?"#fbbf24":C.muted,outline:"none"}}>
-                        <option value={0}>€ qualsiasi</option>
-                        <option value={500000}>≥ 500 mila</option>
-                        <option value={1000000}>≥ 1 milione</option>
-                        <option value={2000000}>≥ 2 milioni</option>
-                        <option value={5000000}>≥ 5 milioni</option>
+                        {SOGLIE_FATTURATO.map(o=>(
+                          <option key={o.v} value={o.v} style={STILE_OPZIONE}>{o.l}</option>
+                        ))}
                       </select>
                       {/* La ricerca filtra la tabella; lo strumento a schede continua a
                           scorrere tutta la coda, perche' vive in un iframe separato. */}
@@ -6793,11 +6806,9 @@ function App() {
                       style={{padding:"3px 6px",fontSize:10,borderRadius:5,cursor:"pointer",
                         border:`1px solid ${sogliaFatt?"#fbbf24":"rgba(148,163,184,0.2)"}`,
                         background:"rgba(15,23,42,0.6)",color:sogliaFatt?"#fbbf24":C.muted,outline:"none"}}>
-                      <option value={0}>€ qualsiasi</option>
-                      <option value={500000}>≥ 500 mila</option>
-                      <option value={1000000}>≥ 1 milione</option>
-                      <option value={2000000}>≥ 2 milioni</option>
-                      <option value={5000000}>≥ 5 milioni</option>
+                      {SOGLIE_FATTURATO.map(o=>(
+                        <option key={o.v} value={o.v} style={STILE_OPZIONE}>{o.l}</option>
+                      ))}
                     </select>
                     {(()=>{
                       const tot     = codeQueue.siti.length;
