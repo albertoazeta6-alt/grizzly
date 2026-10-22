@@ -909,6 +909,16 @@ function App() {
   // finche' lo strumento non segnala di essere carico. `sogliaTolta` evita
   // di rimbalzare all'infinito se l'azienda non c'e' per davvero.
   const [vaiAAzienda, setVaiAAzienda] = useState(null); // {id, nome, sogliaTolta}
+  // Stessa richiesta per «sito_mancante» (Alberto, 22/10/2026). Qui NON c'e'
+  // un iframe da pilotare per postMessage: la coda Siti Mancanti e' un elenco
+  // React in questa stessa pagina, quindi il salto e' scorrere fino alla riga
+  // e accenderla. Il lavoro vero non e' lo scorrimento: e' togliere di mezzo i
+  // due filtri (ricerca e soglia) che possono tenere la riga FUORI dall'elenco.
+  // Senza quel controllo il click porterebbe a una lista dove l'azienda non
+  // c'e', senza dire perche' — che e' il difetto gia' visto il 20/10 con la
+  // soglia di fatturato.
+  const [vaiASito,    setVaiASito]    = useState(null); // {id, nome}
+  const [sitoAcceso,  setSitoAcceso]  = useState(null); // id della riga evidenziata
   const [pipelineCorso, setPipelineCorso] = useState(false); // true mentre import/classifica/company/hubspot è in_corso
   // ── Classificazione review ────────────────────────────────────────────────
   const [classifReview,    setClassifReview]    = useState({rows:[], loading:false, loaded:false});
@@ -2404,6 +2414,53 @@ function App() {
       ?.postMessage({action:'vaiAId', id:vaiAAzienda.id}, '*');
   }, [vaiAAzienda, reviewBlobUrl]);
 
+  // ── Salto alla riga in coda Siti Mancanti ──
+  // L'ordine conta: prima si rende la riga RAGGIUNGIBILE (coda caricata, filtri
+  // che non la escludono), poi la si raggiunge. Ogni passo che tocca un filtro
+  // lo dice nel log, perche' cambiare sotto gli occhi un filtro che l'utente
+  // aveva impostato senza avvisarlo e' peggio che non saltare affatto.
+  useEffect(()=>{
+    if(!vaiASito) return;
+    if(tab!=='revisione' || codeSubTab!=='siti_mancanti') return;
+    if(!codeQueue.loaded) return;               // la coda non e' ancora arrivata: si riprova al prossimo giro
+
+    const az = (codeQueue.siti||[]).find(a=>a.id===vaiASito.id);
+    if(!az){
+      pushLog("warn", `«${vaiASito.nome}» non è nella coda Siti Mancanti: forse il sito è già stato inserito.`);
+      setVaiASito(null);
+      return;
+    }
+    // Filtro 1: la ricerca libera di questa coda.
+    if(sitiSearch && !cercaAzienda(az, sitiSearch)){
+      pushLog("info", `«${az.nome}» era esclusa dalla ricerca «${sitiSearch}»: ricerca azzerata per mostrartela.`);
+      setSitiSearch("");
+      return;                                   // l'effetto rientra con il filtro pulito
+    }
+    // Filtro 2: la soglia di fatturato, condivisa con la coda URL Ambigui.
+    if(!superaSoglia(az.fatturato, sogliaFatt)){
+      pushLog("info", `«${az.nome}» era sotto la soglia di fatturato: tolta la soglia per mostrartela.`);
+      setSogliaFatt(0);
+      return;
+    }
+    // Adesso la riga esiste nell'elenco. Il nodo pero' viene montato in questo
+    // stesso render, quindi lo si cerca dopo che il browser ha disegnato.
+    const t = setTimeout(()=>{
+      const nodo = document.getElementById(`sito-row-${az.id}`);
+      if(nodo) nodo.scrollIntoView({behavior:"smooth", block:"center"});
+      setSitoAcceso(az.id);
+      setVaiASito(null);
+    }, 60);
+    return ()=>clearTimeout(t);
+  }, [vaiASito, tab, codeSubTab, codeQueue.loaded, codeQueue.siti, sitiSearch, sogliaFatt]);
+
+  // L'evidenziazione si spegne da sola: serve a far trovare la riga, non a
+  // restare accesa finche' qualcuno clicca altrove.
+  useEffect(()=>{
+    if(sitoAcceso==null) return;
+    const t = setTimeout(()=>setSitoAcceso(null), 4000);
+    return ()=>clearTimeout(t);
+  }, [sitoAcceso]);
+
   // Listener per messaggi dall'iframe Review Tool (approveUrl)
   useEffect(() => {
     const handler = async (e) => {
@@ -2443,6 +2500,21 @@ function App() {
       }
       if (e.data?.type === 'approveUrl' && e.data.id) {
         // linkedin_upd = URL confermata manualmente, HubSpot verrà aggiornato al ritorno in Pipeline
+        // La coda di tracciamento si toglie QUI, nell'unico punto da cui
+        // passano tutte le conferme manuali.
+        // PERCHE': l'URL lo si copia dalla barra del browser dopo aver aperto
+        // la pagina, e LinkedIn ci attacca «?originalSubdomain=it» quando sei
+        // arrivato da it.linkedin.com (oppure ?trk=…, ?viewAsMember=…). Salvata
+        // cosi', la stessa pagina risulta DIVERSA dalla sua versione pulita in
+        // ogni confronto: dedup, riconciliazione Phantom, controllo dei
+        // doppioni. Trovato il 22/10/2026 su PRESMA S.P.A. — 1 riga su 2.085,
+        // cioe' raro ma gia' successo, e nessuno se ne era accorto.
+        // Si toglie SOLO la coda: host, maiuscole e punto finale restano, che
+        // negli slug italiani («…-s.p.a.») fanno parte dell'indirizzo.
+        const pulisciLinkedin = u => typeof u === 'string'
+          ? u.trim().split('?')[0].split('#')[0]
+          : u;
+        if (e.data.linkedin_url) e.data.linkedin_url = pulisciLinkedin(e.data.linkedin_url);
         const urlValida = e.data.linkedin_url && e.data.linkedin_url !== 'NESSUNA';
         const nuovoStato = urlValida ? 'linkedin_upd' : 'linkedin_ko';
         // Se nessuna URL, non toccare linkedin_url (evita NOT NULL constraint violation)
@@ -4648,7 +4720,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.34</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.35</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -5713,19 +5785,42 @@ function App() {
                           stato spariscono comunque da soli quando il conteggio
                           e' zero. */}
                       {!importDati.loading&&(()=>{
+                        // Ogni stato porta la sua spiegazione, che finisce nel
+                        // suggerimento del pulsante. Chiesto da Alberto il
+                        // 22/10/2026 per «linkedin_upd», ma il problema non era
+                        // di quello stato soltanto: un'etichetta come «LinkedIn
+                        // conf.» non dice a nessuno CHI ha confermato, e la
+                        // differenza fra ok e upd (macchina o persona) e' proprio
+                        // il dato che serve quando si va a capire un errore.
                         const STATI_FILTRO = [
-                          {k:"nuovo",            label:"Nuovo",              col:"#f59e0b"},
+                          {k:"nuovo",            label:"Nuovo",              col:"#f59e0b",
+                           desc:"Importata e mai lavorata: il classificatore non l'ha ancora presa."},
                           // Classificata, ma il verdetto non convince: confidenza
                           // non alta, oppure alta e contraddetta dal semaforo.
                           // Prima restava in `nuovo` col settore gia' scritto, e
                           // da li' non la vedeva piu' nessuno (v5.10).
-                          {k:"attesa_revisione", label:"Attesa revisione",   col:"#a78bfa"},
-                          {k:"classificata",     label:"Classificata",       col:"#3b82f6"},
-                          {k:"sito_mancante",    label:"Sito mancante",      col:"#64748b"},
-                          {k:"url_ambigua",      label:"URL ambigua",        col:"#f59e0b"},
-                          {k:"linkedin_ok",      label:"LinkedIn ok",        col:"#10b981"},
-                          {k:"linkedin_upd",     label:"LinkedIn conf.",     col:"#38bdf8"},
-                          {k:"linkedin_ko",      label:"LinkedIn KO",        col:"#f87171"},
+                          {k:"attesa_revisione", label:"Attesa revisione",   col:"#a78bfa",
+                           desc:"Classificata, ma il verdetto non convince: confidenza non alta, o alta e contraddetta dal semaforo. Si guarda in Code → Classificazioni."},
+                          {k:"classificata",     label:"Classificata",       col:"#3b82f6",
+                           desc:"Settore assegnato e accettato. Aspetta il giro LinkedIn."},
+                          {k:"sito_mancante",    label:"Sito mancante",      col:"#64748b",
+                           desc:"Senza sito web, o con un sito che non risponde: senza quello il classificatore non ha niente da leggere. Si lavora in Code → Siti Mancanti (clicca lo stato per andarci)."},
+                          {k:"url_ambigua",      label:"URL ambigua",        col:"#f59e0b",
+                           desc:"I candidati LinkedIn c'erano ma nessuno è stato dimostrato: verify() ha preferito non scegliere. Decide una persona in Code → URL Ambigui (clicca lo stato per andarci)."},
+                          // ATTENZIONE a cosa distinguono davvero questi due.
+                          // La migration v6 definiva linkedin_upd come «confermata
+                          // MANUALMENTE»: non e' piu' vero. Dal passaggio a tre
+                          // candidati, lo scenario 1 scrive linkedin_upd anche
+                          // quando a decidere e' stata verify(), in automatico.
+                          // Quindi la differenza fra i due NON e' chi ha deciso —
+                          // e' se HubSpot l'ha gia' ricevuto. Verificato sul
+                          // blueprint dello scenario 1 il 22/10/2026.
+                          {k:"linkedin_ok",      label:"LinkedIn ok",        col:"#10b981",
+                           desc:"Pagina LinkedIn decisa E già sincronizzata su HubSpot. È lo stato da cui parte lo scraper dei contatti."},
+                          {k:"linkedin_upd",     label:"LinkedIn da sincronizzare", col:"#38bdf8",
+                           desc:"Pagina LinkedIn decisa, ma non ancora arrivata su HubSpot: ci va al prossimo giro di sincronizzazione, e poi diventa «LinkedIn ok». Può averla scelta verify() da sola o una persona nello strumento di revisione — questo stato NON distingue i due casi."},
+                          {k:"linkedin_ko",      label:"LinkedIn KO",        col:"#f87171",
+                           desc:"Nessuna pagina LinkedIn, dichiarato a mano. Terminale in Grizzly, ma va su HubSpot col suo stato."},
                           // Dal 6 ottobre lo scenario 2, quando un modulo HubSpot
                           // fallisce, scrive questo stato PRIMA di scartare il
                           // bundle: cosi' l'azienda esce dalla coda invece di
@@ -5733,23 +5828,29 @@ function App() {
                           // Senza questo filtro pero' sarebbe uno stato cieco —
                           // fuori da ogni coda e invisibile — e le aziende
                           // sparirebbero in silenzio.
-                          {k:"hubspot_errore",   label:"Errore HubSpot",     col:"#ef4444"},
-                          {k:"contatti_trovati", label:"Contatti trovati",   col:"#10b981"},
+                          {k:"hubspot_errore",   label:"Errore HubSpot",     col:"#ef4444",
+                           desc:"Un modulo HubSpot è fallito. Lo stato viene scritto PRIMA di scartare il bundle, così l'azienda esce dalla coda invece di farsi richiedere all'infinito."},
+                          {k:"contatti_trovati", label:"Contatti trovati",   col:"#10b981",
+                           desc:"Persone raschiate dalla pagina LinkedIn e scritte. Da qui si passa alle email e a Lemlist."},
                           // Scartata a mano dal Classificatore: classificata,
                           // ma manca il necessario per proseguire. Terminale
                           // in Grizzly, ma destinata a HubSpot col suo stato,
                           // come linkedin_ko (v5.12).
-                          {k:"dati_insufficienti", label:"Dati insufficienti", col:"#94a3b8"},
+                          {k:"dati_insufficienti", label:"Dati insufficienti", col:"#94a3b8",
+                           desc:"Scartata a mano dal Classificatore: classificata, ma manca il necessario per proseguire. Terminale in Grizzly, va comunque su HubSpot col suo stato."},
                         ];
                         return (
                           <div style={{display:"flex",flexWrap:"wrap",gap:5,padding:"6px 14px",borderBottom:`1px solid rgba(59,130,246,0.15)`,background:"rgba(59,130,246,0.03)"}}>
-                            {STATI_FILTRO.map(({k,label,col})=>{
+                            {STATI_FILTRO.map(({k,label,col,desc})=>{
                               const cnt = importDati.rows.filter(r=>r.stato===k).length;
                               if(cnt===0) return null;
                               const on = importStatoFilter.has(k);
+                              // Il significato viene PRIMA dell'istruzione: chi si
+                              // ferma sul pulsante di solito vuole sapere cos'e'
+                              // quello stato, non come si accende un filtro.
                               return (
                                 <button key={k} onClick={()=>setImportStatoFilter(prev=>{const n=new Set(prev);on?n.delete(k):n.add(k);return n;})}
-                                  title={on?`Togli "${label}" dal filtro`:`Aggiungi "${label}" al filtro — se ne possono accendere piu' di uno`}
+                                  title={`${k} — ${desc||""}\n\n${on?`Clicca per togliere "${label}" dal filtro`:`Clicca per aggiungere "${label}" al filtro — se ne possono accendere piu' di uno`}`}
                                   style={{display:"flex",alignItems:"center",gap:5,padding:"3px 9px",borderRadius:5,border:`1px solid ${on?col:"rgba(148,163,184,0.2)"}`,background:on?`${col}18`:"transparent",color:on?col:"#64748b",cursor:"pointer",fontSize:10,fontWeight:on?700:400,transition:"all .12s"}}>
                                   {/* La casella dice che la scelta e' multipla: senza,
                                       questi pill sembrano alternativi fra loro. */}
@@ -5997,22 +6098,38 @@ function App() {
                                         </td>
                                         <td style={{padding:"5px 10px",color:C.muted,fontSize:9,whiteSpace:"nowrap"}}>{row.citta||"—"}</td>
                                         <td style={{padding:"5px 10px",color:C.muted,fontSize:9,whiteSpace:"nowrap"}}>{fmtFatturato(row.fatturato)}</td>
-                                        {/* «url_ambigua» porta alla scheda di QUESTA azienda nel
-                                            Review Tool. Gli altri stati restano etichette: non
-                                            hanno una pagina dove andare, e un finto link che non
-                                            porta da nessuna parte e' peggio di nessun link. */}
+                                        {/* Due stati hanno una coda dove si lavorano, e quindi un
+                                            posto dove andare: «url_ambigua» porta alla scheda nel
+                                            Review Tool, «sito_mancante» alla riga nella coda Siti
+                                            Mancanti (chiesto da Alberto il 22/10/2026). Gli altri
+                                            restano etichette: non hanno una pagina, e un finto link
+                                            che non porta da nessuna parte e' peggio di nessun link. */}
+                                        {(()=>{
+                                        const vaAlReview = row.stato==="url_ambigua";
+                                        const vaAiSiti   = row.stato==="sito_mancante";
+                                        const cliccabile = vaAlReview || vaAiSiti;
+                                        return (
                                         <td style={{padding:"5px 10px",whiteSpace:"nowrap"}}
-                                          onClick={row.stato==="url_ambigua" ? (e=>{
+                                          onClick={cliccabile ? (e=>{
                                             e.stopPropagation();
-                                            setVaiAAzienda({id:row.id, nome:row.nome, sogliaTolta:false});
-                                            setTab("revisione");
-                                            setCodeSubTab("url_ambigui");
+                                            if(vaAlReview){
+                                              setVaiAAzienda({id:row.id, nome:row.nome, sogliaTolta:false});
+                                              setTab("revisione");
+                                              setCodeSubTab("url_ambigui");
+                                            } else {
+                                              setVaiASito({id:row.id, nome:row.nome});
+                                              setTab("revisione");
+                                              setCodeSubTab("siti_mancanti");
+                                            }
                                           }) : undefined}>
-                                          <span title={row.stato==="url_ambigua" ? `Apri «${row.nome}» nello strumento di revisione` : undefined}
+                                          <span title={vaAlReview ? `Apri «${row.nome}» nello strumento di revisione`
+                                                     : vaAiSiti   ? `Vai a «${row.nome}» nella coda Siti Mancanti`
+                                                     : undefined}
                                             style={{fontSize:8,fontWeight:700,color:statiColor,textTransform:"uppercase",letterSpacing:"0.05em",
-                                              cursor:row.stato==="url_ambigua"?"pointer":"default",
-                                              textDecoration:row.stato==="url_ambigua"?"underline":"none"}}>{row.stato||"—"}</span>
-                                        </td>
+                                              cursor:cliccabile?"pointer":"default",
+                                              textDecoration:cliccabile?"underline":"none"}}>{row.stato||"—"}</span>
+                                        </td>);
+                                        })()}
                                         <td style={{padding:"5px 10px",whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}
                                           title={row.hubspot_id ? `id HubSpot ${row.hubspot_id}` : "mai arrivata su HubSpot"}>
                                           {row.hubspot_id
@@ -6955,7 +7072,13 @@ function App() {
                     const searchQ = encodeURIComponent(az.nome + ' sito web ufficiale');
                     const ddgUrl = `https://www.google.com/search?q=${searchQ}`;
                     return (
-                    <div key={az.id} className="hovrow" style={{display:"flex",alignItems:"center",gap:12,padding:"10px 20px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+                    <div key={az.id} id={`sito-row-${az.id}`} className="hovrow"
+                      style={{display:"flex",alignItems:"center",gap:12,padding:"10px 20px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap",
+                        // Accesa solo per qualche secondo dopo un salto da Ricerca
+                        // Aziende: scorrere fino alla riga non basta se poi la riga
+                        // e' identica alle altre cinquanta.
+                        ...(sitoAcceso===az.id ? {background:"rgba(251,191,36,0.14)", boxShadow:"inset 3px 0 0 #fbbf24"} : {}),
+                        transition:"background 0.4s"}}>
                       <div style={{flex:"0 0 220px"}}>
                         <div style={{fontSize:12,fontWeight:600,color:C.textHi,marginBottom:2}}>{az.nome}</div>
                         {/* Il fatturato si vede, perche' ora la coda e' ordinata
