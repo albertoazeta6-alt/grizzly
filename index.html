@@ -4799,7 +4799,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.42</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.43</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -6861,7 +6861,12 @@ function App() {
             const r = await fetch(`${url}/rest/v1/companies?id=eq.${az.id}`,{
               method:'DELETE', headers:{apikey:key,Authorization:`Bearer ${sbBearer()}`,Prefer:'return=minimal'}});
             if(r.ok||r.status===204){
-              setCodeQueue(q=>({...q, siti:q.siti.filter(c=>c.id!==az.id)}));
+              // Si toglie da TUTTE le liste che la mostrano: la stessa azienda
+              // puo' essere in piu' code, e una riga rimasta a schermo dopo una
+              // DELETE andata a buon fine e' peggio di un errore — la clicchi
+              // di nuovo e non capisci perche' non succede niente.
+              setCodeQueue(q=>({...q, siti:(q.siti||[]).filter(c=>c.id!==az.id)}));
+              setClassifReview(s=>({...s, rows:(s.rows||[]).filter(r2=>r2.id!==az.id)}));
               setConfermaElimina(null);
               // Il log e' l'unica traccia che resta: nel database la riga non
               // c'e' piu', e l'id non tornera' mai.
@@ -6924,6 +6929,35 @@ function App() {
             setClassifReview(s=>({...s,rows:s.rows.filter(r=>r.id!==id)}));
             setClassifEdit(s=>{const n={...s};delete n[id];return n;});
             showToast('✓ Salvato — Phantom la processerà al prossimo giro');
+            fetchQueueCounts();
+          };
+
+          // ── Il sito era sbagliato: si corregge e si riclassifica ─────────
+          // Chiesto da Alberto il 23/10/2026.
+          //
+          // PERCHE' NON BASTA SALVARE E BASTA
+          // `approvaClassif` scrive settore_confidenza='alta' e semaforo='✓':
+          // approva. Ma se il sito era sbagliato, il settore, la motivazione e
+          // l'icebreaker sono stati scritti leggendo il sito di QUALCUN ALTRO.
+          // Approvarli vorrebbe dire promuovere a «verificato» un giudizio nato
+          // su un'azienda diversa, e da li' in avanti nessuno lo rimetterebbe
+          // piu' in discussione.
+          // Quindi si azzera tutto cio' che derivava dal sito vecchio e si
+          // rimanda l'azienda al classificatore. E' la stessa regola di
+          // `salvaSito` nella coda Siti Mancanti.
+          const correggiSitoERiclassifica = async (id, nuovoSito) => {
+            const sito = normalizeSitoWeb((nuovoSito||"").trim());
+            if(!sito) return;
+            const ok = await _classifPatch(id, {
+              sito_web: sito, stato: "nuovo",
+              settore:null, settore_confidenza:null, settore_motivazione:null,
+              settore_suggerito:null, semaforo_verifica:null, note_verifica:null,
+              icebreaker:null, classificato_il:null,
+            });
+            if(!ok){ showToast('Errore salvataggio'); return; }
+            setClassifReview(s=>({...s, rows:s.rows.filter(r=>r.id!==id)}));
+            setClassifEdit(s=>{const n={...s};delete n[id];return n;});
+            showToast('✓ Sito corretto — l\'azienda torna al classificatore');
             fetchQueueCounts();
           };
 
@@ -7529,8 +7563,30 @@ function App() {
                                   <span>📍 {row.citta||'—'}{row.regione?` (${row.regione})`:''}</span>
                                   <span>💰 {fmtFatturato(row.fatturato)}</span>
                                 </div>
-                                <input value={curSito} onChange={e=>setField(row.id,'sito_web',e.target.value)} placeholder="nessun sito"
-                                  style={{background:"transparent",border:"none",borderBottom:`1px solid ${curSito!==row.sito_web?C.accent:"#1a2535"}`,padding:"2px 0",fontSize:10,color:"#3b82f6",fontFamily:"inherit",outline:"none",width:"100%"}}/>
+                                {/* IL SITO SI CORREGGE QUI.
+                                    Era un campo con una sottolineatura sottile e
+                                    nessuna indicazione: si poteva modificare, ma
+                                    non si capiva, e soprattutto salvarlo con
+                                    «Salva» approvava una classificazione nata
+                                    leggendo il sito sbagliato. */}
+                                <div style={{marginTop:4}}>
+                                  <div style={{fontSize:9,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",marginBottom:3}}>Sito web</div>
+                                  <input value={curSito} onChange={e=>setField(row.id,'sito_web',e.target.value)} placeholder="nessun sito"
+                                    style={{background:C.bg,border:`1px solid ${curSito!==(row.sito_web||'')?C.accent:C.border}`,borderRadius:4,padding:"5px 8px",fontSize:11,color:"#60a5fa",fontFamily:"'JetBrains Mono',monospace",outline:"none",width:"100%",boxSizing:"border-box"}}/>
+                                  {curSito!==(row.sito_web||'')&&(
+                                    <div style={{marginTop:6,padding:"7px 9px",borderRadius:5,background:"rgba(59,130,246,0.07)",border:"1px solid rgba(59,130,246,0.25)"}}>
+                                      <div style={{fontSize:10,color:C.text,lineHeight:1.5,marginBottom:6}}>
+                                        Hai cambiato il sito. Settore, motivazione e icebreaker erano
+                                        stati scritti leggendo quello vecchio: <strong>vanno rifatti</strong>,
+                                        non approvati.
+                                      </div>
+                                      <Btn color={C.accent} bg={C.accentDim} border="rgba(59,130,246,.4)" small
+                                        onClick={()=>correggiSitoERiclassifica(row.id, curSito)}>
+                                        Salva il sito e rimanda al classificatore
+                                      </Btn>
+                                    </div>
+                                  )}
+                                </div>
                                 {hasSug&&(
                                   <div style={{display:"flex",alignItems:"center",gap:6,background:"rgba(248,113,113,.04)",border:"1px solid rgba(248,113,113,.18)",borderRadius:4,padding:"5px 9px",fontSize:10,marginTop:6}}>
                                     <span style={{color:"#f87171",fontWeight:700}}>✗</span>
@@ -7602,6 +7658,19 @@ function App() {
                                 <Btn color={C.green} bg={C.greenDim} border="rgba(34,197,94,.35)" style={{flex:1}} onClick={()=>approvaClassif(row.id)}>✓ Salva</Btn>
                                 <Btn color={C.muted} bg="transparent" border={C.border} style={{flex:1}} onClick={()=>scartaClassif(row.id)}>✕ Scarta</Btn>
                                 <Btn color={C.accent} bg={C.accentDim} border="rgba(59,130,246,.35)" style={{flex:1}} onClick={()=>setClassifSelected(i=>(i+1)%filtered.length)}>→ Successivo</Btn>
+                                {/* ELIMINA — stessa meccanica della coda Siti Mancanti:
+                                    due clic, e il primo dice quanti contatti verrebbero
+                                    cancellati insieme all'azienda. */}
+                                <button onClick={()=>eliminaAzienda(row)}
+                                  title={confermaElimina===row.id
+                                    ? "Premi di nuovo per eliminare DEFINITIVAMENTE questa azienda e i suoi contatti"
+                                    : "Elimina l'azienda dal database"}
+                                  style={{padding:"6px 10px",fontSize:11,fontWeight:700,borderRadius:5,cursor:"pointer",whiteSpace:"nowrap",
+                                    color: confermaElimina===row.id ? "#fff" : "#f87171",
+                                    background: confermaElimina===row.id ? "#dc2626" : "rgba(248,113,113,0.08)",
+                                    border: `1px solid ${confermaElimina===row.id ? "#dc2626" : "rgba(248,113,113,0.25)"}`}}>
+                                  {confermaElimina===row.id ? "Confermi?" : "🗑"}
+                                </button>
                               </div>
                             </div>
                           </div>
