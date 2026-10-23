@@ -795,12 +795,19 @@ const FASI_INIT = [
   {id:"lemlist",    label:"Scraping dei lead",         scenario:"8",   icon:"🚀", stato:"bloccato", iniziato:null, completato:null, dettaglio:"Apri Grizzly Scraper per trovare i contatti"},
 ];
 
-// «classifica» non aveva nessun collegamento: il passaggio gira sull'agente
-// Azure e non ha un foglio da aprire. Da oggi ne ha uno — la console del
-// phantom di Google Maps, che cerca il sito alle aziende che non ce l'hanno.
-// Sta su questa fase perche' e' li' che il sito serve: senza sito il
-// classificatore non ha niente da leggere e l'azienda finisce in sito_mancante.
-const FASE_LINKS = {"classifica": {"sheet": null, "phantom": null, "phantomMaps": "https://phantombuster.com/930421472294585/phantoms/7816032779607077/console"}, "import": {"sheet": "https://docs.google.com/spreadsheets/d/1Xk8CuYjriLbsxqafpTkPKSIGyApUAnX7vj7TaRlLHEc/edit?usp=sharing", "phantom": null, "sheetLabel": "Aziende"}, "company": {"sheet": "https://docs.google.com/spreadsheets/d/1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE/edit?usp=sharing", "sheetLabel": "Company page verificate", "phantom": "https://phantombuster.com/930421472294585/phantoms/7679104398153989/console"}, "url_check": {"sheet": "https://docs.google.com/spreadsheets/d/1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE/edit?usp=sharing", "phantom": null, "sheetLabel": "Prospecting output", "monitor": "https://eu2.make.com/2589672/scenarios/8481061/logs?showCheckRuns=true&showChangeLog=true"}, "dipendenti": {"sheet": "https://docs.google.com/spreadsheets/d/1y21r84H4Cy2J7hW-bLfXgsD5mfK8KqEcI_apcc_cm-E/edit?gid=811728725#gid=811728725", "sheetLabel": "Dipendenti", "phantom": "https://phantombuster.com/930421472294585/phantoms/7449527000226999/console", "monitor": "https://eu2.make.com/2589672/scenarios/7044397/logs?showCheckRuns=true&showChangeLog=true"}, "email": {"sheet": "https://docs.google.com/spreadsheets/d/1x8C39EaD1PzKQ0LJ9RsusIxAa9eJKmRwMxzPVj2Flng/edit?gid=0#gid=0", "sheetLabel": "Email", "phantom": "https://phantombuster.com/930421472294585/phantoms/7176684592672454/console", "monitor": "https://eu2.make.com/2589672/scenarios/8612411/logs?showCheckRuns=true&showChangeLog=true"}, "hubspot": {"sheet": null, "phantom": null, "monitor": "https://eu2.make.com/2589672/scenarios/9614029/logs?showCheckRuns=true&showChangeLog=true"}, "lemlist": {"sheet": null, "phantom": null, "lemlist": "https://app.lemlist.com/teams/tea_wT4jk7upASTbpAtjp/campaigns-next/cam_JZd5CAZbe39QDFzrr/sequences/seq_rhQEWWHwvKqNDxWZS/edit"}};
+// GOOGLE MAPS: ABBANDONATO IL 23/10/2026, deciso con Alberto.
+// Il pulsante che apriva la console del phantom di Maps stava qui. E' stato
+// tolto perche' il metodo non funziona, non perche' sia rotto: su 21 aziende
+// con nome e comune, Maps ha proposto 13 siti e UNO solo era giusto.
+// Gli altri: a McFly di Sassuolo il centro sportivo del Sassuolo, a EGL di
+// Milano la Basilica di Santa Maria delle Grazie, a GUA.MAR. di Napoli
+// un'armeria. A Parma e Modena restituiva un'altra azienda dello stesso
+// mestiere nella stessa citta', quindi nemmeno il controllo sul comune
+// proteggeva.
+// Il pulsante e' tolto per non poterlo lanciare per sbaglio: consuma tempo
+// Phantombuster. Il resto (colonne maps_*, maps-input, maps-output, il
+// riquadro del candidato nella coda) resta dov'e', con i dati gia' raccolti.
+const FASE_LINKS = {"import": {"sheet": "https://docs.google.com/spreadsheets/d/1Xk8CuYjriLbsxqafpTkPKSIGyApUAnX7vj7TaRlLHEc/edit?usp=sharing", "phantom": null, "sheetLabel": "Aziende"}, "company": {"sheet": "https://docs.google.com/spreadsheets/d/1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE/edit?usp=sharing", "sheetLabel": "Company page verificate", "phantom": "https://phantombuster.com/930421472294585/phantoms/7679104398153989/console"}, "url_check": {"sheet": "https://docs.google.com/spreadsheets/d/1kpegNLu1ylOcHBrt1xZ5RipVIgKvWkGzZQzaG35otLE/edit?usp=sharing", "phantom": null, "sheetLabel": "Prospecting output", "monitor": "https://eu2.make.com/2589672/scenarios/8481061/logs?showCheckRuns=true&showChangeLog=true"}, "dipendenti": {"sheet": "https://docs.google.com/spreadsheets/d/1y21r84H4Cy2J7hW-bLfXgsD5mfK8KqEcI_apcc_cm-E/edit?gid=811728725#gid=811728725", "sheetLabel": "Dipendenti", "phantom": "https://phantombuster.com/930421472294585/phantoms/7449527000226999/console", "monitor": "https://eu2.make.com/2589672/scenarios/7044397/logs?showCheckRuns=true&showChangeLog=true"}, "email": {"sheet": "https://docs.google.com/spreadsheets/d/1x8C39EaD1PzKQ0LJ9RsusIxAa9eJKmRwMxzPVj2Flng/edit?gid=0#gid=0", "sheetLabel": "Email", "phantom": "https://phantombuster.com/930421472294585/phantoms/7176684592672454/console", "monitor": "https://eu2.make.com/2589672/scenarios/8612411/logs?showCheckRuns=true&showChangeLog=true"}, "hubspot": {"sheet": null, "phantom": null, "monitor": "https://eu2.make.com/2589672/scenarios/9614029/logs?showCheckRuns=true&showChangeLog=true"}, "lemlist": {"sheet": null, "phantom": null, "lemlist": "https://app.lemlist.com/teams/tea_wT4jk7upASTbpAtjp/campaigns-next/cam_JZd5CAZbe39QDFzrr/sequences/seq_rhQEWWHwvKqNDxWZS/edit"}};
 
 // I RUOLI NON LI GOVERNA GRIZZLY. Deciso da Alberto il 21/10/2026.
 // Chi e' un bersaglio lo stabilisce lo scraper, e i contatti che non lo sono
@@ -936,7 +943,7 @@ function App() {
   const [settingEdit, setSettingEdit] = useState({}); // {chiave: valore_editato}
   // Code di Revisione
   const [codeQueue, setCodeQueue] = useState({siti:[], urlAmbigue:[], contatti:[], rilanciaReady:false, loading:false, loaded:false});
-  const [queueCounts, setQueueCounts] = useState({siti:null, urlAmbigue:null, contatti:null, bassaConf:null, mediaConf:null, classifDaRevedere:null, classifMaiVerif:null, codaScraper:null, mapsInVolo:null, loaded:false});
+  const [queueCounts, setQueueCounts] = useState({siti:null, urlAmbigue:null, contatti:null, bassaConf:null, mediaConf:null, classifDaRevedere:null, classifMaiVerif:null, codaScraper:null, loaded:false});
   const [codeSitoEdit, setCodeSitoEdit] = useState({}); // {company_id: url_string}
   const [sitoPreview, setSitoPreview] = useState(null); // company id con preview aperta
   const [codeUrlEdit, setCodeUrlEdit] = useState({});   // {company_id: linkedin_url}
@@ -2293,7 +2300,7 @@ function App() {
       try { const r = await fetch(`${url}/rest/v1/${endpoint}`,{headers:h}); const cr = r.headers.get("content-range")||"0/0"; return parseInt(cr.split("/")[1]||"0"); }
       catch { return null; }
     };
-    const [siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, classifMaiVerif, codaScraper, mapsInVolo] = await Promise.all([
+    const [siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, classifMaiVerif, codaScraper] = await Promise.all([
       cnt("companies?stato=eq.sito_mancante&select=id&limit=1"),
       cnt("companies?stato=eq.url_ambigua&select=id&limit=1"),
       Promise.resolve(0),
@@ -2313,14 +2320,8 @@ function App() {
       // Quante aziende aspettano lo Scraper. Senza questo numero la coda e'
       // invisibile: la riempi, ti distrai, e non sai piu' se e' stata lavorata.
       cnt("companies?scraper_coda_il=not.is.null&select=id&limit=1"),
-      // Quante ricerche sono partite su Google Maps e non sono ancora tornate.
-      // E' un FATTO SCRITTO, non un timer: l'azienda esce da qui solo quando
-      // maps-output le scrive l'esito. Senza questo numero il riquadro del
-      // Classificatore resta «completato» mentre il phantom sta lavorando, che
-      // e' esattamente quello che Alberto ha visto il 23/10/2026.
-      cnt("companies?maps_inviato_il=not.is.null&maps_esito_il=is.null&select=id&limit=1"),
     ]);
-    setQueueCounts({siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, classifMaiVerif, codaScraper, mapsInVolo, loaded:true});
+    setQueueCounts({siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, classifMaiVerif, codaScraper, loaded:true});
   }, []);
 
   // carica contatori quando il run è attivo
@@ -2329,14 +2330,13 @@ function App() {
     fetchQueueCounts();
   }, [runAttivo, sbReady, fetchQueueCounts]);
 
-  // Il phantom di Maps gira fuori dalla run: se i contatori si aggiornassero
-  // solo con una run attiva, «ricerche in corso» resterebbe fermo per tutto il
-  // tempo in cui serve. Ogni 20 secondi finche' ce n'e' almeno una in volo.
+  // Una lettura dei contatori anche senza run attiva: serve ad avere i numeri
+  // delle code appena si apre la pagina. Era nata ogni 20 secondi per seguire
+  // il phantom di Maps; abbandonato quello, il ripasso continuo non serve piu'
+  // e interrogare il database a vuoto ogni venti secondi e' solo rumore.
   useEffect(() => {
     if(!sbReady) return;
     fetchQueueCounts();
-    const t = setInterval(fetchQueueCounts, 20000);
-    return () => clearInterval(t);
   }, [sbReady, fetchQueueCounts]);
 
   // ── Controllo duplicati Pro.Persona prima di Cerca Email ────────────────────
@@ -4796,7 +4796,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.40</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.41</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -5280,12 +5280,6 @@ function App() {
                               aziende hanno `maps_inviato_il` e non ancora
                               `maps_esito_il`, cioe' un fatto scritto. Sparisce da
                               solo quando maps-output ha incassato tutto. */}
-                          {fase.id==="classifica"&&queueCounts.mapsInVolo>0&&(
-                            <div style={{fontSize:9,color:"#c084fc",fontWeight:700,marginBottom:5,display:"flex",alignItems:"center",gap:5}}>
-                              <span style={{width:6,height:6,borderRadius:"50%",background:"#c084fc",display:"inline-block",animation:"pulse 1.4s ease-in-out infinite"}}/>
-                              Maps: {queueCounts.mapsInVolo} ricerche in corso
-                            </div>
-                          )}
                           {/* Timer */}
                           {fase.iniziato&&(
                             <div style={{fontSize:8,color:C.muted,fontFamily:"'JetBrains Mono',monospace",marginBottom:5}}>
@@ -5299,20 +5293,6 @@ function App() {
                             )}
                             {FASE_LINKS[fase.id]?.sheet&&fase.stato!=="bloccato"&&fase.id!=="company"&&fase.id!=="import"&&(
                               <button onClick={()=>openSheet(FASE_LINKS[fase.id].sheet,FASE_LINKS[fase.id].sheetLabel||fase.label)} style={{fontSize:8,fontWeight:600,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,0.3)`,borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Dati</button>
-                            )}
-                            {/* Il phantom di Google Maps, che cerca il sito delle aziende
-                                che non ce l'hanno. Pulsante a se' e non al posto di
-                                «Phantom»: sono due agenti diversi, con due console
-                                diverse, e durante un giro puo' servire guardarli
-                                entrambi. Chiesto da Alberto il 22/10/2026. */}
-                            {FASE_LINKS[fase.id]?.phantomMaps&&(
-                              <a href={FASE_LINKS[fase.id].phantomMaps} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}>
-                                {/* Stesso viola di «Phantom»: sono due console dello
-                                    stesso strumento, e un colore diverso faceva
-                                    pensare a una cosa diversa. */}
-                                <button title="Apri la console del phantom che cerca i siti su Google Maps"
-                                  style={{fontSize:8,fontWeight:600,color:C.purple,background:C.purpleDim,border:"1px solid rgba(168,85,247,.2)",borderRadius:3,padding:"3px 7px",cursor:"pointer",minWidth:44,textAlign:"center"}}>Maps</button>
-                              </a>
                             )}
                             {FASE_LINKS[fase.id]?.phantom&&(
                               <a href={FASE_LINKS[fase.id].phantom} target="_blank" style={{textDecoration:"none"}}>
