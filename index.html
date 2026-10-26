@@ -5015,7 +5015,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.50</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.51</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -7207,6 +7207,63 @@ function App() {
             fetchQueueCounts();
           };
 
+          // ── Esporta la coda Siti Mancanti ────────────────────────────────
+          // v5.51 — 26/10/2026, chiesto da Alberto: ragione sociale, partita
+          // IVA, comune.
+          //
+          // E' un .xlsx VERO, non un CSV travestito. SheetJS e' gia' caricato
+          // in cima alla pagina e lo usa l'import: una libreria c'era, e un
+          // CSV avrebbe comunque chiesto a chi lo apre di sapere che il
+          // separatore italiano e' il punto e virgola.
+          //
+          // ESPORTA LE RIGHE VISIBILI, con i filtri accesi — non tutta la
+          // coda. Un file che contiene un elenco diverso da quello a schermo
+          // e' il difetto di famiglia di questo progetto in forma portatile:
+          // esce dal sistema, continua a vivere da solo, e chi ci lavora
+          // sopra non ha piu' modo di sapere da dove veniva. Il numero di
+          // righe sta nel nome del file e nel log, cosi' si confronta con il
+          // contatore in testa alla coda.
+          const esportaSitiMancanti = () => {
+            const righe = codeQueue.siti
+              .filter(az=>cercaAzienda(az,sitiSearch))
+              .filter(az=>superaSoglia(az.fatturato, sogliaFatt))
+              .filter(az=>passaSettore(az, settoreCoda))
+              .sort((a,b)=>confrontaCelle(a.fatturato, b.fatturato, true, 'desc'));
+            if(!righe.length){ showToast("⚠ Nessuna riga da esportare"); return; }
+            if(typeof XLSX === "undefined"){
+              // La libreria arriva da un CDN: se quel caricamento fallisce,
+              // meglio dirlo che scaricare un file rotto.
+              pushLog("error","✕ Libreria Excel non caricata: ricarica la pagina e riprova");
+              showToast("✕ Libreria Excel non disponibile"); return;
+            }
+            try {
+              const dati = righe.map(az => ({
+                "Ragione sociale": (az.nome||"").trim(),
+                // La partita IVA e' TESTO, non un numero: scritta come numero
+                // Excel toglie gli zeri iniziali e trasforma le piu' lunghe in
+                // notazione scientifica. SheetJS la tiene testo se lo e' gia'.
+                "Partita IVA":     (az.partita_iva||"").trim(),
+                "Comune":          (az.citta||"").trim(),
+              }));
+              const ws = XLSX.utils.json_to_sheet(dati, {header:["Ragione sociale","Partita IVA","Comune"]});
+              ws["!cols"] = [{wch:52},{wch:16},{wch:24}];
+              const wb = XLSX.utils.book_new();
+              XLSX.utils.book_append_sheet(wb, ws, "Siti mancanti");
+              const oggi = new Date().toISOString().slice(0,10);
+              const nome = `siti-mancanti_${oggi}_${righe.length}-righe.xlsx`;
+              XLSX.writeFile(wb, nome);
+              // Senza partita IVA la riga e' molto meno utile: e' la chiave
+              // con cui si cerca l'azienda ovunque. Dirlo qui evita di
+              // scoprirlo aprendo il file.
+              const senzaPiva = righe.filter(r=>!(r.partita_iva||"").trim()).length;
+              pushLog("ok", `⤓ Esportate ${righe.length} righe su ${codeQueue.siti.length} in coda — ${nome}`);
+              if(senzaPiva>0) pushLog("warn", `⬡ ${senzaPiva} senza partita IVA: quelle non si riescono a cercare altrove`);
+            } catch(e) {
+              pushLog("error", `✕ Export fallito: ${e.message}`);
+              showToast("✕ Export fallito");
+            }
+          };
+
           // Approva URL ambigua (urlOverride per quando non c'è edit in stato)
           const approvaUrl = async (companyId, urlOverride) => {
             const linkedin = (urlOverride!==undefined ? urlOverride : (codeUrlEdit[companyId]||"")).trim();
@@ -7567,6 +7624,21 @@ function App() {
                           </span>}
                       </span>;
                     })()}
+                    {/* v5.51 — chiesto da Alberto il 26/10/2026.
+                        Esporta ESATTAMENTE le righe che stai vedendo, con i
+                        filtri che hai acceso: un export che ignora i filtri
+                        sarebbe un elenco diverso da quello a schermo, e
+                        nessuno se ne accorgerebbe fino a lavoro fatto.
+                        Quante righe escono e quante non hanno partita IVA si
+                        leggono nel log: la P.IVA e' la chiave con cui si cerca
+                        un'azienda altrove, e senza quella la riga vale molto
+                        meno. */}
+                    <button onClick={()=>esportaSitiMancanti()}
+                      title="Scarica le righe visibili (ragione sociale, partita IVA, comune)"
+                      style={{marginLeft:8,padding:"3px 9px",fontSize:10,fontWeight:700,borderRadius:5,cursor:"pointer",
+                              border:`1px solid ${C.border}`,background:"transparent",color:C.muted}}>
+                      ⤓ Esporta
+                    </button>
                   </div>
                   {codeQueue.siti
                     .filter(az=>cercaAzienda(az,sitiSearch))
