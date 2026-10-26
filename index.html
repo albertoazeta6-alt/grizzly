@@ -1068,6 +1068,11 @@ function App() {
   // sito_mancante 34 su 115 valgono il 96%. Lavorare dall'alto copre quasi
   // tutto il valore commerciale in una frazione del tempo.
   const [urlSort,          setUrlSort]          = useState({col:'fatturato', dir:'desc'});
+  // v5.52 — ordinamento della coda Siti Mancanti, chiesto da Alberto il
+  // 26/10/2026 insieme alla tabella. Parte da fatturato decrescente, che era
+  // l'ordine fisso di prima: cambiare l'aspetto senza cambiare l'ordine
+  // iniziale evita di far sembrare «sparite» le righe che stavano in cima.
+  const [sitiSort,         setSitiSort]         = useState({col:'fatturato', dir:'desc'});
   // Soglia di fatturato per le code. 0 = nessuna soglia, si vede tutto.
   // Chi sta sotto NON viene nascosto in silenzio: la barra dice sempre quante
   // righe la soglia sta escludendo e quante non hanno il fatturato.
@@ -5015,7 +5020,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.51</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.52</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -7640,93 +7645,136 @@ function App() {
                       ⤓ Esporta
                     </button>
                   </div>
-                  {codeQueue.siti
-                    .filter(az=>cercaAzienda(az,sitiSearch))
-                    .filter(az=>superaSoglia(az.fatturato, sogliaFatt))
-                    .filter(az=>passaSettore(az, settoreCoda))
-                    // Dal piu' grosso al piu' piccolo, i senza-fatturato in fondo.
-                    .sort((a,b)=>confrontaCelle(a.fatturato, b.fatturato, true, 'desc'))
-                    .map(az=>{
-                    const searchQ = encodeURIComponent(az.nome + ' sito web ufficiale');
-                    const ddgUrl = `https://www.google.com/search?q=${searchQ}`;
-                    return (
-                    <div key={az.id} id={`sito-row-${az.id}`} className="hovrow"
-                      style={{display:"flex",alignItems:"center",gap:12,padding:"10px 20px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap",
-                        // Accesa solo per qualche secondo dopo un salto da Ricerca
-                        // Aziende: scorrere fino alla riga non basta se poi la riga
-                        // e' identica alle altre cinquanta.
-                        ...(sitoAcceso===az.id ? {background:"rgba(251,191,36,0.14)", boxShadow:"inset 3px 0 0 #fbbf24"} : {}),
-                        transition:"background 0.4s"}}>
-                      {/* ── IDENTITA' DELL'AZIENDA ──
-                          Nome su una riga sua, e sotto i tre dati con cui si
-                          riconosce: comune, partita IVA, fatturato. Chiesti da
-                          Alberto il 23/10/2026 perche' erano schiacciati in una
-                          riga di testo grigio da nove pixel.
-                          Ognuno ha la sua etichetta: senza, «42025» e «2026»
-                          si somigliano troppo. Quando un dato manca lo si dice,
-                          invece di lasciare un buco: «non noto» e' a sua volta
-                          un'informazione, ed e' spesso il motivo per cui
-                          quell'azienda e' ferma. */}
-                      <div style={{flex:"1 1 320px",minWidth:260}}>
-                        <div style={{fontSize:13,fontWeight:700,color:C.textHi,marginBottom:4,lineHeight:1.25}}>{az.nome}</div>
-                        <div style={{display:"flex",flexWrap:"wrap",gap:"3px 14px",fontSize:11}}>
-                          <span style={{color:az.citta?C.text:C.muted}}>
-                            <span style={{color:C.muted,fontSize:9,textTransform:"uppercase",letterSpacing:".05em",marginRight:4}}>Comune</span>
-                            {az.citta||<span style={{fontStyle:"italic"}}>non noto</span>}
-                          </span>
-                          <span style={{color:az.partita_iva?C.text:C.muted,fontFamily:az.partita_iva?"'JetBrains Mono',monospace":"inherit"}}>
-                            <span style={{color:C.muted,fontSize:9,textTransform:"uppercase",letterSpacing:".05em",marginRight:4,fontFamily:"inherit"}}>P.IVA</span>
-                            {az.partita_iva||<span style={{fontStyle:"italic"}}>non nota</span>}
-                          </span>
-                          <span style={{color:numFatturato(az.fatturato)!==null?"#fbbf24":C.muted}}>
-                            <span style={{color:C.muted,fontSize:9,textTransform:"uppercase",letterSpacing:".05em",marginRight:4}}>Fatturato</span>
-                            {numFatturato(az.fatturato)!==null ? fmtFatturato(az.fatturato) : <span style={{fontStyle:"italic"}}>non noto</span>}
-                          </span>
-                          {az.settore&&(
-                            <span style={{color:C.text}}>
-                              <span style={{color:C.muted,fontSize:9,textTransform:"uppercase",letterSpacing:".05em",marginRight:4}}>Settore</span>
-                              {az.settore}
-                            </span>
-                          )}
-                        </div>
-                        {/* Un sito gia' presente qui vuol dire che non risponde:
-                            va mostrato, altrimenti non si sa cosa correggere. */}
-                        {az.sito_web&&(
-                          <div style={{fontSize:10,color:"#fbbf24",marginTop:4,fontFamily:"'JetBrains Mono',monospace"}}
-                            title={az.settore_motivazione||""}>
-                            ⚠ {az.sito_web} <span style={{color:C.muted}}>non raggiungibile</span>
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        onClick={()=>window.open(ddgUrl,'_blank')}
-                        title="Cerca sito web"
-                        style={{padding:"5px 10px",fontSize:11,fontWeight:600,background:"rgba(99,102,241,0.08)",border:"1px solid rgba(99,102,241,0.2)",borderRadius:5,color:"#818cf8",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
-                        🔍 Cerca
-                      </button>
-                      <input
-                        type="text"
-                        placeholder="https://www.azienda.it"
-                        value={codeSitoEdit[az.id]||""}
-                        onChange={e=>setCodeSitoEdit(s=>({...s,[az.id]:e.target.value}))}
-                        style={{flex:"1 1 200px",minWidth:160,background:C.bg,border:`1px solid ${codeSitoEdit[az.id]?C.accent:C.border}`,borderRadius:3,padding:"6px 10px",fontSize:11,color:C.text,fontFamily:"'JetBrains Mono',monospace"}}
-                      />
-                      <Btn color={C.green} bg={C.greenDim} border="rgba(34,197,94,.4)" small disabled={!codeSitoEdit[az.id]} onClick={()=>salvaSito(az.id)}>Salva</Btn>
-                      {/* ELIMINA — due clic, e il primo dice quanti contatti
-                          verrebbero cancellati insieme all'azienda. */}
-                      <button onClick={()=>eliminaAzienda(az)}
-                        title={confermaElimina===az.id
-                          ? "Premi di nuovo per eliminare DEFINITIVAMENTE questa azienda e i suoi contatti"
-                          : "Elimina l'azienda dal database — non entrera' mai in pipeline"}
-                        style={{padding:"5px 10px",fontSize:11,fontWeight:700,borderRadius:5,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,
-                          color: confermaElimina===az.id ? "#fff" : "#f87171",
-                          background: confermaElimina===az.id ? "#dc2626" : "rgba(248,113,113,0.08)",
-                          border: `1px solid ${confermaElimina===az.id ? "#dc2626" : "rgba(248,113,113,0.25)"}`}}>
-                        {confermaElimina===az.id ? "Confermi?" : "🗑"}
-                      </button>
-                    </div>
-                    );
-                  })}
+                  {/* ── v5.52 — TABELLA, chiesta da Alberto il 26/10/2026 ──
+                      Prima ogni azienda era una scheda alta tre righe: per
+                      confrontare due aziende bisognava ricordarsi la prima
+                      mentre si leggeva la seconda. In tabella si leggono in
+                      colonna, e si possono ordinare.
+
+                      `maxHeight` + `overflowY:auto` qui NON sono decorativi,
+                      sono cio' che fa funzionare l'intestazione fissa:
+                      `position:sticky` si aggancia al primo antenato che
+                      scorre, e la scheda che contiene tutto ha `overflow:
+                      hidden`, che e' un contenitore senza scorrimento. Senza
+                      questo riquadro l'intestazione resterebbe ferma in cima
+                      alla tabella e scorrerebbe via come il resto. */}
+                  <div style={{maxHeight:"62vh",overflowY:"auto",marginTop:8,borderTop:`1px solid ${C.border}`}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                      <thead>
+                        <tr style={{background:C.bg,position:"sticky",top:0,zIndex:2}}>
+                          {[{l:"Ragione sociale",k:"nome"},{l:"Comune",k:"citta"},{l:"P.IVA",k:"partita_iva"},
+                            {l:"Fatturato",k:"fatturato"},{l:"Settore",k:"settore"},
+                            {l:"",k:null},{l:"Sito web",k:null},{l:"",k:null},{l:"",k:null}].map(({l,k},ci)=>{
+                            const attivo = k && sitiSort.col===k;
+                            return (
+                              <th key={ci}
+                                onClick={k?()=>setSitiSort(x=>({col:k,dir:x.col===k&&x.dir==="asc"?"desc":"asc"})):undefined}
+                                style={{padding:"7px 10px",textAlign:"left",fontWeight:600,fontSize:9,textTransform:"uppercase",
+                                  letterSpacing:".05em",color:attivo?C.accent:C.muted,borderBottom:`1px solid ${C.border}`,
+                                  cursor:k?"pointer":"default",userSelect:"none",whiteSpace:"nowrap"}}>
+                                {l}{attivo?(sitiSort.dir==="asc"?" ↑":" ↓"):(k?" ·":"")}
+                              </th>
+                            );
+                          })}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {/* I TRE filtri devono restare allineati al contatore
+                            qui sopra. Se ne aggiungi uno, va messo anche li':
+                            un filtro collegato alla tabella ma non al numero
+                            produce due verita' diverse senza nessun errore. */}
+                        {codeQueue.siti
+                          .filter(az=>cercaAzienda(az,sitiSearch))
+                          .filter(az=>superaSoglia(az.fatturato, sogliaFatt))
+                          .filter(az=>passaSettore(az, settoreCoda))
+                          .sort((a,b)=>sitiSort.col
+                            ? confrontaCelle(a[sitiSort.col], b[sitiSort.col], sitiSort.col==="fatturato", sitiSort.dir)
+                            : 0)
+                          .map((az,i)=>{
+                          const ddgUrl = `https://www.google.com/search?q=${encodeURIComponent(az.nome + ' sito web ufficiale')}`;
+                          const manca = (v)=><span style={{color:C.muted,fontStyle:"italic"}}>non noto</span>;
+                          return (
+                          <tr key={az.id} id={`sito-row-${az.id}`} className="hovrow"
+                            style={{borderBottom:`1px solid ${C.border}`,
+                              // Accesa per qualche secondo dopo un salto da Ricerca
+                              // Aziende: scorrere fino alla riga non basta se poi la
+                              // riga e' identica alle altre cinquanta.
+                              ...(sitoAcceso===az.id
+                                ? {background:"rgba(251,191,36,0.14)", boxShadow:"inset 3px 0 0 #fbbf24"}
+                                : {background:i%2===0?C.surface:"transparent"}),
+                              transition:"background 0.4s"}}>
+                            <td style={{padding:"6px 10px",fontWeight:600,color:C.textHi,maxWidth:260}} title={az.nome}>
+                              <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{az.nome}</div>
+                              {/* Un sito gia' presente in questa coda vuol dire che
+                                  NON risponde: va mostrato, o non si sa cosa
+                                  correggere. */}
+                              {az.sito_web&&(
+                                <div style={{fontSize:9,color:"#fbbf24",marginTop:2,fontFamily:"'JetBrains Mono',monospace",
+                                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
+                                  title={`${az.sito_web} — non raggiungibile`}>
+                                  ⚠ {az.sito_web} <span style={{color:C.muted}}>non raggiungibile</span>
+                                </div>
+                              )}
+                            </td>
+                            <td style={{padding:"6px 10px",color:az.citta?C.text:C.muted,fontSize:10,whiteSpace:"nowrap"}}>
+                              {az.citta||manca()}
+                            </td>
+                            <td style={{padding:"6px 10px",fontSize:10,whiteSpace:"nowrap",
+                              color:az.partita_iva?C.text:C.muted,
+                              fontFamily:az.partita_iva?"'JetBrains Mono',monospace":"inherit"}}>
+                              {az.partita_iva||manca()}
+                            </td>
+                            <td style={{padding:"6px 10px",fontSize:10,whiteSpace:"nowrap",
+                              color:numFatturato(az.fatturato)!==null?"#fbbf24":C.muted}}>
+                              {numFatturato(az.fatturato)!==null ? fmtFatturato(az.fatturato) : manca()}
+                            </td>
+                            <td style={{padding:"6px 10px",color:az.settore?C.text:C.muted,fontSize:10,whiteSpace:"nowrap"}}>
+                              {az.settore||manca()}
+                            </td>
+                            <td style={{padding:"6px 6px",whiteSpace:"nowrap"}}>
+                              <button onClick={()=>window.open(ddgUrl,'_blank')}
+                                title="Cerca il sito di questa azienda su Google"
+                                style={{padding:"4px 9px",fontSize:10,fontWeight:600,background:"rgba(99,102,241,0.08)",
+                                  border:"1px solid rgba(99,102,241,0.2)",borderRadius:5,color:"#818cf8",cursor:"pointer"}}>
+                                🔍 Cerca
+                              </button>
+                            </td>
+                            <td style={{padding:"6px 6px",minWidth:190}}>
+                              <input type="text" placeholder="https://www.azienda.it"
+                                value={codeSitoEdit[az.id]||""}
+                                onChange={e=>setCodeSitoEdit(s=>({...s,[az.id]:e.target.value}))}
+                                // Invio salva: con una coda da scorrere, passare
+                                // dalla tastiera al mouse a ogni riga costa piu'
+                                // del salvataggio stesso.
+                                onKeyDown={e=>{ if(e.key==='Enter'&&codeSitoEdit[az.id]) salvaSito(az.id); }}
+                                style={{width:"100%",background:C.bg,borderRadius:3,padding:"5px 9px",fontSize:10,color:C.text,
+                                  border:`1px solid ${codeSitoEdit[az.id]?C.accent:C.border}`,
+                                  fontFamily:"'JetBrains Mono',monospace"}}/>
+                            </td>
+                            <td style={{padding:"6px 4px",whiteSpace:"nowrap"}}>
+                              <Btn color={C.green} bg={C.greenDim} border="rgba(34,197,94,.4)" small
+                                disabled={!codeSitoEdit[az.id]} onClick={()=>salvaSito(az.id)}>Salva</Btn>
+                            </td>
+                            <td style={{padding:"6px 10px 6px 4px",whiteSpace:"nowrap"}}>
+                              {/* ELIMINA — due clic, e il primo dice quanti contatti
+                                  verrebbero cancellati insieme all'azienda. */}
+                              <button onClick={()=>eliminaAzienda(az)}
+                                title={confermaElimina===az.id
+                                  ? "Premi di nuovo per eliminare DEFINITIVAMENTE questa azienda e i suoi contatti"
+                                  : "Elimina l'azienda dal database — non entrera' mai in pipeline"}
+                                style={{padding:"4px 9px",fontSize:10,fontWeight:700,borderRadius:5,cursor:"pointer",
+                                  color: confermaElimina===az.id ? "#fff" : "#f87171",
+                                  background: confermaElimina===az.id ? "#dc2626" : "rgba(248,113,113,0.08)",
+                                  border: `1px solid ${confermaElimina===az.id ? "#dc2626" : "rgba(248,113,113,0.25)"}`}}>
+                                {confermaElimina===az.id ? "Confermi?" : "🗑"}
+                              </button>
+                            </td>
+                          </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
