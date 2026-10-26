@@ -3679,20 +3679,45 @@ function App() {
     } catch(e) { setDbContatti(p=>({...p, loading:false})); }
   };
 
+  // ── La query dei Leads: UNA sola, e NON troncata ─────────────────────────
+  // v5.45 — 26/10/2026.
+  //
+  // Prima qui c'era `limit=1000` (300 con la run corrente). PostgREST
+  // restituiva le prime mille righe per data decrescente e basta: nessun
+  // errore, nessun segnale. Con 1.952 contatti in archivio, **952 non
+  // esistevano per chi guardava la tabella**.
+  //
+  // Lo ha scoperto il contatore «Pronti mai inviati», il giorno stesso in cui
+  // e' nato: diceva 443 mentre la tabella ne mostrava 430. I 13 mancanti erano
+  // contatti vecchi, con l'email in mano e inviabili, fuori dalla finestra dei
+  // mille. Non erano selezionabili: chi lavora da «Seleziona tutti» non li
+  // avrebbe mandati mai.
+  //
+  // E' lo stesso difetto del dedup all'import (vedi `sbTutte` in cima al file)
+  // e delle code di revisione che si accorciavano da sole: un risultato
+  // parziale indistinguibile da uno completo. La cura e' la stessa, e la
+  // funzione c'era gia'.
+  //
+  // L'ordinamento tiene `id.desc` come spareggio: senza un criterio univoco
+  // Postgres puo' restituire la stessa riga in due pagine e ometterne un'altra.
+  const CONTATTI_SELECT = "id,nome_completo,ruolo,linkedin_url,email,stato,tipo,email_origine,company_id,companies(nome,settore,sito_web,fatturato,hs_lifecyclestage)";
+  const CONTATTI_STATI  = "trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato";
+  const percorsoContatti = () => {
+    const ts = (runStart && !contattiTutteRunRef.current) ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
+    return `contacts?select=${CONTATTI_SELECT}&stato=in.(${CONTATTI_STATI})${ts}&order=creato_il.desc,id.desc`;
+  };
+
   const fetchContattiRunSilent = async () => {
     // Aggiorna senza azzerare selezioni: aggiunge nuovi, rimuove processati
     try {
       const {url:sbUrl, key:sbKey} = getSbCreds();
       if (!sbUrl || !sbKey) return;
-      const ts = (runStart && !contattiTutteRunRef.current) ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
-      // Su tutto il database i contatti superano il mezzo migliaio: con il
-      // limite della run si perderebbero per strada senza alcun avviso.
-      const quanti = contattiTutteRunRef.current ? 1000 : 300;
-      const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,tipo,email_origine,company_id,companies(nome,settore,sito_web,fatturato,hs_lifecyclestage)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato)${ts}&order=creato_il.desc,id.desc&limit=${quanti}`, {
-        headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}
-      });
-      if (!r.ok) return;
-      const fresh = await r.json();
+      // Pagina anche qui. Costa due o tre chiamate invece di una ogni dieci
+      // secondi, e in cambio una riga fuori dai primi mille che cambia stato
+      // — per esempio uno dei 13 che parte — si aggiorna a schermo invece di
+      // restare congelata com'era.
+      const fresh = await sbTutte(sbUrl, {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}, percorsoContatti());
+      if (!fresh.length) return;
       const freshMap = Object.fromEntries(fresh.map(f=>[f.id, f]));
       setContattiRun(p => {
         // Aggiorna dati righe esistenti senza rimuoverle (potrebbero mancare per filtro ts)
@@ -3711,12 +3736,10 @@ function App() {
     try {
       const {url:sbUrl, key:sbKey} = getSbCreds();
       if (!sbUrl || !sbKey) { setContattiRun(p=>({...p, loading:false})); return; }
-      const ts = (runStart && !contattiTutteRunRef.current) ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
-      const quanti = contattiTutteRunRef.current ? 1000 : 300;
-      const r = await fetch(`${sbUrl}/rest/v1/contacts?select=id,nome_completo,ruolo,linkedin_url,email,stato,tipo,email_origine,company_id,companies(nome,settore,sito_web,fatturato,hs_lifecyclestage)&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato)${ts}&order=creato_il.desc,id.desc&limit=${quanti}`, {
-        headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}
-      });
-      const rows = r.ok ? await r.json() : [];
+      // Stessa query di fetchContattiRunSilent, e a pagine: vedi il commento
+      // su `percorsoContatti`. Il tetto a mille nascondeva 952 contatti su
+      // 1.952, fra cui 13 pronti da inviare che nessuno poteva selezionare.
+      const rows = await sbTutte(sbUrl, {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}, percorsoContatti());
       contattiRowsRef.current = rows;   // v5.22 — subito, non al giro di React
       setContattiRun(p=>({...p, loading:false, rows}));
       autoCompletaLemlist(rows);
@@ -4899,7 +4922,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.45</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.46</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
