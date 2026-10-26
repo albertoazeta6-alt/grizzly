@@ -943,7 +943,7 @@ function App() {
   const [settingEdit, setSettingEdit] = useState({}); // {chiave: valore_editato}
   // Code di Revisione
   const [codeQueue, setCodeQueue] = useState({siti:[], urlAmbigue:[], contatti:[], rilanciaReady:false, loading:false, loaded:false});
-  const [queueCounts, setQueueCounts] = useState({siti:null, urlAmbigue:null, contatti:null, bassaConf:null, mediaConf:null, classifDaRevedere:null, classifMaiVerif:null, codaScraper:null, loaded:false});
+  const [queueCounts, setQueueCounts] = useState({siti:null, urlAmbigue:null, contatti:null, bassaConf:null, mediaConf:null, classifDaRevedere:null, classifMaiVerif:null, codaScraper:null, prontiMaiInviati:null, loaded:false});
   const [codeSitoEdit, setCodeSitoEdit] = useState({}); // {company_id: url_string}
   const [sitoPreview, setSitoPreview] = useState(null); // company id con preview aperta
   const [codeUrlEdit, setCodeUrlEdit] = useState({});   // {company_id: linkedin_url}
@@ -1439,6 +1439,47 @@ function App() {
   // chiedeva. Le scartate vere, al 8 ottobre 2026, erano tre.
   const CLASSIF_SELECT = "id,nome,sito_web,citta,regione,fatturato,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito";
   const CLASSIF_NON_SCARTATE = "or=(semaforo_verifica.is.null,semaforo_verifica.neq.scartata)";
+
+  // ── «Pronto da inviare»: UNA definizione, due usi ────────────────────────
+  // v5.45 — 26/10/2026.
+  //
+  // PERCHE' E' UNA COSTANTE E NON DUE QUERY.
+  // Questa stringa serve a due cose che DEVONO dire lo stesso numero:
+  //   · il contatore «Pronti mai inviati» in pipeline;
+  //   · la query dell'invio «manda tutti i pronti» (avviaLemlist, ramo senza
+  //     selezione).
+  // Scritte separatamente divergono, e un contatore che annuncia un numero
+  // diverso da quello che il pulsante manda e' peggio di nessun contatore:
+  // e' il badge «da revisionare» che contava 296 su una lista di 3.489, ed e'
+  // il filtro settore che il 23/10 filtrava la barra e non la tabella. Terza
+  // volta nello stesso mese, sempre per lo stesso motivo.
+  // Infatti, scrivendo il contatore separatamente, diceva 1.074 mentre il
+  // pulsante ne avrebbe presi 1.080. Quei sei sono il punto successivo.
+  //
+  // CHI RESTA FUORI, E PERCHE'.
+  //   · `inviato`   — gia' partito.
+  //   · `scartato`  — qualcuno ha deciso di scartarlo. Rimandarlo con un
+  //                   «manda tutti» significa ignorare una decisione presa.
+  //   · `invio_errore` — vanno guardati a mano: forse si rimandano, forse no,
+  //                   ma deve essere una scelta, non un effetto collaterale.
+  //                   Deciso da Alberto il 26/10/2026.
+  // Prima di questa costante tutti e tre questi casi (tranne `inviato`)
+  // sarebbero finiti dentro «manda tutti», perche' l'unica condizione era
+  // `stato != inviato`.
+  //
+  // CHI ENTRA.
+  // Chi ha un'email VERA, piu' chi e' `email_non_trovata` (va in campagna
+  // LinkedIn, senza email, ed e' voluto).
+  //
+  // `email=neq.` e non `email.not.is.null`: in PostgREST la stringa vuota non
+  // e' NULL ma non e' nemmeno un valore. Con `not.is.null` un contatto con
+  // email `""` passerebbe e arriverebbe a Make dentro il ramo «ha un'email»
+  // con l'email vuota — mentre il ramo con selezione, che usa `!!r.email`, lo
+  // scarterebbe. Due vie che non concordano. Al 26/10/2026 i contatti con
+  // email vuota sono ZERO su 1.952: il difetto e' latente, non attivo, e
+  // questa forma lo chiude prima che diventi attivo. Stessa famiglia del #142.
+  const CONTATTI_PRONTI =
+    "stato=not.in.(inviato,scartato,invio_errore)&or=(email.neq.,stato.eq.email_non_trovata)";
   const caricaClassificazioni = async (url, h) => {
     const BATCH = 1000;
     let righe = [], offset = 0;
@@ -2303,7 +2344,7 @@ function App() {
       try { const r = await fetch(`${url}/rest/v1/${endpoint}`,{headers:h}); const cr = r.headers.get("content-range")||"0/0"; return parseInt(cr.split("/")[1]||"0"); }
       catch { return null; }
     };
-    const [siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, classifMaiVerif, codaScraper] = await Promise.all([
+    const [siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, classifMaiVerif, codaScraper, prontiMaiInviati] = await Promise.all([
       cnt("companies?stato=eq.sito_mancante&select=id&limit=1"),
       cnt("companies?stato=eq.url_ambigua&select=id&limit=1"),
       Promise.resolve(0),
@@ -2323,8 +2364,33 @@ function App() {
       // Quante aziende aspettano lo Scraper. Senza questo numero la coda e'
       // invisibile: la riempi, ti distrai, e non sai piu' se e' stata lavorata.
       cnt("companies?scraper_coda_il=not.is.null&select=id&limit=1"),
+      // CONTATTI PRONTI E MAI INVIATI — v5.45, chiesto da Alberto il 26/10/2026.
+      //
+      // E' il contatore che mancava, ed e' la cura di un difetto che questo
+      // progetto ha gia' avuto tre volte nella stessa forma: un dato giusto,
+      // salvo, e fermo in un posto che nessuno guarda.
+      //   · 22/10 — il classificatore raccoglieva `email_generica` e quel dato
+      //     non diventava mai un contatto. 132 email ferme in una colonna.
+      //   · 26/10 — risolta la conversione, lo stock si e' spostato di un
+      //     gradino: 906 contatti creati, pronti, e nessuno che li peschi.
+      //     L'auto-invio non li prende di proposito (manda solo il lotto appena
+      //     cercato, v5.25), quindi restano li' finche' una persona non guarda.
+      //
+      // Questo numero non manda niente e non decide niente: rende lo stock
+      // IMPOSSIBILE da non vedere. E' l'unica difesa che funziona contro un
+      // difetto che non produce errori.
+      //
+      // Interroga il DATABASE INTERO, non `contattiRun.rows`: i chip in cima al
+      // tab Leads contano le righe caricate e filtrate, ed e' per questo che il
+      // 26/10 dicevano 392 mentre lo stock vero era 1.185. Non erano sbagliati,
+      // rispondevano a un'altra domanda.
+      //
+      // La definizione e' `CONTATTI_PRONTI`, la STESSA che usa l'invio «manda
+      // tutti i pronti»: vedi il commento sulla costante. Se cambia la regola,
+      // cambia in un punto solo e i due numeri non possono divergere.
+      cnt(`contacts?${CONTATTI_PRONTI}&select=id&limit=1`),
     ]);
-    setQueueCounts({siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, classifMaiVerif, codaScraper, loaded:true});
+    setQueueCounts({siti, urlAmbigue, contatti, bassaConf, mediaConf, classifDaRevedere, classifMaiVerif, codaScraper, prontiMaiInviati, loaded:true});
   }, []);
 
   // carica contatori quando il run è attivo
@@ -4125,6 +4191,28 @@ function App() {
           pushLog("info", `⚠ ${r.nome_completo || "(senza nome)"} — ${r.companies?.nome || "?"} (${r.companies.hs_lifecyclestage})`);
         }
       }
+      // v5.45 — scartati e falliti scelti A MANO: si AVVERTE, non si blocca.
+      //
+      // Stessa asimmetria delle aziende oltre «lead» qui sopra, e per la stessa
+      // ragione. «Manda tutti i pronti» li esclude (CONTATTI_PRONTI): li' non
+      // c'e' nessuno che guarda, e rimandare un contatto scartato significa
+      // ignorare una decisione gia' presa. Qui invece li hai scelti tu uno per
+      // uno, e puoi avere una buona ragione — per esempio proprio rimandare i
+      // cinque falliti dopo averli guardati.
+      // Quello che non deve succedere e' che accada senza saperlo.
+      const riconsiderati = [...contattiSelected]
+        .filter(id => !giaInviati.includes(id))
+        .map(id => rigaDi(id))
+        .filter(r => r.stato === "scartato" || r.stato === "invio_errore");
+      if (riconsiderati.length) {
+        const sc = riconsiderati.filter(r=>r.stato==="scartato").length;
+        const er = riconsiderati.length - sc;
+        const pezzi = [sc?`${sc} scartat${sc===1?"o":"i"} a mano`:null, er?`${er} con invio fallito`:null].filter(Boolean);
+        pushLog("warn", `⚠ ${pezzi.join(" e ")}: li mando lo stesso perche' li hai scelti tu`);
+        for (const r of riconsiderati.slice(0, 8)) {
+          pushLog("info", `⚠ ${r.nome_completo || r.email || "(senza nome)"} — ${r.companies?.nome || "?"} (${r.stato})`);
+        }
+      }
       if (nonCercati.length) {
         pushLog("warn", `⬡ ${nonCercati.length} contatt${nonCercati.length===1?"o escluso: la ricerca email non e' ancora stata fatta" : "i esclusi: la ricerca email non e' ancora stata fatta"}`);
         pushLog("info", "⬡ Lancia prima «Cerca email» su questi contatti, poi rimandali a HubSpot + Lemlist");
@@ -4147,8 +4235,20 @@ function App() {
         // l'email gia' in mano rimasti in `trovato`. Le due vie devono dire la
         // stessa cosa, o il pulsante si comporta in due modi diversi a seconda
         // che tu abbia selezionato qualcosa o no.
+        // v5.45 — la definizione di «pronto» sta in CONTATTI_PRONTI, ed e' la
+        // STESSA che alimenta il contatore in pipeline. Prima era scritta qui
+        // a mano, e il contatore scritto a parte diceva 1.074 mentre questa ne
+        // prendeva 1.080: sei contatti di differenza, cioe' un numero in testa
+        // che non corrisponde a cio' che il pulsante fa.
+        //
+        // Quei sei erano 1 `scartato` e 5 `invio_errore`, che la vecchia
+        // condizione (`stato != inviato`) rastrellava:
+        //   · lo scartato l'aveva scartato una persona — rimandarlo con un
+        //     «manda tutti» ignora una decisione presa;
+        //   · i cinque in errore forse vanno rimandati, ma deve essere una
+        //     scelta. Alberto, 26/10/2026: «li valutero' io».
         const rows = await sbTutte(sbUrlF, {apikey:sbKeyF, Authorization:`Bearer ${sbBearer()}`},
-          `contacts?select=id&stato=neq.inviato&or=(email.not.is.null,stato.eq.email_non_trovata)&order=id.asc`);
+          `contacts?select=id&${CONTATTI_PRONTI}&order=id.asc`);
         contactIds = rows.map(x=>x.id);
       } catch(e) { contactIds = []; }
     }
@@ -4799,7 +4899,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.43</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.45</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -5206,6 +5306,20 @@ function App() {
                         // ancora lavorate. Lo Scraper azzera il timbro man mano,
                         // quindi questo numero scende da solo fino a zero.
                         {label:"Coda Scraper",  val:queueCounts.codaScraper, color:queueCounts.codaScraper>0?"#fdba74":C.green},
+                        // v5.45 — contatti con un'email in mano e mai inviati.
+                        // Non e' una coda di lavorazione come le altre: e' uno
+                        // STOCK che cresce da solo e che nessun automatismo
+                        // smaltisce. L'auto-invio manda solo il lotto appena
+                        // cercato (v5.25), di proposito, quindi tutto il resto
+                        // aspetta che una persona guardi.
+                        // Il 26/10/2026 erano 1.185, e nessuna schermata lo
+                        // diceva: si vedevano solo i 392 che il filtro attivo
+                        // lasciava passare.
+                        // Viola come «Contatti» perche' parla di persone e
+                        // caselle, non di aziende; e non diventa mai verde,
+                        // perche' zero qui non e' un traguardo, e' solo lo
+                        // stato in cui si e' finito di spedire.
+                        {label:"Pronti mai inviati", val:queueCounts.prontiMaiInviati, color:queueCounts.prontiMaiInviati>0?C.purple:C.muted},
                       ].map((k,i)=>(
                         <div key={i} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px",textAlign:"center"}}>
                           <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",marginBottom:4}}>{k.label}</div>
@@ -7122,8 +7236,20 @@ function App() {
                           </tr>
                         </thead>
                         <tbody>
+                          {/* I TRE filtri, non due. Fino alla v5.43 qui mancava
+                              `passaSettore`, che invece il contatore qui sopra
+                              (riga ~7048) applicava: con un settore scelto, la
+                              barra dichiarava un numero e la tabella ne mostrava
+                              un altro. E' lo stesso difetto gia' chiuso due
+                              volte — il badge «da revisionare» che contava 296
+                              su una lista di 3.489, e la soglia di fatturato che
+                              il 20/10 cambiava il numero senza toccare le
+                              schede. Chi aggiunge un filtro qui deve metterlo in
+                              TUTTI i punti che leggono questa coda: contatore,
+                              tabella e schede dell'iframe. */}
                           {codeQueue.urlAmbigue
                             .filter(r=>cercaAzienda(r,urlSearch))
+                            .filter(r=>passaSettore(r,settoreCoda))
                             .filter(r=>superaSoglia(r.fatturato, sogliaFatt))
                             .sort((a,b)=>urlSort.col
                               ? confrontaCelle(a[urlSort.col], b[urlSort.col], urlSort.col==="fatturato", urlSort.dir)
