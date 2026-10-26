@@ -1343,6 +1343,10 @@ function App() {
   // L'auto-invio li usa come ambito: senza, mandava tutti gli idonei del
   // database invece dei soli appena cercati.
   const lottoRicercaRef         = React.useRef(null);
+  // v5.47 — l'avviso «ricerca conclusa ma non so su quali contatti» si dice una
+  // volta per ogni ricerca, non a ogni giro di polling. Si riarma quando parte
+  // una ricerca nuova. Vedi il commento esteso dove viene letto.
+  const lottoIgnotoAvvisatoRef  = React.useRef(false);
   const runInitializingRef      = React.useRef(false); // blocca auto-starts durante inizializzazione Nuova Run
   // Larghezza sidebar log — trascinabile, ricordata fra le sessioni
   const LOG_W_MIN = 260, LOG_W_MAX = 900, LOG_W_DEFAULT = 420;
@@ -3185,7 +3189,27 @@ function App() {
       // inventa un ambito: si dice che l'invio va fatto a mano.
       const lotto = lottoRicercaRef.current;
       if (!Array.isArray(lotto) || !lotto.length) {
-        pushLog("warn", "⬡ Ricerca conclusa, ma non so su quali contatti: l'auto-invio non parte. Selezionali e invia a mano.");
+        // v5.47 — lo dice UNA volta sola, non a ogni giro di polling.
+        //
+        // Questo controllo gira ogni dieci secondi e la condizione, una volta
+        // vera, resta vera: il 26/10/2026 ha scritto la stessa riga una
+        // settantina di volte in venti minuti. Il contenuto era giusto, la
+        // frequenza no — e fra quelle righe e' annegato l'unico messaggio che
+        // contava davvero, il «Timeout monitoraggio — 0/17 arrivati» che
+        // segnalava il difetto del graveyard.
+        //
+        // Stessa cura gia' applicata a `hubspotLinkedinUpdBloccoRef` (1308) e
+        // per la stessa ragione, scritta li': un messaggio ogni dieci secondi
+        // non e' un avviso, e' rumore, e dopo mezz'ora nel log non si trova
+        // piu' nient'altro.
+        //
+        // Il ref si riarma da solo quando riparte una ricerca con un lotto
+        // noto (vedi dove si scrive `lottoRicercaRef.current`), cosi' la
+        // prossima volta che il caso si ripresenta l'avviso ricompare.
+        if (!lottoIgnotoAvvisatoRef.current) {
+          lottoIgnotoAvvisatoRef.current = true;
+          pushLog("warn", "⬡ Ricerca conclusa, ma non so su quali contatti: l'auto-invio non parte. Selezionali e invia a mano.");
+        }
         return;
       }
       // v5.25 — l'auto-invio NON tocca le aziende oltre `lead`.
@@ -4480,6 +4504,10 @@ function App() {
       lottoRicercaRef.current = ids
         ? [...ids]
         : contattiRun.rows.filter(r => r.stato === "enrichment_richiesto").map(r => r.id);
+      // v5.47 — riarma l'avviso «non so su quali contatti». Senza questa riga
+      // il messaggio verrebbe detto una volta sola per sempre: la cura al
+      // rumore diventerebbe un silenzio, che e' peggio.
+      lottoIgnotoAvvisatoRef.current = false;
       pushLog("ok", `▶ Ricerca email avviata su ${quanti} contatt${quanti===1?"o":"i"}`);
       showToast(`✓ Ricerca email avviata (${quanti})`);
       setContattiSelected(new Set());
@@ -4922,7 +4950,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.46</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.47</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
