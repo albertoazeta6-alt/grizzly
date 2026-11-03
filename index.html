@@ -1171,6 +1171,16 @@ function App() {
   // fuori: quella coda si smarca solo inserendo il sito a mano.
   const eInCoda = r => {
     if (!(r.sito_web||"").trim()) return false;
+    // `ricerca_esaurita` (v26, 3/11/2026) NON e' una coda, ed e' il motivo per
+    // cui quello stato esiste.
+    // Al 3/11 `url_ambigua` contava 1.385 aziende, ma 1.374 avevano GIA' il
+    // sito letto E Phantom passato: entrambe le strade percorse, zero
+    // candidati. Non c'era niente da revisionare — nessun URL fra cui
+    // scegliere — eppure il tab Code ne mostrava 1.385. Uno stato che
+    // prometteva lavoro inesistente, e che nascondeva le 11 vere.
+    // I timbri restano sulla riga: se nasce una terza strada per cercare una
+    // pagina, quelle aziende si ritrovano con una query.
+    if (r.stato === "ricerca_esaurita") return false;
     if (r.stato === "url_ambigua" || r.stato === "linkedin_ko") return true;
     // coda Classificazioni: stessi criteri del tab Code
     if (r.settore_confidenza === "bassa" || r.settore_confidenza === "media") return true;
@@ -5049,7 +5059,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.55</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.56</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -6206,6 +6216,14 @@ function App() {
                           // come linkedin_ko (v5.12).
                           {k:"dati_insufficienti", label:"Dati insufficienti", col:"#94a3b8",
                            desc:"Scartata a mano dal Classificatore: classificata, ma manca il necessario per proseguire. Terminale in Grizzly, va comunque su HubSpot col suo stato."},
+                          // v26, 3/11/2026. Grigio spento come «Dati
+                          // insufficienti»: e' un esito, non un allarme.
+                          // A differenza di linkedin_ko questo stato NON viene
+                          // sincronizzato su HubSpot e NON conta come coda —
+                          // sono le due ragioni per cui e' stato creato invece
+                          // di riusare quello che c'era.
+                          {k:"ricerca_esaurita", label:"Ricerca esaurita",    col:"#94a3b8",
+                           desc:"Sito letto E Phantom passato: nessuna pagina LinkedIn trovata da nessuna delle due strade. Terminale in Grizzly, NON va su HubSpot, NON è una coda. I timbri restano: se nasce un terzo modo di cercare, queste aziende si ripescano con una query."},
                         ];
                         return (
                           <div style={{display:"flex",flexWrap:"wrap",gap:5,padding:"6px 14px",borderBottom:`1px solid rgba(59,130,246,0.15)`,background:"rgba(59,130,246,0.03)"}}>
@@ -6418,6 +6436,11 @@ function App() {
                                       url_ambigua: C.yellow,
                                       sito_mancante: C.yellow,
                                       linkedin_ko: C.muted,
+                                      // v26: esito spento, come linkedin_ko.
+                                      // NON giallo: il giallo qui vuol dire
+                                      // «aspetta un intervento», e questa non
+                                      // aspetta piu' niente.
+                                      ricerca_esaurita: C.muted,
                                       // Rosso pieno: non e' una coda in attesa,
                                       // e' una lavorazione andata male.
                                       hubspot_errore: C.red,
