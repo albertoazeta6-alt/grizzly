@@ -3958,6 +3958,8 @@ function App() {
                       +(u.non_raggiungibili||0)+(u.gia_presenti||0)
                       +(u.scartate_dal_filtro||0)+(u.indirizzo_condiviso||0)
                       +(u.sito_dirottato||0)+(u.errori||0);
+          // `dominio_diverso` NON entra nella somma: quei contatti sono gia'
+          // contati in `trovate`. E' un'etichetta, non un esito.
           pushLog("info", `⟳ Ricerca email: ${fatte}/${u.totale||"?"}${u.nome_corrente?` · ${u.nome_corrente}`:""}`);
           return;
         }
@@ -3988,6 +3990,23 @@ function App() {
           if (u.sito_dirottato)      scarti.push(`${u.sito_dirottato} domini che rispondono con il sito di un altro`);
           if (u.errori)            scarti.push(`${u.errori} errori`);
           if (scarti.length) pushLog("warn", `⬡ Senza risultato: ${scarti.join(" · ")}`);
+          // ── I CASI DA GUARDARE, UNO PER UNO — chiesto da Alberto il 5/11/2026
+          //
+          // I contatori qui sopra dicono QUANTI. Questo elenco dice QUALI, ed
+          // e' l'unica forma che si puo' chiudere: un numero che sale e non si
+          // puo' aprire, dopo due volte, lo si smette di guardare.
+          //
+          // Il caso che l'ha resa necessaria e' GIAMMARCO S.R.L.: sito
+          // `topascensori.it`, indirizzo `info@giammarco…`. Il dominio non
+          // combacia **ed e' giusto cosi'**. Un controllo automatico avrebbe
+          // tolto un contatto buono senza dirlo; qui invece il contatto si
+          // scrive e la riga finisce sotto gli occhi di una persona.
+          const daGuardare = u.da_guardare || [];
+          if (daGuardare.length) {
+            pushLog("warn", `👁 ${daGuardare.length} cas${daGuardare.length===1?"o":"i"} da guardare:`);
+            daGuardare.forEach(c => pushLog("warn",
+              `   · ${c.azienda || "—"}${c.email?` — ${c.email}`:""} → ${c.motivo}`));
+          }
           if (u.ultimo_errore) pushLog("warn", `⬡ Ultimo errore: ${u.ultimo_errore}`);
           fetchContattiRun();
         }
@@ -4457,6 +4476,43 @@ function App() {
       }); // invia tutti, anche senza email (quelli senza email vanno in campagna LinkedIn)
     } catch(e) { showToast("✕ Errore lettura contatti: " + e.message); return; }
     if (!contactsPayload.length) { pushLog("warn",`⬡ Invio annullato: i ${contactIds.length} contatti richiesti non sono stati riletti da Supabase`); showToast("⚠ Nessun contatto da processare"); return; }
+
+    // ── MAI DUE VOLTE ALLA STESSA CASELLA — 5/11/2026 ────────────────────────
+    //
+    // Due societa' dello stesso gruppo possono condividere un indirizzo: e' un
+    // fatto sull'anagrafica, non un difetto, e Alberto l'ha confermato sui nove
+    // gruppi del 5/11. Il contatto quindi si scrive (l'agente non lo blocca
+    // piu').
+    //
+    // Ma per il server di posta due contatti con la stessa casella sono DUE
+    // MESSAGGI UGUALI ALLO STESSO DESTINATARIO, e i rimbalzi e le lamentele
+    // li paga la reputazione del dominio mittente — lo stesso bene che
+    // proteggiamo dal 4/11 non presumendo piu' nessun indirizzo.
+    //
+    // **La verifica sta dove si prende la decisione.** Scrivere il contatto e
+    // inviarlo sono due decisioni diverse: la prima registra, la seconda
+    // bussa alla porta di qualcuno. Il doppione si ferma qui.
+    //
+    // Si tiene il PRIMO in ordine di id (il piu' vecchio, cioe' quello che con
+    // ogni probabilita' e' gia' in campagna) e si trattengono gli altri,
+    // dicendo quali e perche': trattenerli in silenzio sarebbe lo stesso
+    // difetto che inseguiamo da tre giorni.
+    const vistiEmail = new Map();
+    const trattenuti = [];
+    contactsPayload = contactsPayload.filter(c => {
+      const e = (c.email||"").trim().toLowerCase();
+      if (!e) return true;                       // senza email va in campagna LinkedIn
+      if (vistiEmail.has(e)) { trattenuti.push({c, primo: vistiEmail.get(e)}); return false; }
+      vistiEmail.set(e, c);
+      return true;
+    });
+    if (trattenuti.length) {
+      pushLog("warn", `✋ ${trattenuti.length} contatt${trattenuti.length===1?"o trattenuto":"i trattenuti"}: stessa casella di un altro contatto nello stesso invio`);
+      trattenuti.forEach(({c, primo}) => pushLog("warn",
+        `   · ${c.companyName||"—"} (${c.email}) — la stessa casella parte già per ${primo.companyName||"—"}`));
+      pushLog("info", "   Se vuoi scrivere a entrambe, mandale in due invii separati.");
+    }
+    if (!contactsPayload.length) { pushLog("warn","⬡ Invio annullato: tutti i contatti erano doppioni della stessa casella"); showToast("⚠ Nessun contatto da inviare"); return; }
     const label = `${contactsPayload.length} contatti`;
     if (!MAKE_SECRET) pushLog("warn","⚠ Secret scenari vuoto: Make scartera' il bundle senza segnalarlo — compila 'Secret scenari' in Impostazioni");
     pushLog("info", `▶ Avvio caricamento contatti (${label})`);
@@ -5083,7 +5139,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.58</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.60</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
