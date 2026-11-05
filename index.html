@@ -435,6 +435,13 @@ const DEFAULT_ERRORI = [{"id": 1, "azienda": "BAYWA R.E. POWER SOLUTIONS S.R.L."
 // ── PALETTE ───────────────────────────────────────────────────────────────────
 const C = {
   bg:"#07090f",surface:"#0c1018",surfaceHi:"#111827",
+  // `panel` e `card` erano USATI senza essere definiti: in JavaScript
+  // `C.panel` restituisce `undefined`, React non scrive la proprieta' e lo
+  // sfondo resta trasparente. Nessun errore in console, nessuna riga rossa:
+  // solo una finestra illeggibile sopra la tabella. Due occorrenze, trovate
+  // il 5/11/2026 perche' Alberto non riusciva a leggere il popup degli id.
+  // Il collaudo `test_palette.js` impedisce che succeda di nuovo.
+  panel:"#111827",card:"#0c1018",
   border:"#1e2a3a",borderHi:"#2d3f55",
   text:"#cbd5e1",textHi:"#f1f5f9",muted:"#4b5e78",
   accent:"#3b82f6",accentDim:"rgba(59,130,246,0.12)",
@@ -1808,7 +1815,7 @@ function App() {
       // cresce bisogna dirlo, altrimenti resta un dato che nessuno guarda.
       const hsErrore = rHsErrore.ok ? count(rHsErrore) : null;
       if (hsErrore !== null && pc.hsErrore !== null && pc.hsErrore !== undefined && hsErrore > pc.hsErrore)
-        pushLog("error", `✕ ${hsErrore - pc.hsErrore} aziend${hsErrore - pc.hsErrore === 1 ? "a scartata" : "e scartate"} dallo scenario 2 (totale in errore: ${hsErrore}) — le trovi col filtro "Errore HubSpot" in Import Dati`);
+        pushAttenzione(`✕ ${hsErrore - pc.hsErrore} aziend${hsErrore - pc.hsErrore === 1 ? "a scartata" : "e scartate"} dallo scenario 2 (totale in errore: ${hsErrore}) — le trovi col filtro "Errore HubSpot" in Import Dati`);
       prevCountersRef.current = {az_input, az_output, exec, scartati, hsErrore};
       setCounters({az_input, az_output, exec, scartati, mail_ok: null, mail_no: null});
       if (az_output) azOutputRef.current = az_output;
@@ -3388,6 +3395,30 @@ function App() {
   //
   // La lista si riordina per orario vero, decrescente: altrimenti un evento
   // vecchio inserito adesso comparirebbe in cima a quelli nuovi.
+  // ── DA GUARDARE: le righe che non devono scorrere via — 5/11/2026 ────────
+  //
+  // Il log tiene le ULTIME 100 righe e butta il resto. Il 5/11, mandando 1.538
+  // contatti, sono arrivati quattro «✓ Inviato» ogni dieci secondi: cento
+  // righe si consumano in quattro minuti. Gli avvisi delle 11:43 — un contatto
+  // non inviato e due trattenuti — alle 11:54 **non esistevano piu'**. Non
+  // erano difficili da trovare: erano stati cancellati.
+  //
+  // Questa lista ha una vita sua: l'alluvione degli «ok» non la tocca.
+  //
+  // LA REGOLA PER ENTRARCI, perche' sia una regola e non un elenco di casi:
+  //   ci va un messaggio quando Grizzly ha deciso di NON fare qualcosa,
+  //   o l'ha fatto a meta', e la decisione finale spetta a una persona.
+  // Non i progressi, non gli errori che si ritentano da soli.
+  //
+  // Il pulsante «svuota» conta quanto la lista: una cosa che non si puo'
+  // chiudere, dopo due settimane, si smette di guardarla — e saremmo tornati
+  // al punto di partenza, con un secondo log ignorato accanto al primo.
+  const [attenzioni, setAttenzioni] = useState([]);
+  const pushAttenzione = (msg) => {
+    pushLog("warn", msg);
+    setAttenzioni(p => [{ts: new Date().toISOString(), msg}, ...p].slice(0, 200));
+  };
+
   const pushLog = (tipo, msg, quando) => setLog(p => {
     const voce = {ts: quando || new Date().toISOString(), tipo, msg, ricostruito: !!quando};
     return [voce, ...p].sort((a,b) => (b.ts || "").localeCompare(a.ts || "")).slice(0,100);
@@ -4003,8 +4034,8 @@ function App() {
           // scrive e la riga finisce sotto gli occhi di una persona.
           const daGuardare = u.da_guardare || [];
           if (daGuardare.length) {
-            pushLog("warn", `👁 ${daGuardare.length} cas${daGuardare.length===1?"o":"i"} da guardare:`);
-            daGuardare.forEach(c => pushLog("warn",
+            pushAttenzione(`👁 ${daGuardare.length} cas${daGuardare.length===1?"o":"i"} da guardare:`);
+            daGuardare.forEach(c => pushAttenzione(
               `   · ${c.azienda || "—"}${c.email?` — ${c.email}`:""} → ${c.motivo}`));
           }
           if (u.ultimo_errore) pushLog("warn", `⬡ Ultimo errore: ${u.ultimo_errore}`);
@@ -4385,7 +4416,7 @@ function App() {
         .map(id => rigaDi(id))
         .filter(r => r.companies?.hs_lifecyclestage && r.companies.hs_lifecyclestage !== "lead");
       if (inTrattativa.length) {
-        pushLog("warn", `⚠ ${inTrattativa.length} contatt${inTrattativa.length===1?"o appartiene":"i appartengono"} ad aziende oltre «lead» su HubSpot — li mando lo stesso perche' li hai scelti tu`);
+        pushAttenzione(`⚠ ${inTrattativa.length} contatt${inTrattativa.length===1?"o appartiene":"i appartengono"} ad aziende oltre «lead» su HubSpot — li mando lo stesso perche' li hai scelti tu`);
         for (const r of inTrattativa.slice(0, 8)) {
           pushLog("info", `⚠ ${r.nome_completo || "(senza nome)"} — ${r.companies?.nome || "?"} (${r.companies.hs_lifecyclestage})`);
         }
@@ -4407,7 +4438,7 @@ function App() {
         const sc = riconsiderati.filter(r=>r.stato==="scartato").length;
         const er = riconsiderati.length - sc;
         const pezzi = [sc?`${sc} scartat${sc===1?"o":"i"} a mano`:null, er?`${er} con invio fallito`:null].filter(Boolean);
-        pushLog("warn", `⚠ ${pezzi.join(" e ")}: li mando lo stesso perche' li hai scelti tu`);
+        pushAttenzione(`⚠ ${pezzi.join(" e ")}: li mando lo stesso perche' li hai scelti tu`);
         for (const r of riconsiderati.slice(0, 8)) {
           pushLog("info", `⚠ ${r.nome_completo || r.email || "(senza nome)"} — ${r.companies?.nome || "?"} (${r.stato})`);
         }
@@ -4496,8 +4527,8 @@ function App() {
     const senzaAzienda = contactsPayload.filter(c => !String(c.companyId||"").trim());
     if (senzaAzienda.length) {
       contactsPayload = contactsPayload.filter(c => String(c.companyId||"").trim());
-      pushLog("warn", `✋ ${senzaAzienda.length} contatt${senzaAzienda.length===1?"o" : "i"} non invia${senzaAzienda.length===1?"to":"ti"}: l'azienda non è ancora su HubSpot`);
-      senzaAzienda.forEach(c => pushLog("warn", `   · ${c.companyName||"—"} — ${c.email||"(senza email)"}`));
+      pushAttenzione(`✋ ${senzaAzienda.length} contatt${senzaAzienda.length===1?"o" : "i"} non invia${senzaAzienda.length===1?"to":"ti"}: l'azienda non è ancora su HubSpot`);
+      senzaAzienda.forEach(c => pushAttenzione(`   · ${c.companyName||"—"} — ${c.email||"(senza email)"}`));
       pushLog("info", "   Restano in coda: sincronizza prima le aziende su HubSpot, poi rilancia l'invio.");
     }
     if (!contactsPayload.length) { pushLog("warn","⬡ Invio annullato: nessuna delle aziende è su HubSpot"); showToast("⚠ Nessun contatto da inviare"); return; }
@@ -4541,8 +4572,8 @@ function App() {
       return true;
     });
     if (trattenuti.length) {
-      pushLog("warn", `✋ ${trattenuti.length} contatt${trattenuti.length===1?"o trattenuto":"i trattenuti"}: stessa casella di un altro contatto nello stesso invio`);
-      trattenuti.forEach(({c, primo}) => pushLog("warn",
+      pushAttenzione(`✋ ${trattenuti.length} contatt${trattenuti.length===1?"o trattenuto":"i trattenuti"}: stessa casella di un altro contatto nello stesso invio`);
+      trattenuti.forEach(({c, primo}) => pushAttenzione(
         `   · ${c.companyName||"—"} (${c.email}) — la stessa casella parte già per ${primo.companyName||"—"}`));
       pushLog("info", "   Se vuoi scrivere a entrambe, mandale in due invii separati.");
     }
@@ -4577,7 +4608,16 @@ function App() {
     const statiPrecedenti = {};
     const STATI_LABEL = {inviato:"✓ Inviato a HubSpot + Lemlist", email_trovata:"Email trovata", email_non_trovata:"Email non trovata", trovato:"Trovato"};
     let attempts = 0;
-    const maxAttempts = 60; // 60 × 10s = 10 min
+    // ── IL TEMPO DI ATTESA SI MISURA SUL LOTTO — 5/11/2026 ──────────────────
+    // Erano 60 tentativi fissi, cioe' 10 minuti, qualunque fosse la dimensione
+    // dell'invio. Make lavora circa un contatto ogni 3 secondi: 1.538 contatti
+    // sono un'ora e mezza. Il 5/11 il monitoraggio si e' arreso dopo dieci
+    // minuti dicendo «705 fermi in email_trovata» — e quei 705 non erano
+    // fermi, erano in coda. **Un timeout tarato male non misura un guasto:
+    // ne inventa uno.**
+    // Si lascia un margine generoso e un tetto di due ore: oltre, qualcosa e'
+    // successo davvero.
+    const maxAttempts = Math.min(720, Math.max(60, Math.ceil(contactIds.length * 4 / 10)));
     // Ultima fotografia vista dal polling: serve a dire, allo scadere del
     // tempo, quanti sono arrivati e dove sono fermi gli altri. Un timeout che
     // dice solo "controlla a mano" costringe a rifare da capo il conto.
@@ -4591,14 +4631,26 @@ function App() {
         const fermi = {};
         ultimeRighe.filter(r=>!TERMINAL.has(r.stato)).forEach(r=>{ fermi[r.stato]=(fermi[r.stato]||0)+1; });
         const dettaglio = Object.entries(fermi).map(([s,n])=>`${n} in ${s}`).join(" · ");
-        pushLog("warn", `⏱ Timeout monitoraggio (10 min) — ${arrivati}/${contactIds.length} arrivati a HubSpot + Lemlist${dettaglio?` · fermi: ${dettaglio}`:""}`);
+        const minuti = Math.round(maxAttempts * 10 / 60);
+        pushLog("warn", `⏱ Timeout monitoraggio (${minuti} min) — ${arrivati}/${contactIds.length} arrivati a HubSpot + Lemlist${dettaglio?` · ancora in coda: ${dettaglio}`:""}`);
+        // Lo stesso avviso c'era solo sul ramo «completato»: sul timeout
+        // mancava, ed era proprio li' che serviva.
+        const nonLette = contactIds.length - ultimeRighe.length;
+        if (nonLette > 0) pushLog("warn", `⬡ ${nonLette} contatti non riletti da Supabase: il conteggio sopra e' parziale`);
         pushLog("warn", "⬡ Il monitoraggio si e' fermato, lo scenario puo' essere ancora in corso — ricontrolla fra qualche minuto");
         return;
       }
       try {
-        const r = await fetch(`${sbUrl}/rest/v1/contacts?id=in.(${contactIds.join(",")})&select=id,nome_completo,stato`, {headers:sbHdr});
-        if (!r.ok) return;
-        const rows = await r.json();
+        // ── A PAGINE, PERCHE' POSTGREST TAGLIA A 1.000 — 5/11/2026 ──────────
+        // Qui c'era una fetch secca. Con 1.541 contatti il server ne
+        // restituiva MILLE e taceva: il conteggio diceva «294/1541 arrivati ·
+        // 705 fermi», e 294+705+1 fa esattamente 1.000. Il numero non era
+        // sbagliato per poco: era costruito su una lettura amputata, e
+        // sembrava una perdita di contatti che non c'era.
+        // Stesso tetto che il 4/11 aveva fatto rifare il lavoro all'agente.
+        const rows = await sbTutte(sbUrl, sbHdr,
+          `contacts?id=in.(${contactIds.join(",")})&select=id,nome_completo,stato`);
+        if (!rows || !rows.length) return;
         ultimeRighe = rows;
         let allDone = true;
         rows.forEach(row => {
@@ -5173,7 +5225,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.62</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.64</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -5563,6 +5615,53 @@ function App() {
                           </div>
                         </div>
                       ))}
+                    </div>
+
+                    {/* ── DA GUARDARE ───────────────────────────────────────
+                        Occupa lo spazio che restava vuoto sotto i quattro
+                        contatori. Non e' un secondo log: raccoglie SOLO le
+                        righe su cui Grizzly ha deciso di non fare qualcosa, o
+                        l'ha fatto a meta', e la decisione finale e' di una
+                        persona.
+                        Il log vero tiene le ultime 100 righe: con 1.500
+                        contatti in invio si svuota in quattro minuti, e il
+                        5/11 ci siamo accorti che gli avvisi sparivano prima
+                        che qualcuno potesse leggerli. Questa lista non viene
+                        toccata da quell'alluvione. */}
+                    <div style={{marginTop:10,background:attenzioni.length?"rgba(245,158,11,0.07)":C.bg,
+                                 border:`1px solid ${attenzioni.length?"rgba(245,158,11,0.35)":C.border}`,
+                                 borderRadius:6,overflow:"hidden"}}>
+                      <div style={{padding:"7px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",
+                                   borderBottom:attenzioni.length?`1px solid rgba(245,158,11,0.2)`:"none"}}>
+                        <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",
+                                     color:attenzioni.length?C.yellow:C.muted}}>
+                          👁 Da guardare {attenzioni.length>0 && `(${attenzioni.length})`}
+                        </div>
+                        {attenzioni.length>0 && (
+                          <button onClick={()=>setAttenzioni([])}
+                            title="Svuota: una lista che non si puo' chiudere, dopo un po', si smette di guardarla"
+                            style={{fontSize:9,fontWeight:700,color:C.muted,background:"transparent",
+                                    border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 7px",cursor:"pointer"}}>
+                            Svuota
+                          </button>
+                        )}
+                      </div>
+                      {attenzioni.length===0
+                        ? <div style={{padding:"9px 12px",fontSize:10,color:C.muted}}>
+                            Niente da guardare. Qui finiscono i casi su cui decidi tu.
+                          </div>
+                        : <div style={{maxHeight:132,overflowY:"auto"}}>
+                            {attenzioni.map((a,i)=>(
+                              <div key={i} style={{padding:"4px 12px",fontSize:10,color:C.text,
+                                                   display:"flex",gap:8,alignItems:"baseline",
+                                                   borderTop:i?`1px solid rgba(245,158,11,0.10)`:"none"}}>
+                                <span style={{fontSize:9,color:C.muted,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>
+                                  {(a.ts||"").slice(11,16)}
+                                </span>
+                                <span style={{whiteSpace:"pre-wrap"}}>{a.msg}</span>
+                              </div>
+                            ))}
+                          </div>}
                     </div>
                   </div>
                   {/* Divisore verticale */}
@@ -8333,10 +8432,12 @@ function App() {
 
       {/* ── CONFIRM MODAL ── */}
       {selezionaDaElenco&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}}
+        <div style={{position:"fixed",inset:0,background:"rgba(2,4,8,0.82)",backdropFilter:"blur(3px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}}
           onClick={()=>setSelezionaDaElenco(null)}>
+          {/* Sfondo pieno e ombra marcata: questa finestra si apre sopra una
+              tabella fitta, e deve staccarsene. */}
           <div onClick={e=>e.stopPropagation()}
-            style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:8,padding:20,width:520,maxWidth:"90vw"}}>
+            style={{background:C.panel,border:`1px solid ${C.borderHi}`,borderRadius:8,padding:20,width:520,maxWidth:"90vw",boxShadow:"0 24px 64px rgba(0,0,0,.75)"}}>
             <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:6}}>
               {selezionaDaElenco.dove==="contatti" ? "Seleziona contatti da elenco di id" : "Seleziona aziende da elenco di id"}
             </div>
