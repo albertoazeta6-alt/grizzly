@@ -3924,6 +3924,88 @@ function App() {
   };
 
   const customConfirm = (msg) => new Promise(resolve => setConfirmModal({msg, resolve}));
+  // Tre risposte invece di due: quando la scelta giusta non e' «sì o no» ma
+  // «questi sì, quelli no», ridurla a due costringe a rinunciare a tutto o a
+  // ingoiare tutto. Ritorna "escludi" | "procedi" | "annulla".
+  const customConfirm3 = (msg, labelA, labelB, labelC) =>
+    new Promise(resolve => setConfirmModal({msg, tre: {labelA, labelB, labelC}, resolve}));
+
+  // ── IL REFERTO: cosa si e' rotto, chiesto a chi lo sa ────────────────────
+  //
+  // Alberto, 5/11/2026: «come facciamo a sapere eventuali pasticci creati
+  // sulle aziende, tipo nuove email doppie?». La risposta onesta era: non lo
+  // sappiamo — li abbiamo trovati per caso, o perche' li ha visti lui.
+  //
+  // Questi quattro controlli guardano SOLO Supabase, quindi possono girare
+  // da qui. I due che richiedono HubSpot (contatti appesi a piu' aziende,
+  // aziende con piu' contatti del previsto) non si possono fare dalla pagina:
+  // la webapp parla con Supabase e con Make, non con HubSpot.
+  // **Un referto che tace su cio' che non puo' vedere mente**, quindi lo dice.
+  //
+  // Il risultato finisce nel riquadro «Da guardare», non in una finestra che
+  // si chiude: cosi' resta li' finche' non e' stato sistemato.
+  const referto = useCallback(async () => {
+    const {url, key} = getSbCreds(); if(!url||!key) { showToast("⚠ Credenziali Supabase mancanti"); return; }
+    const h = {apikey:key, Authorization:`Bearer ${sbBearer()}`};
+    pushLog("info", "▶ Referto: controllo in corso…");
+    let trovati = 0;
+    try {
+      // 1 · la stessa casella su piu' aziende
+      const gen = await sbTutte(url, h, "contacts?tipo=eq.generico&email=neq.&select=id,email,company_id,companies(nome)");
+      const perMail = new Map();
+      gen.forEach(c => {
+        const e = (c.email||"").trim().toLowerCase(); if(!e) return;
+        if (!perMail.has(e)) perMail.set(e, []);
+        perMail.get(e).push(c);
+      });
+      const condivise = [...perMail.entries()]
+        .filter(([,v]) => new Set(v.map(x=>x.company_id)).size > 1);
+      if (condivise.length) {
+        trovati++;
+        pushAttenzione(`📋 ${condivise.length} casell${condivise.length===1?"a usata":"e usate"} da più aziende`);
+        condivise.slice(0,10).forEach(([e,v]) => pushAttenzione(
+          `   · ${e} → ${v.map(x=>x.companies?.nome||x.company_id).join(" + ")}`));
+      }
+
+      // 2 · inviati ad aziende oltre «lead»
+      const oltre = await sbTutte(url, h,
+        "contacts?stato=eq.inviato&select=id,email,companies!inner(nome,hs_lifecyclestage)&companies.hs_lifecyclestage=not.is.null&companies.hs_lifecyclestage=neq.lead");
+      if (oltre.length) {
+        trovati++;
+        const fasi = {};
+        oltre.forEach(c => { const f=c.companies?.hs_lifecyclestage||"?"; fasi[f]=(fasi[f]||0)+1; });
+        pushAttenzione(`📋 ${oltre.length} contatti inviati ad aziende oltre «lead» (${Object.entries(fasi).map(([f,n])=>`${n} in «${f}»`).join(", ")})`);
+        oltre.slice(0,10).forEach(c => pushAttenzione(`   · ${c.companies?.nome||"?"} — ${c.email}`));
+      }
+
+      // 3 · partiti ma mai registrati su HubSpot
+      const senzaId = await sbTutte(url, h,
+        "contacts?stato=eq.inviato&hubspot_contact_id=is.null&select=id,email,companies(nome)");
+      if (senzaId.length) {
+        trovati++;
+        pushAttenzione(`📋 ${senzaId.length} contatti risultano «inviato» ma senza id HubSpot: partiti e mai registrati`);
+        senzaId.slice(0,10).forEach(c => pushAttenzione(`   · ${c.companies?.nome||"?"} — ${c.email}`));
+      }
+
+      // 4 · lo stato afferma contatti che non esistono
+      const dice = await sbTutte(url, h,
+        "companies?stato=eq.contatti_trovati&select=id,nome,contacts(id)");
+      const bugiarde = dice.filter(a => !(a.contacts||[]).length);
+      if (bugiarde.length) {
+        trovati++;
+        pushAttenzione(`📋 ${bugiarde.length} aziende dicono «contatti_trovati» e non hanno nessun contatto`);
+        bugiarde.slice(0,10).forEach(a => pushAttenzione(`   · ${a.nome}`));
+      }
+
+      if (!trovati) pushLog("ok", "✓ Referto: nessun problema fra quelli che so controllare");
+      else showToast(`⚠ Referto: ${trovati} problemi — guarda il riquadro`);
+      // Quello che questo referto NON vede, detto sempre: un elenco che tace
+      // sui propri limiti sembra completo.
+      pushLog("info", "⬡ Il referto non vede HubSpot: contatti appesi a più aziende e aziende con contatti in più vanno controllati a parte");
+    } catch(e) {
+      pushLog("error", "✕ Referto interrotto: " + e.message);
+    }
+  }, [pushLog, showToast]);
 
   // ── Ricerca dell'indirizzo email aziendale ────────────────────────────────
   // Per le aziende senza pagina LinkedIn non c'e' una buyer persona: l'agente
@@ -4416,9 +4498,50 @@ function App() {
         .map(id => rigaDi(id))
         .filter(r => r.companies?.hs_lifecyclestage && r.companies.hs_lifecyclestage !== "lead");
       if (inTrattativa.length) {
-        pushAttenzione(`⚠ ${inTrattativa.length} contatt${inTrattativa.length===1?"o appartiene":"i appartengono"} ad aziende oltre «lead» su HubSpot — li mando lo stesso perche' li hai scelti tu`);
-        for (const r of inTrattativa.slice(0, 8)) {
-          pushLog("info", `⚠ ${r.nome_completo || "(senza nome)"} — ${r.companies?.nome || "?"} (${r.companies.hs_lifecyclestage})`);
+        // ── UNA RIGA DI LOG NON E' UN CONSENSO — Alberto, 5/11/2026 ────────
+        //
+        // Prima qui c'era solo un avviso: «li mando lo stesso perche' li hai
+        // scelti tu». Ma il 5/11, su un invio da 1.541, 239 contatti sono
+        // partiti verso aziende con una trattativa aperta — e Alberto:
+        // «l'ho scelto io ma senza consapevolezza, ho cliccato 1541 aziende».
+        // Aveva ragione: non aveva scelto QUELLI, aveva scelto un blocco
+        // dentro cui c'erano anche loro.
+        //
+        // Il danno non e' tecnico, e' commerciale: una mail a freddo da
+        // `info@` a un'azienda con cui si sta trattando. E quando lo leggi nel
+        // log e' gia' partita.
+        //
+        // Quindi si CHIEDE, e si chiede con i numeri davanti. Tre risposte:
+        // mandarli lo stesso, escluderli e proseguire con gli altri, o
+        // fermare tutto. Un avviso che non si puo' rifiutare non e' una
+        // domanda: e' un commento.
+        const perFase = {};
+        inTrattativa.forEach(r => {
+          const f = r.companies.hs_lifecyclestage;
+          perFase[f] = (perFase[f] || 0) + 1;
+        });
+        const dettFasi = Object.entries(perFase).map(([f,n])=>`${n} in «${f}»`).join(", ");
+        const esempi = inTrattativa.slice(0, 5)
+          .map(r => `· ${r.companies?.nome || "?"} (${r.companies.hs_lifecyclestage})`).join("\n");
+        const altri = inTrattativa.length > 5 ? `\n· …e altr${inTrattativa.length-5===1?"a":"e"} ${inTrattativa.length-5}` : "";
+        const scelta = await customConfirm3(
+          `${inTrattativa.length} contatt${inTrattativa.length===1?"o appartiene":"i appartengono"} ad aziende oltre «lead» su HubSpot (${dettFasi}).\n\n` +
+          `Riceverebbero una mail commerciale a freddo mentre c'è una trattativa aperta.\n\n${esempi}${altri}`,
+          "Escludili e manda gli altri", "Mandali lo stesso", "Annulla tutto");
+        if (scelta === "annulla") {
+          pushLog("warn", "⬡ Invio annullato");
+          return;
+        }
+        if (scelta === "escludi") {
+          const daTogliere = new Set(inTrattativa.map(r => r.id));
+          contactIds = contactIds.filter(id => !daTogliere.has(id));
+          pushAttenzione(`✋ ${daTogliere.size} contatti esclusi dall'invio: azienda oltre «lead» su HubSpot`);
+          if (!contactIds.length) { pushLog("warn","⬡ Invio annullato: non resta nessun contatto"); return; }
+        } else {
+          pushAttenzione(`⚠ ${inTrattativa.length} contatt${inTrattativa.length===1?"o inviato":"i inviati"} ad aziende oltre «lead» — confermato a mano (${dettFasi})`);
+          for (const r of inTrattativa.slice(0, 8)) {
+            pushLog("info", `⚠ ${r.nome_completo || "(senza nome)"} — ${r.companies?.nome || "?"} (${r.companies.hs_lifecyclestage})`);
+          }
         }
       }
       // v5.45 — scartati e falliti scelti A MANO: si AVVERTE, non si blocca.
@@ -5225,7 +5348,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.64</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.65</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -5637,6 +5760,13 @@ function App() {
                                      color:attenzioni.length?C.yellow:C.muted}}>
                           👁 Da guardare {attenzioni.length>0 && `(${attenzioni.length})`}
                         </div>
+                        <div style={{display:"flex",gap:6}}>
+                        <button onClick={referto}
+                          title="Controlla su Supabase caselle condivise, invii ad aziende in trattativa, contatti partiti e mai registrati, stati che affermano contatti inesistenti"
+                          style={{fontSize:9,fontWeight:700,color:"#5eead4",background:"rgba(20,184,166,0.12)",
+                                  border:"1px solid rgba(20,184,166,0.3)",borderRadius:3,padding:"2px 7px",cursor:"pointer"}}>
+                          Referto
+                        </button>
                         {attenzioni.length>0 && (
                           <button onClick={()=>setAttenzioni([])}
                             title="Svuota: una lista che non si puo' chiudere, dopo un po', si smette di guardarla"
@@ -5645,6 +5775,7 @@ function App() {
                             Svuota
                           </button>
                         )}
+                        </div>
                       </div>
                       {attenzioni.length===0
                         ? <div style={{padding:"9px 12px",fontSize:10,color:C.muted}}>
@@ -8547,20 +8678,40 @@ function App() {
 
       {confirmModal&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}}
-          onClick={()=>{confirmModal.resolve(false);setConfirmModal(null);}}>
+          onClick={()=>{confirmModal.resolve(confirmModal.tre ? "annulla" : false);setConfirmModal(null);}}>
           <div style={{background:"#1e2a3a",border:`1px solid ${C.border}`,borderRadius:10,padding:"28px 32px",minWidth:320,maxWidth:420,boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}
             onClick={e=>e.stopPropagation()}>
-            <div style={{fontSize:14,color:C.text,marginBottom:24,lineHeight:1.5}}>{confirmModal.msg}</div>
-            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-              <button onClick={()=>{confirmModal.resolve(false);setConfirmModal(null);}}
-                style={{padding:"8px 20px",fontSize:12,fontWeight:600,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer"}}>
-                Annulla
-              </button>
-              <button onClick={()=>{confirmModal.resolve(true);setConfirmModal(null);}}
-                style={{padding:"8px 20px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#dc2626,#ef4444)",border:"none",borderRadius:6,cursor:"pointer"}}>
-                Ok
-              </button>
-            </div>
+            <div style={{fontSize:14,color:C.text,marginBottom:24,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{confirmModal.msg}</div>
+            {confirmModal.tre ? (
+              // Tre risposte. La prima e' quella prudente, ed e' quella in
+              // evidenza: chi clicca d'istinto sul pulsante colorato deve
+              // fare la cosa meno dannosa, non la piu' comoda.
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end",flexWrap:"wrap"}}>
+                <button onClick={()=>{confirmModal.resolve("annulla");setConfirmModal(null);}}
+                  style={{padding:"8px 16px",fontSize:12,fontWeight:600,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer"}}>
+                  {confirmModal.tre.labelC}
+                </button>
+                <button onClick={()=>{confirmModal.resolve("procedi");setConfirmModal(null);}}
+                  style={{padding:"8px 16px",fontSize:12,fontWeight:600,color:"#fca5a5",background:"transparent",border:`1px solid rgba(239,68,68,0.45)`,borderRadius:6,cursor:"pointer"}}>
+                  {confirmModal.tre.labelB}
+                </button>
+                <button onClick={()=>{confirmModal.resolve("escludi");setConfirmModal(null);}}
+                  style={{padding:"8px 18px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:6,cursor:"pointer"}}>
+                  {confirmModal.tre.labelA}
+                </button>
+              </div>
+            ) : (
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                <button onClick={()=>{confirmModal.resolve(false);setConfirmModal(null);}}
+                  style={{padding:"8px 20px",fontSize:12,fontWeight:600,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer"}}>
+                  Annulla
+                </button>
+                <button onClick={()=>{confirmModal.resolve(true);setConfirmModal(null);}}
+                  style={{padding:"8px 20px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#dc2626,#ef4444)",border:"none",borderRadius:6,cursor:"pointer"}}>
+                  Ok
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
