@@ -4460,7 +4460,7 @@ function App() {
       // riceverebbe meno contatti di quelli che l'utente ha chiesto di inviare,
       // senza che niente lo segnali.
       const rows = await sbTutte(sbUrlF, {apikey:sbKeyF, Authorization:`Bearer ${sbBearer()}`},
-        `contacts?id=in.(${contactIds.join(",")})&select=id,nome_completo,ruolo,linkedin_url,email,companies(nome,sito_web)&order=id.asc`);
+        `contacts?id=in.(${contactIds.join(",")})&select=id,nome_completo,ruolo,linkedin_url,email,companies(nome,sito_web,hubspot_id)&order=id.asc`);
       contactsPayload = rows.map(c => {
         const nameParts = (c.nome_completo||"").trim().split(/\s+/);
         return {
@@ -4472,10 +4472,35 @@ function App() {
           linkedinUrl: c.linkedin_url||"",
           companyName: c.companies?.nome||"",
           companySite: c.companies?.sito_web||"",
+          // L'id dell'azienda su HubSpot. Make lo rilegge da Supabase per
+          // conto suo, ma serve QUI per sapere se il contatto puo' partire:
+          // senza, lo scenario 3 va in 400 (vedi il controllo qui sotto).
+          companyId: c.companies?.hubspot_id||"",
         };
       }); // invia tutti, anche senza email (quelli senza email vanno in campagna LinkedIn)
     } catch(e) { showToast("✕ Errore lettura contatti: " + e.message); return; }
     if (!contactsPayload.length) { pushLog("warn",`⬡ Invio annullato: i ${contactIds.length} contatti richiesti non sono stati riletti da Supabase`); showToast("⚠ Nessun contatto da processare"); return; }
+
+    // ── SENZA hubspot_id IL LOTTO NON PUO' PARTIRE — 5/11/2026 ───────────────
+    //
+    // Lo scenario 3 cerca l'azienda su HubSpot con
+    //     hs_object_id EQ {{ifempty(264.data[].companies.hubspot_id; 0)}}
+    // e quell'`ifempty` NON protegge: quando `hubspot_id` e' nullo, HubSpot
+    // risponde **400 — "operator EQ requires a value"** e il contatto finisce
+    // in `invio_errore`. Il 26/10 e' successo a NOVE contatti, e tutti e nove
+    // avevano la stessa identica causa: l'azienda non e' ancora su HubSpot.
+    //
+    // Mandarli e' lavoro sprecato e una casella di posta piena di errori.
+    // Si fermano qui, si dice perche', e restano in coda: appena l'azienda
+    // esiste su HubSpot (scenario 2) partono al giro dopo.
+    const senzaAzienda = contactsPayload.filter(c => !String(c.companyId||"").trim());
+    if (senzaAzienda.length) {
+      contactsPayload = contactsPayload.filter(c => String(c.companyId||"").trim());
+      pushLog("warn", `✋ ${senzaAzienda.length} contatt${senzaAzienda.length===1?"o" : "i"} non invia${senzaAzienda.length===1?"to":"ti"}: l'azienda non è ancora su HubSpot`);
+      senzaAzienda.forEach(c => pushLog("warn", `   · ${c.companyName||"—"} — ${c.email||"(senza email)"}`));
+      pushLog("info", "   Restano in coda: sincronizza prima le aziende su HubSpot, poi rilancia l'invio.");
+    }
+    if (!contactsPayload.length) { pushLog("warn","⬡ Invio annullato: nessuna delle aziende è su HubSpot"); showToast("⚠ Nessun contatto da inviare"); return; }
 
     // ── MAI DUE VOLTE ALLA STESSA CASELLA — 5/11/2026 ────────────────────────
     //
@@ -4497,6 +4522,15 @@ function App() {
     // ogni probabilita' e' gia' in campagna) e si trattengono gli altri,
     // dicendo quali e perche': trattenerli in silenzio sarebbe lo stesso
     // difetto che inseguiamo da tre giorni.
+    //
+    // IL LIMITE E' NOTO E VOLUTO — Alberto, 5/11/2026
+    // Il controllo vale DENTRO UN INVIO. Due societa' dello stesso gruppo
+    // mandate in due lotti diversi, a giorni diversi, ricevono entrambe.
+    // Per coprire anche quel caso servirebbe chiedere a Supabase, a ogni
+    // invio, quali indirizzi risultano gia' `inviato`: una query in piu' ogni
+    // volta. Chiesto a Alberto, risposta «per ora no».
+    // Scritto qui perche' un limite dichiarato e' un limite; lo stesso limite
+    // non scritto, fra un mese, sembra un difetto.
     const vistiEmail = new Map();
     const trattenuti = [];
     contactsPayload = contactsPayload.filter(c => {
@@ -5139,7 +5173,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.60</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.62</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
