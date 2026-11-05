@@ -3956,7 +3956,8 @@ function App() {
           // dalla somma e' un lotto che non si chiude.
           const fatte = (u.trovate||0)+(u.presunte||0)+(u.senza_indirizzo||0)+(u.senza_sito||0)
                       +(u.non_raggiungibili||0)+(u.gia_presenti||0)
-                      +(u.scartate_dal_filtro||0)+(u.indirizzo_condiviso||0)+(u.errori||0);
+                      +(u.scartate_dal_filtro||0)+(u.indirizzo_condiviso||0)
+                      +(u.sito_dirottato||0)+(u.errori||0);
           pushLog("info", `⟳ Ricerca email: ${fatte}/${u.totale||"?"}${u.nome_corrente?` · ${u.nome_corrente}`:""}`);
           return;
         }
@@ -3982,6 +3983,9 @@ function App() {
           // che lavora in silenzio non si puo' sorvegliare.
           if (u.scartate_dal_filtro) scarti.push(`${u.scartate_dal_filtro} scartate dai filtri (PEC, segnaposto)`);
           if (u.indirizzo_condiviso) scarti.push(`${u.indirizzo_condiviso} indirizzi già di un'altra azienda`);
+          // Non è un sito muto e non è un sito morto: è il sito di un altro.
+          // Il dominio in anagrafica non appartiene più a quell'azienda.
+          if (u.sito_dirottato)      scarti.push(`${u.sito_dirottato} domini che rispondono con il sito di un altro`);
           if (u.errori)            scarti.push(`${u.errori} errori`);
           if (scarti.length) pushLog("warn", `⬡ Senza risultato: ${scarti.join(" · ")}`);
           if (u.ultimo_errore) pushLog("warn", `⬡ Ultimo errore: ${u.ultimo_errore}`);
@@ -5079,7 +5083,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.57</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.58</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
