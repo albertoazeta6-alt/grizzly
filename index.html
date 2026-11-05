@@ -3947,7 +3947,16 @@ function App() {
         const sj = await r.json();
         const u = sj?.ultimo_run || {};
         if (sj.in_corso) {
-          const fatte = (u.trovate||0)+(u.presunte||0)+(u.senza_sito||0)+(u.non_raggiungibili||0)+(u.gia_presenti||0)+(u.errori||0);
+          // Tutti gli esiti, nessuno escluso. Ogni volta che l'agente impara a
+          // distinguere un caso nuovo (un sito muto, un indirizzo scartato dal
+          // filtro, un doppione evitato) quel conteggio va aggiunto QUI: se
+          // manca, l'avanzamento non arriva mai al totale e sembra piantato
+          // mentre sta lavorando benissimo. `presunte` resta nella somma e vale
+          // zero — non si presume piu' un indirizzo, ma un conteggio tolto
+          // dalla somma e' un lotto che non si chiude.
+          const fatte = (u.trovate||0)+(u.presunte||0)+(u.senza_indirizzo||0)+(u.senza_sito||0)
+                      +(u.non_raggiungibili||0)+(u.gia_presenti||0)
+                      +(u.scartate_dal_filtro||0)+(u.indirizzo_condiviso||0)+(u.errori||0);
           pushLog("info", `⟳ Ricerca email: ${fatte}/${u.totale||"?"}${u.nome_corrente?` · ${u.nome_corrente}`:""}`);
           return;
         }
@@ -3957,11 +3966,22 @@ function App() {
           return;
         }
         if (u.fase === "completato") {
-          pushLog("ok", `✓ Ricerca email conclusa — ${u.trovate||0} trovate sul sito, ${u.presunte||0} presunte (info@)`);
+          // `da_email_generica` e' un sottoinsieme di `trovate`, non un addendo:
+          // sono contatti nati da un indirizzo gia' in archivio, senza toccare
+          // la rete. Si dice a parte perche' una resa alta fatta di conversioni
+          // e una fatta di letture nuove sono due cose diverse.
+          const quante = u.da_email_generica||0;
+          pushLog("ok", `✓ Ricerca email conclusa — ${u.trovate||0} trovate`
+            + (quante ? ` (di cui ${quante} da email già in archivio)` : " sul sito"));
           const scarti = [];
+          if (u.senza_indirizzo)   scarti.push(`${u.senza_indirizzo} siti senza indirizzo pubblicato`);
           if (u.senza_sito)        scarti.push(`${u.senza_sito} senza sito`);
           if (u.non_raggiungibili) scarti.push(`${u.non_raggiungibili} siti non raggiungibili`);
           if (u.gia_presenti)      scarti.push(`${u.gia_presenti} già con un contatto`);
+          // Due scarti che NON sono errori e vanno detti lo stesso: un filtro
+          // che lavora in silenzio non si puo' sorvegliare.
+          if (u.scartate_dal_filtro) scarti.push(`${u.scartate_dal_filtro} scartate dai filtri (PEC, segnaposto)`);
+          if (u.indirizzo_condiviso) scarti.push(`${u.indirizzo_condiviso} indirizzi già di un'altra azienda`);
           if (u.errori)            scarti.push(`${u.errori} errori`);
           if (scarti.length) pushLog("warn", `⬡ Senza risultato: ${scarti.join(" · ")}`);
           if (u.ultimo_errore) pushLog("warn", `⬡ Ultimo errore: ${u.ultimo_errore}`);
@@ -5059,7 +5079,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.56</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.57</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
