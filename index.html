@@ -3418,6 +3418,19 @@ function App() {
     pushLog("warn", msg);
     setAttenzioni(p => [{ts: new Date().toISOString(), msg}, ...p].slice(0, 200));
   };
+  // ── UN TITOLO CON LE SUE RIGHE SOTTO, NON SOPRA — 5/11/2026 ──────────────
+  // La lista e' in ordine inverso (il piu' recente in cima). Chiamando
+  // `pushAttenzione` prima per il titolo e poi per i dettagli, i dettagli
+  // finivano SOPRA il titolo a cui appartengono: si leggeva un elenco di nomi
+  // e solo in fondo si scopriva di che cosa fossero l'elenco.
+  // Qui il blocco entra gia' ordinato, in una volta sola.
+  const pushAttenzioneGruppo = (titolo, righe) => {
+    pushLog("warn", titolo);
+    righe.forEach(r => pushLog("warn", r));
+    const ts = new Date().toISOString();
+    const blocco = [{ts, msg: titolo}, ...righe.map(msg => ({ts, msg}))];
+    setAttenzioni(p => [...blocco, ...p].slice(0, 200));
+  };
 
   const pushLog = (tipo, msg, quando) => setLog(p => {
     const voce = {ts: quando || new Date().toISOString(), tipo, msg, ricostruito: !!quando};
@@ -3962,9 +3975,9 @@ function App() {
         .filter(([,v]) => new Set(v.map(x=>x.company_id)).size > 1);
       if (condivise.length) {
         trovati++;
-        pushAttenzione(`📋 ${condivise.length} casell${condivise.length===1?"a usata":"e usate"} da più aziende`);
-        condivise.slice(0,10).forEach(([e,v]) => pushAttenzione(
-          `   · ${e} → ${v.map(x=>x.companies?.nome||x.company_id).join(" + ")}`));
+        pushAttenzioneGruppo(`📋 ${condivise.length} casell${condivise.length===1?"a usata":"e usate"} da più aziende`,
+          condivise.slice(0,10).map(([e,v]) =>
+            `   · ${e} → ${v.map(x=>x.companies?.nome||x.company_id).join(" + ")}`));
       }
 
       // 2 · inviati ad aziende oltre «lead»
@@ -3974,8 +3987,8 @@ function App() {
         trovati++;
         const fasi = {};
         oltre.forEach(c => { const f=c.companies?.hs_lifecyclestage||"?"; fasi[f]=(fasi[f]||0)+1; });
-        pushAttenzione(`📋 ${oltre.length} contatti inviati ad aziende oltre «lead» (${Object.entries(fasi).map(([f,n])=>`${n} in «${f}»`).join(", ")})`);
-        oltre.slice(0,10).forEach(c => pushAttenzione(`   · ${c.companies?.nome||"?"} — ${c.email}`));
+        pushAttenzioneGruppo(`📋 ${oltre.length} contatti inviati ad aziende oltre «lead» (${Object.entries(fasi).map(([f,n])=>`${n} in «${f}»`).join(", ")})`,
+          oltre.slice(0,10).map(c => `   · ${c.companies?.nome||"?"} — ${c.email||"(senza email)"}`));
       }
 
       // 3 · partiti ma mai registrati su HubSpot
@@ -3983,8 +3996,8 @@ function App() {
         "contacts?stato=eq.inviato&hubspot_contact_id=is.null&select=id,email,companies(nome)");
       if (senzaId.length) {
         trovati++;
-        pushAttenzione(`📋 ${senzaId.length} contatti risultano «inviato» ma senza id HubSpot: partiti e mai registrati`);
-        senzaId.slice(0,10).forEach(c => pushAttenzione(`   · ${c.companies?.nome||"?"} — ${c.email}`));
+        pushAttenzioneGruppo(`📋 ${senzaId.length} contatti risultano «inviato» ma senza id HubSpot: partiti e mai registrati`,
+          senzaId.slice(0,10).map(c => `   · ${c.companies?.nome||"?"} — ${c.email||"(senza email)"}`));
       }
 
       // 4 · lo stato afferma contatti che non esistono
@@ -3993,8 +4006,8 @@ function App() {
       const bugiarde = dice.filter(a => !(a.contacts||[]).length);
       if (bugiarde.length) {
         trovati++;
-        pushAttenzione(`📋 ${bugiarde.length} aziende dicono «contatti_trovati» e non hanno nessun contatto`);
-        bugiarde.slice(0,10).forEach(a => pushAttenzione(`   · ${a.nome}`));
+        pushAttenzioneGruppo(`📋 ${bugiarde.length} aziende dicono «contatti_trovati» e non hanno nessun contatto`,
+          bugiarde.slice(0,10).map(a => `   · ${a.nome}`));
       }
 
       if (!trovati) pushLog("ok", "✓ Referto: nessun problema fra quelli che so controllare");
@@ -4116,9 +4129,8 @@ function App() {
           // scrive e la riga finisce sotto gli occhi di una persona.
           const daGuardare = u.da_guardare || [];
           if (daGuardare.length) {
-            pushAttenzione(`👁 ${daGuardare.length} cas${daGuardare.length===1?"o":"i"} da guardare:`);
-            daGuardare.forEach(c => pushAttenzione(
-              `   · ${c.azienda || "—"}${c.email?` — ${c.email}`:""} → ${c.motivo}`));
+            pushAttenzioneGruppo(`👁 ${daGuardare.length} cas${daGuardare.length===1?"o":"i"} da guardare:`,
+              daGuardare.map(c => `   · ${c.azienda || "—"}${c.email?` — ${c.email}`:""} → ${c.motivo}`));
           }
           if (u.ultimo_errore) pushLog("warn", `⬡ Ultimo errore: ${u.ultimo_errore}`);
           fetchContattiRun();
@@ -4650,8 +4662,8 @@ function App() {
     const senzaAzienda = contactsPayload.filter(c => !String(c.companyId||"").trim());
     if (senzaAzienda.length) {
       contactsPayload = contactsPayload.filter(c => String(c.companyId||"").trim());
-      pushAttenzione(`✋ ${senzaAzienda.length} contatt${senzaAzienda.length===1?"o" : "i"} non invia${senzaAzienda.length===1?"to":"ti"}: l'azienda non è ancora su HubSpot`);
-      senzaAzienda.forEach(c => pushAttenzione(`   · ${c.companyName||"—"} — ${c.email||"(senza email)"}`));
+      pushAttenzioneGruppo(`✋ ${senzaAzienda.length} contatt${senzaAzienda.length===1?"o" : "i"} non invia${senzaAzienda.length===1?"to":"ti"}: l'azienda non è ancora su HubSpot`,
+        senzaAzienda.map(c => `   · ${c.companyName||"—"} — ${c.email||"(senza email)"}`));
       pushLog("info", "   Restano in coda: sincronizza prima le aziende su HubSpot, poi rilancia l'invio.");
     }
     if (!contactsPayload.length) { pushLog("warn","⬡ Invio annullato: nessuna delle aziende è su HubSpot"); showToast("⚠ Nessun contatto da inviare"); return; }
@@ -4695,9 +4707,9 @@ function App() {
       return true;
     });
     if (trattenuti.length) {
-      pushAttenzione(`✋ ${trattenuti.length} contatt${trattenuti.length===1?"o trattenuto":"i trattenuti"}: stessa casella di un altro contatto nello stesso invio`);
-      trattenuti.forEach(({c, primo}) => pushAttenzione(
-        `   · ${c.companyName||"—"} (${c.email}) — la stessa casella parte già per ${primo.companyName||"—"}`));
+      pushAttenzioneGruppo(`✋ ${trattenuti.length} contatt${trattenuti.length===1?"o trattenuto":"i trattenuti"}: stessa casella di un altro contatto nello stesso invio`,
+        trattenuti.map(({c, primo}) =>
+          `   · ${c.companyName||"—"} (${c.email}) — la stessa casella parte già per ${primo.companyName||"—"}`));
       pushLog("info", "   Se vuoi scrivere a entrambe, mandale in due invii separati.");
     }
     if (!contactsPayload.length) { pushLog("warn","⬡ Invio annullato: tutti i contatti erano doppioni della stessa casella"); showToast("⚠ Nessun contatto da inviare"); return; }
@@ -5348,7 +5360,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.65</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.66</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -5761,6 +5773,24 @@ function App() {
                           👁 Da guardare {attenzioni.length>0 && `(${attenzioni.length})`}
                         </div>
                         <div style={{display:"flex",gap:6}}>
+                        {attenzioni.length>0 && (
+                          <button onClick={()=>{
+                            // Il testo da portare altrove: in una mail, in un
+                            // biglietto, in una chat. Senza, l'unico modo di
+                            // riferire un problema e' riscriverlo a mano —
+                            // ed e' cosi' che i dettagli si perdono.
+                            const testo = [...attenzioni].reverse()
+                              .map(a => `${(a.ts||"").slice(11,19)}  ${a.msg}`).join("\n");
+                            navigator.clipboard.writeText(testo)
+                              .then(()=>showToast(`✓ ${attenzioni.length} righe copiate`))
+                              .catch(()=>showToast("✕ Copia non riuscita"));
+                          }}
+                            title="Copia tutte le righe negli appunti, dalla più vecchia alla più recente"
+                            style={{fontSize:9,fontWeight:700,color:C.text,background:"transparent",
+                                    border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 7px",cursor:"pointer"}}>
+                            Copia
+                          </button>
+                        )}
                         <button onClick={referto}
                           title="Controlla su Supabase caselle condivise, invii ad aziende in trattativa, contatti partiti e mai registrati, stati che affermano contatti inesistenti"
                           style={{fontSize:9,fontWeight:700,color:"#5eead4",background:"rgba(20,184,166,0.12)",
