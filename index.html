@@ -3937,11 +3937,24 @@ function App() {
   };
 
   const customConfirm = (msg) => new Promise(resolve => setConfirmModal({msg, resolve}));
-  // Tre risposte invece di due: quando la scelta giusta non e' «sì o no» ma
-  // «questi sì, quelli no», ridurla a due costringe a rinunciare a tutto o a
-  // ingoiare tutto. Ritorna "escludi" | "procedi" | "annulla".
-  const customConfirm3 = (msg, labelA, labelB, labelC) =>
-    new Promise(resolve => setConfirmModal({msg, tre: {labelA, labelB, labelC}, resolve}));
+  // Più di due risposte: quando la scelta giusta non e' «sì o no» ma «questi
+  // sì, quelli no, quegli altri in un altro modo», ridurla a due costringe a
+  // rinunciare a tutto o a ingoiare tutto.
+  //
+  // `scelte` e' un elenco di {val, label, stile}, reso DA SINISTRA A DESTRA
+  // nell'ordine in cui lo si scrive. L'ultimo e' il pulsante pieno, quello
+  // che prende il clic d'istinto: ci va la risposta meno dannosa, mai la piu'
+  // comoda.
+  //   stile: "neutro" (grigio) · "rosso" (bordo rosso, per cio' che non si
+  //          disfa) · "pieno" (verde, l'ultimo)
+  //
+  // Prima erano tre fisse con le etichette mappate per posizione — labelA
+  // valeva "escludi", labelB "procedi", labelC "annulla" — e il 6/11 ci sono
+  // cascato: riordinando le etichette avevo invertito il significato dei
+  // pulsanti. Qui il valore sta ACCANTO all'etichetta e non si puo' piu'
+  // sbagliare riordinando.
+  const customConfirmScelte = (msg, scelte) =>
+    new Promise(resolve => setConfirmModal({msg, scelte, resolve}));
 
   // ── IL REFERTO: cosa si e' rotto, chiesto a chi lo sa ────────────────────
   //
@@ -4458,6 +4471,11 @@ function App() {
     const {url:sbUrlF, key:sbKeyF} = getSbCreds();
     if (!sbUrlF || !sbKeyF) { pushLog("error","✕ Invio annullato: credenziali Supabase mancanti"); showToast("⚠ Credenziali Supabase mancanti"); return; }
     let contactIds;
+    // I contatti per cui si e' scelto a mano di scavalcare la regola «oltre
+    // lead non va in campagna». Dichiarato QUI perche' la scelta si fa prima
+    // (nel popup) e si usa dopo (nel payload): se vivesse dentro il blocco
+    // del popup, sarebbe gia' sparito quando serve.
+    let forzaCampagnaIds = new Set();
     if (Array.isArray(soloQuesti)) {
       contactIds = soloQuesti;
       pushLog("info", `⬡ Invio limitato ai ${contactIds.length} contatti appena lavorati`);
@@ -4515,6 +4533,9 @@ function App() {
         .filter(id => !giaInviati.includes(id))
         .map(id => rigaDi(id))
         .filter(r => r.companies?.hs_lifecyclestage && r.companies.hs_lifecyclestage !== "lead");
+      // Resta VUOTO se non si sceglie l'eccezione: il valore predefinito e'
+      // la regola, non la deroga.
+      forzaCampagnaIds = new Set();
       if (inTrattativa.length) {
         // ── UNA RIGA DI LOG NON E' UN CONSENSO — Alberto, 5/11/2026 ────────
         //
@@ -4550,22 +4571,33 @@ function App() {
         // sta dove si prende la decisione, e vale per QUALUNQUE invio, non
         // solo per quelli che partono da questa pagina.
         //
-        // L'ORDINE DEI PULSANTI NON SI TOCCA, e il motivo sta scritto qui
-        // perche' ci sono gia' cascato: `labelA` risolve "escludi" ed e' il
-        // verde in fondo a destra, `labelB` "procedi", `labelC` "annulla".
-        // Dedurre la corrispondenza dalla posizione sullo schermo porta a
-        // invertirla — e un pulsante che fa il contrario di cio' che dice e'
-        // peggio di un pulsante mancante. Si cambiano le ETICHETTE, mai la
-        // mappatura.
+        // QUATTRO RISPOSTE, e la quarta e' quella che mancava.
         //
-        // Il verde resta su «escludi»: anche se nessuna delle due manda piu'
-        // posta, registrare un contatto scrive comunque sul CRM, e chi
-        // clicca d'istinto deve fare la cosa che non lascia tracce.
-        const scelta = await customConfirm3(
+        // Alberto, 6/11: «cosa succede se voglio rilanciare in campagna un
+        // cliente?». Senza una via d'uscita, la regola «oltre lead non va in
+        // campagna» diventa un DIVIETO che nemmeno lui puo' scavalcare — e i
+        // casi leciti esistono: un upsell, una trattativa persa che riapre,
+        // un re-engagement.
+        //
+        // E' la stessa lezione del 5/11 sugli indirizzi condivisi: avevo
+        // messo un blocco, e la risposta fu «togli il blocco e metti il
+        // controllo». Il filtro su Make resta, ma vale per l'invio
+        // AUTOMATICO, dove nessuno guarda. Qui guarda una persona, e la
+        // persona deve poter decidere.
+        //
+        // `forzaCampagna` viaggia nel payload SOLO per i contatti di questo
+        // elenco e SOLO se si sceglie di mandarli: non e' un interruttore
+        // che resta acceso.
+        const scelta = await customConfirmScelte(
           `${inTrattativa.length} contatt${inTrattativa.length===1?"o appartiene":"i appartengono"} ad aziende oltre «lead» su HubSpot (${dettFasi}).\n\n` +
-          `NON entreranno in nessuna campagna Lemlist: vengono solo registrati su HubSpot, ` +
+          `Di norma NON entrano in campagna Lemlist: vengono solo registrati su HubSpot, ` +
           `così l'anagrafica si arricchisce senza disturbare la trattativa aperta.\n\n${esempi}${altri}`,
-          "Escludili del tutto", "Registrali su HubSpot", "Annulla tutto");
+          [
+            {val:"annulla",  label:"Annulla tutto",            stile:"neutro"},
+            {val:"forza",    label:"Mandali in campagna",      stile:"rosso"},
+            {val:"soloHs",   label:"Registrali su HubSpot",    stile:"neutro"},
+            {val:"escludi",  label:"Escludili del tutto",      stile:"pieno"},
+          ]);
         if (scelta === "annulla") {
           pushLog("warn", "⬡ Invio annullato");
           return;
@@ -4575,6 +4607,15 @@ function App() {
           contactIds = contactIds.filter(id => !daTogliere.has(id));
           pushAttenzione(`✋ ${daTogliere.size} contatti esclusi dall'invio: azienda oltre «lead» su HubSpot`);
           if (!contactIds.length) { pushLog("warn","⬡ Invio annullato: non resta nessun contatto"); return; }
+        } else if (scelta === "forza") {
+          // L'eccezione si SCRIVE, e si scrive nel riquadro che non scorre
+          // via: e' una decisione contro la regola, e fra un mese deve
+          // essere ancora leggibile che e' stata presa, da chi e su chi.
+          forzaCampagnaIds = new Set(inTrattativa.map(r => r.id));
+          pushAttenzioneGruppo(
+            `⚠ ${inTrattativa.length} contatt${inTrattativa.length===1?"o":"i"} di aziende oltre «lead» MANDATI IN CAMPAGNA a mano, contro la regola (${dettFasi})`,
+            inTrattativa.slice(0, 10).map(r =>
+              `   · ${r.nome_completo || "(senza nome)"} — ${r.companies?.nome || "?"} (${r.companies.hs_lifecyclestage})`));
         } else {
           pushAttenzione(`⬡ ${inTrattativa.length} contatt${inTrattativa.length===1?"o":"i"} di aziende oltre «lead»: ${inTrattativa.length===1?"va":"vanno"} su HubSpot, FUORI dalle campagne (${dettFasi})`);
           for (const r of inTrattativa.slice(0, 8)) {
@@ -4668,6 +4709,13 @@ function App() {
           // conto suo, ma serve QUI per sapere se il contatto puo' partire:
           // senza, lo scenario 3 va in 400 (vedi il controllo qui sotto).
           companyId: c.companies?.hubspot_id||"",
+          // L'ECCEZIONE DICHIARATA. Lo scenario 3 non manda in campagna i
+          // contatti di aziende oltre «lead»; questo campo e' l'unico modo
+          // di scavalcare quella regola, e c'e' solo se una persona l'ha
+          // scelto in questo invio, per questi contatti.
+          // Si manda `true` o NIENTE: un `false` esplicito finirebbe per
+          // sembrare una decisione presa, mentre e' solo l'assenza di una.
+          ...(forzaCampagnaIds.has(c.id) ? {forzaCampagna: true} : {}),
         };
       }); // invia tutti, anche senza email (quelli senza email vanno in campagna LinkedIn)
     } catch(e) { showToast("✕ Errore lettura contatti: " + e.message); return; }
@@ -8734,27 +8782,32 @@ function App() {
 
       {confirmModal&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}}
-          onClick={()=>{confirmModal.resolve(confirmModal.tre ? "annulla" : false);setConfirmModal(null);}}>
+          // Cliccare FUORI dalla finestra vale sempre come annullare: e' il
+          // gesto di chi cambia idea, e non deve mai far partire niente. Per
+          // questo ogni elenco di scelte deve contenere una risposta
+          // "annulla" — il collaudo lo verifica.
+          onClick={()=>{confirmModal.resolve(confirmModal.scelte ? "annulla" : false);setConfirmModal(null);}}>
           <div style={{background:"#1e2a3a",border:`1px solid ${C.border}`,borderRadius:10,padding:"28px 32px",minWidth:320,maxWidth:420,boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}
             onClick={e=>e.stopPropagation()}>
             <div style={{fontSize:14,color:C.text,marginBottom:24,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{confirmModal.msg}</div>
-            {confirmModal.tre ? (
-              // Tre risposte. La prima e' quella prudente, ed e' quella in
-              // evidenza: chi clicca d'istinto sul pulsante colorato deve
-              // fare la cosa meno dannosa, non la piu' comoda.
+            {confirmModal.scelte ? (
+              // Le risposte si rendono NELL'ORDINE in cui sono state scritte,
+              // e ognuna porta con se' il proprio valore: non c'e' piu' una
+              // corrispondenza per posizione da ricordare.
               <div style={{display:"flex",gap:10,justifyContent:"flex-end",flexWrap:"wrap"}}>
-                <button onClick={()=>{confirmModal.resolve("annulla");setConfirmModal(null);}}
-                  style={{padding:"8px 16px",fontSize:12,fontWeight:600,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer"}}>
-                  {confirmModal.tre.labelC}
-                </button>
-                <button onClick={()=>{confirmModal.resolve("procedi");setConfirmModal(null);}}
-                  style={{padding:"8px 16px",fontSize:12,fontWeight:600,color:"#fca5a5",background:"transparent",border:`1px solid rgba(239,68,68,0.45)`,borderRadius:6,cursor:"pointer"}}>
-                  {confirmModal.tre.labelB}
-                </button>
-                <button onClick={()=>{confirmModal.resolve("escludi");setConfirmModal(null);}}
-                  style={{padding:"8px 18px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:6,cursor:"pointer"}}>
-                  {confirmModal.tre.labelA}
-                </button>
+                {confirmModal.scelte.map(s => (
+                  <button key={s.val}
+                    onClick={()=>{confirmModal.resolve(s.val);setConfirmModal(null);}}
+                    style={
+                      s.stile === "pieno"
+                        ? {padding:"8px 18px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:6,cursor:"pointer"}
+                      : s.stile === "rosso"
+                        ? {padding:"8px 16px",fontSize:12,fontWeight:600,color:"#fca5a5",background:"transparent",border:"1px solid rgba(239,68,68,0.45)",borderRadius:6,cursor:"pointer"}
+                        : {padding:"8px 16px",fontSize:12,fontWeight:600,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer"}
+                    }>
+                    {s.label}
+                  </button>
+                ))}
               </div>
             ) : (
               <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
