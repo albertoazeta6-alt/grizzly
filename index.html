@@ -1577,6 +1577,9 @@ function App() {
        (r.linkedin_url_sito || "").trim() ||
        (r.linkedin_url_eb || "").trim());
 
+  // Quante righe di log si DISEGNANO. La memoria le tiene tutte: questo e'
+  // solo il limite della vista, ed e' dichiarato a schermo quando scatta.
+  const LOG_VISIBILI = 300;
   const CONTATTI_PRONTI =
     "stato=not.in.(inviato,scartato,invio_errore)&or=(email.neq.,stato.eq.email_non_trovata)";
   const caricaClassificazioni = async (url, h) => {
@@ -3432,9 +3435,26 @@ function App() {
     setAttenzioni(p => [...blocco, ...p].slice(0, 200));
   };
 
+  // IL LOG NON HA PIU' UN TETTO — 6/11/2026.
+  //
+  // Teneva le ultime 100 righe. Durante un invio da mille contatti ne
+  // arrivano quattro ogni dieci secondi: cento righe si consumano in quattro
+  // minuti, e una riga di mezz'ora prima non era difficile da trovare —
+  // era stata CANCELLATA. Alberto: «il log si ferma a 100, toglierei il
+  // limite, antonio crippa non è passato ma non si capisce perché».
+  //
+  // Il tetto vero non era il numero: era che tagliava IN SILENZIO. Ora la
+  // memoria tiene tutto e il pulsante Copia porta via tutto; a schermo si
+  // disegnano le ultime LOG_VISIBILI, e quante ne restano fuori è scritto
+  // in fondo alla lista. Un conteggio parziale dichiarato è un'informazione;
+  // uno taciuto è una trappola.
+  //
+  // Perché non si disegna tutto: diecimila nodi in pagina rallentano il
+  // render proprio mentre l'invio sta correndo — e il momento in cui serve
+  // che la pagina risponda è esattamente quello.
   const pushLog = (tipo, msg, quando) => setLog(p => {
     const voce = {ts: quando || new Date().toISOString(), tipo, msg, ricostruito: !!quando};
-    return [voce, ...p].sort((a,b) => (b.ts || "").localeCompare(a.ts || "")).slice(0,100);
+    return [voce, ...p].sort((a,b) => (b.ts || "").localeCompare(a.ts || ""));
   });
   const showToast = (msg,color=C.green) => { setToast({msg,color}); setTimeout(()=>setToast(null),3000); };
   const setFaseS  = (id,stato,extra={}) => setFasi(p=>p.map(f=>f.id===id?{...f,stato,...extra}:f));
@@ -4471,11 +4491,10 @@ function App() {
     const {url:sbUrlF, key:sbKeyF} = getSbCreds();
     if (!sbUrlF || !sbKeyF) { pushLog("error","✕ Invio annullato: credenziali Supabase mancanti"); showToast("⚠ Credenziali Supabase mancanti"); return; }
     let contactIds;
-    // I contatti per cui si e' scelto a mano di scavalcare la regola «oltre
-    // lead non va in campagna». Dichiarato QUI perche' la scelta si fa prima
-    // (nel popup) e si usa dopo (nel payload): se vivesse dentro il blocco
-    // del popup, sarebbe gia' sparito quando serve.
-    let forzaCampagnaIds = new Set();
+    // La fase commerciale di ogni contatto, letta da Supabase insieme al
+    // resto del payload: serve al controllo «oltre lead», che sta piu' sotto
+    // nel punto in cui tutte le strade d'invio si ricongiungono.
+    let faseDi = new Map();
     if (Array.isArray(soloQuesti)) {
       contactIds = soloQuesti;
       pushLog("info", `⬡ Invio limitato ai ${contactIds.length} contatti appena lavorati`);
@@ -4525,104 +4544,9 @@ function App() {
       if (giaInviati.length) {
         pushLog("warn", `⬡ ${giaInviati.length} contatt${giaInviati.length===1?"o gia' inviato escluso":"i gia' inviati esclusi"} dall'invio`);
       }
-      // v5.25 — qui si AVVERTE, non si blocca. L'auto-invio invece esclude.
-      // La differenza e' voluta: li' non c'e' nessuno che guarda, qui ci sei tu
-      // e puoi avere una ragione per scrivere a un contatto di un'azienda in
-      // trattativa. Quello che non deve succedere e' che accada senza saperlo.
-      const inTrattativa = [...contattiSelected]
-        .filter(id => !giaInviati.includes(id))
-        .map(id => rigaDi(id))
-        .filter(r => r.companies?.hs_lifecyclestage && r.companies.hs_lifecyclestage !== "lead");
-      // Resta VUOTO se non si sceglie l'eccezione: il valore predefinito e'
-      // la regola, non la deroga.
-      forzaCampagnaIds = new Set();
-      if (inTrattativa.length) {
-        // ── UNA RIGA DI LOG NON E' UN CONSENSO — Alberto, 5/11/2026 ────────
-        //
-        // Prima qui c'era solo un avviso: «li mando lo stesso perche' li hai
-        // scelti tu». Ma il 5/11, su un invio da 1.541, 239 contatti sono
-        // partiti verso aziende con una trattativa aperta — e Alberto:
-        // «l'ho scelto io ma senza consapevolezza, ho cliccato 1541 aziende».
-        // Aveva ragione: non aveva scelto QUELLI, aveva scelto un blocco
-        // dentro cui c'erano anche loro.
-        //
-        // Il danno non e' tecnico, e' commerciale: una mail a freddo da
-        // `info@` a un'azienda con cui si sta trattando. E quando lo leggi nel
-        // log e' gia' partita.
-        //
-        // Quindi si CHIEDE, e si chiede con i numeri davanti. Tre risposte:
-        // mandarli lo stesso, escluderli e proseguire con gli altri, o
-        // fermare tutto. Un avviso che non si puo' rifiutare non e' una
-        // domanda: e' un commento.
-        const perFase = {};
-        inTrattativa.forEach(r => {
-          const f = r.companies.hs_lifecyclestage;
-          perFase[f] = (perFase[f] || 0) + 1;
-        });
-        const dettFasi = Object.entries(perFase).map(([f,n])=>`${n} in «${f}»`).join(", ");
-        const esempi = inTrattativa.slice(0, 5)
-          .map(r => `· ${r.companies?.nome || "?"} (${r.companies.hs_lifecyclestage})`).join("\n");
-        const altri = inTrattativa.length > 5 ? `\n· …e altr${inTrattativa.length-5===1?"a":"e"} ${inTrattativa.length-5}` : "";
-        // DAL 5/11 LA SCELTA NON E' PIU' «mail sì / mail no». Alberto:
-        // «tutti quelli oltre lead li manderei solo ad HubSpot e non a
-        // Lemlist, così arricchisco l'azienda ma non incasiniamo le
-        // campagne». Lo scenario 3 legge `lifecyclestage` dal modulo che
-        // gia' cerca l'azienda e salta i moduli Lemlist da solo: la verifica
-        // sta dove si prende la decisione, e vale per QUALUNQUE invio, non
-        // solo per quelli che partono da questa pagina.
-        //
-        // QUATTRO RISPOSTE, e la quarta e' quella che mancava.
-        //
-        // Alberto, 6/11: «cosa succede se voglio rilanciare in campagna un
-        // cliente?». Senza una via d'uscita, la regola «oltre lead non va in
-        // campagna» diventa un DIVIETO che nemmeno lui puo' scavalcare — e i
-        // casi leciti esistono: un upsell, una trattativa persa che riapre,
-        // un re-engagement.
-        //
-        // E' la stessa lezione del 5/11 sugli indirizzi condivisi: avevo
-        // messo un blocco, e la risposta fu «togli il blocco e metti il
-        // controllo». Il filtro su Make resta, ma vale per l'invio
-        // AUTOMATICO, dove nessuno guarda. Qui guarda una persona, e la
-        // persona deve poter decidere.
-        //
-        // `forzaCampagna` viaggia nel payload SOLO per i contatti di questo
-        // elenco e SOLO se si sceglie di mandarli: non e' un interruttore
-        // che resta acceso.
-        const scelta = await customConfirmScelte(
-          `${inTrattativa.length} contatt${inTrattativa.length===1?"o appartiene":"i appartengono"} ad aziende oltre «lead» su HubSpot (${dettFasi}).\n\n` +
-          `Di norma NON entrano in campagna Lemlist: vengono solo registrati su HubSpot, ` +
-          `così l'anagrafica si arricchisce senza disturbare la trattativa aperta.\n\n${esempi}${altri}`,
-          [
-            {val:"annulla",  label:"Annulla tutto",            stile:"neutro"},
-            {val:"forza",    label:"Mandali in campagna",      stile:"rosso"},
-            {val:"soloHs",   label:"Registrali su HubSpot",    stile:"neutro"},
-            {val:"escludi",  label:"Escludili del tutto",      stile:"pieno"},
-          ]);
-        if (scelta === "annulla") {
-          pushLog("warn", "⬡ Invio annullato");
-          return;
-        }
-        if (scelta === "escludi") {
-          const daTogliere = new Set(inTrattativa.map(r => r.id));
-          contactIds = contactIds.filter(id => !daTogliere.has(id));
-          pushAttenzione(`✋ ${daTogliere.size} contatti esclusi dall'invio: azienda oltre «lead» su HubSpot`);
-          if (!contactIds.length) { pushLog("warn","⬡ Invio annullato: non resta nessun contatto"); return; }
-        } else if (scelta === "forza") {
-          // L'eccezione si SCRIVE, e si scrive nel riquadro che non scorre
-          // via: e' una decisione contro la regola, e fra un mese deve
-          // essere ancora leggibile che e' stata presa, da chi e su chi.
-          forzaCampagnaIds = new Set(inTrattativa.map(r => r.id));
-          pushAttenzioneGruppo(
-            `⚠ ${inTrattativa.length} contatt${inTrattativa.length===1?"o":"i"} di aziende oltre «lead» MANDATI IN CAMPAGNA a mano, contro la regola (${dettFasi})`,
-            inTrattativa.slice(0, 10).map(r =>
-              `   · ${r.nome_completo || "(senza nome)"} — ${r.companies?.nome || "?"} (${r.companies.hs_lifecyclestage})`));
-        } else {
-          pushAttenzione(`⬡ ${inTrattativa.length} contatt${inTrattativa.length===1?"o":"i"} di aziende oltre «lead»: ${inTrattativa.length===1?"va":"vanno"} su HubSpot, FUORI dalle campagne (${dettFasi})`);
-          for (const r of inTrattativa.slice(0, 8)) {
-            pushLog("info", `⬡ ${r.nome_completo || "(senza nome)"} — ${r.companies?.nome || "?"} (${r.companies.hs_lifecyclestage}) · solo HubSpot`);
-          }
-        }
-      }
+      // Il controllo «oltre lead» NON sta piu' qui: e' stato spostato dove
+      // le tre strade d'invio si ricongiungono, subito dopo la costruzione
+      // del payload. Vedi il commento esteso in quel punto.
       // v5.45 — scartati e falliti scelti A MANO: si AVVERTE, non si blocca.
       //
       // Stessa asimmetria delle aziende oltre «lead» qui sopra, e per la stessa
@@ -4692,8 +4616,13 @@ function App() {
       // troncato a 500, sarebbe questa fetch a tagliare il payload — e Make
       // riceverebbe meno contatti di quelli che l'utente ha chiesto di inviare,
       // senza che niente lo segnali.
+      // `hs_lifecyclestage` serve al controllo «oltre lead» qui sotto. Si
+      // legge QUI e non dalla tabella gia' in memoria perche' questo e' il
+      // punto in cui passano TUTTE le strade d'invio — selezione, auto-invio
+      // e «manda tutti i pronti» — e perche' e' il dato fresco.
       const rows = await sbTutte(sbUrlF, {apikey:sbKeyF, Authorization:`Bearer ${sbBearer()}`},
-        `contacts?id=in.(${contactIds.join(",")})&select=id,nome_completo,ruolo,linkedin_url,email,companies(nome,sito_web,hubspot_id)&order=id.asc`);
+        `contacts?id=in.(${contactIds.join(",")})&select=id,nome_completo,ruolo,linkedin_url,email,companies(nome,sito_web,hubspot_id,hs_lifecyclestage)&order=id.asc`);
+      faseDi = new Map(rows.map(r => [r.id, (r.companies?.hs_lifecyclestage || "").trim()]));
       contactsPayload = rows.map(c => {
         const nameParts = (c.nome_completo||"").trim().split(/\s+/);
         return {
@@ -4709,17 +4638,79 @@ function App() {
           // conto suo, ma serve QUI per sapere se il contatto puo' partire:
           // senza, lo scenario 3 va in 400 (vedi il controllo qui sotto).
           companyId: c.companies?.hubspot_id||"",
-          // L'ECCEZIONE DICHIARATA. Lo scenario 3 non manda in campagna i
-          // contatti di aziende oltre «lead»; questo campo e' l'unico modo
-          // di scavalcare quella regola, e c'e' solo se una persona l'ha
-          // scelto in questo invio, per questi contatti.
-          // Si manda `true` o NIENTE: un `false` esplicito finirebbe per
-          // sembrare una decisione presa, mentre e' solo l'assenza di una.
-          ...(forzaCampagnaIds.has(c.id) ? {forzaCampagna: true} : {}),
         };
       }); // invia tutti, anche senza email (quelli senza email vanno in campagna LinkedIn)
     } catch(e) { showToast("✕ Errore lettura contatti: " + e.message); return; }
     if (!contactsPayload.length) { pushLog("warn",`⬡ Invio annullato: i ${contactIds.length} contatti richiesti non sono stati riletti da Supabase`); showToast("⚠ Nessun contatto da processare"); return; }
+
+    // ── AZIENDE OLTRE «LEAD»: SI CHIEDE, E SI CHIEDE QUI ───────────────────
+    //
+    // QUI, e non dentro uno dei rami che scelgono `contactIds`. Il pulsante
+    // ha TRE strade — contatti selezionati, auto-invio dopo la ricerca email,
+    // «manda tutti i pronti» senza selezione — e il controllo stava solo
+    // nella prima. Il 6/11/2026 un «manda tutti i pronti» ha spedito 106
+    // contatti, 46 dei quali di aziende con una trattativa aperta, senza che
+    // comparisse nessuna domanda. Due strade per la stessa decisione, una
+    // sola protetta: lo stesso difetto del 27/10 con `linkedin_url`.
+    // Aggiungere il popup anche agli altri due rami sarebbe stata la terza
+    // copia. **Una verifica sta dove si prende la decisione**, e la decisione
+    // e' il payload che parte: da qui passa tutto, da qualunque strada arrivi.
+    //
+    // UNA RIGA DI LOG NON E' UN CONSENSO — Alberto, 5/11/2026
+    // Prima c'era solo un avviso, «li mando lo stesso perche' li hai scelti
+    // tu». Ma su un invio da 1.541 non si sceglie QUELLI: si sceglie un
+    // blocco dentro cui ci sono anche loro. E quando lo leggi nel log, la
+    // mail e' gia' partita.
+    const inTrattativa = contactsPayload.filter(c => {
+      const f = faseDi.get(c.id) || "";
+      return f && f !== "lead";      // in dubbio (fase vuota) NON si presume
+    });
+    if (inTrattativa.length) {
+      const perFase = {};
+      inTrattativa.forEach(c => { const f = faseDi.get(c.id); perFase[f] = (perFase[f]||0)+1; });
+      const dettFasi = Object.entries(perFase).map(([f,n])=>`${n} in «${f}»`).join(", ");
+      const esempi = inTrattativa.slice(0,5)
+        .map(c => `· ${c.companyName || "?"} (${faseDi.get(c.id)})`).join("\n");
+      const altri = inTrattativa.length > 5 ? `\n· …e altr${inTrattativa.length-5===1?"a":"e"} ${inTrattativa.length-5}` : "";
+      // QUATTRO RISPOSTE. Alberto, 6/11: «cosa succede se voglio rilanciare
+      // in campagna un cliente?». Senza via d'uscita la regola diventa un
+      // divieto che nemmeno lui puo' scavalcare, e i casi leciti esistono.
+      // Il filtro su Make resta e protegge l'invio automatico; qui guarda
+      // una persona, e la persona deve poter decidere.
+      const scelta = await customConfirmScelte(
+        `${inTrattativa.length} contatt${inTrattativa.length===1?"o appartiene":"i appartengono"} ad aziende oltre «lead» su HubSpot (${dettFasi}).\n\n` +
+        `Di norma NON entrano in campagna Lemlist: vengono solo registrati su HubSpot, ` +
+        `così l'anagrafica si arricchisce senza disturbare la trattativa aperta.\n\n${esempi}${altri}`,
+        [
+          {val:"annulla",  label:"Annulla tutto",         stile:"neutro"},
+          {val:"forza",    label:"Mandali in campagna",   stile:"rosso"},
+          {val:"soloHs",   label:"Registrali su HubSpot", stile:"neutro"},
+          {val:"escludi",  label:"Escludili del tutto",   stile:"pieno"},
+        ]);
+      if (scelta === "annulla") { pushLog("warn", "⬡ Invio annullato"); return; }
+      if (scelta === "escludi") {
+        const daTogliere = new Set(inTrattativa.map(c => c.id));
+        contactsPayload = contactsPayload.filter(c => !daTogliere.has(c.id));
+        pushAttenzione(`✋ ${daTogliere.size} contatti esclusi dall'invio: azienda oltre «lead» su HubSpot`);
+        if (!contactsPayload.length) { pushLog("warn","⬡ Invio annullato: non resta nessun contatto"); return; }
+      } else if (scelta === "forza") {
+        // L'eccezione si SCRIVE, e nel riquadro che non scorre via: e' una
+        // decisione contro la regola, e fra un mese deve restare leggibile
+        // che e' stata presa, su chi, e in che fase erano quelle aziende.
+        const forzati = new Set(inTrattativa.map(c => c.id));
+        contactsPayload = contactsPayload.map(c =>
+          forzati.has(c.id) ? {...c, forzaCampagna: true} : c);
+        pushAttenzioneGruppo(
+          `⚠ ${inTrattativa.length} contatt${inTrattativa.length===1?"o":"i"} di aziende oltre «lead» MANDATI IN CAMPAGNA a mano, contro la regola (${dettFasi})`,
+          inTrattativa.slice(0,10).map(c =>
+            `   · ${c.firstName} ${c.lastName} — ${c.companyName || "?"} (${faseDi.get(c.id)})`));
+      } else {
+        pushAttenzione(`⬡ ${inTrattativa.length} contatt${inTrattativa.length===1?"o":"i"} di aziende oltre «lead»: ${inTrattativa.length===1?"va":"vanno"} su HubSpot, FUORI dalle campagne (${dettFasi})`);
+        for (const c of inTrattativa.slice(0,8)) {
+          pushLog("info", `⬡ ${c.firstName} ${c.lastName} — ${c.companyName || "?"} (${faseDi.get(c.id)}) · solo HubSpot`);
+        }
+      }
+    }
 
     // ── SENZA hubspot_id IL LOTTO NON PUO' PARTIRE — 5/11/2026 ───────────────
     //
@@ -6266,7 +6257,7 @@ function App() {
                   <div ref={logSidebarRef} style={{overflowY:"auto",flex:1,height:0}}>
                     {log.length===0
                       ?<div style={{padding:14,textAlign:"center",color:C.muted,fontSize:11}}>Nessun evento ancora</div>
-                      :log.map((ev,i)=>{
+                      :log.slice(0, LOG_VISIBILI).map((ev,i)=>{
                         const ec={ok:{c:C.green,icon:"✓"},warn:{c:C.yellow,icon:"⚠"},error:{c:C.red,icon:"✕"},info:{c:C.accent,icon:"i"},attesa:{c:C.orange,icon:"⏸"}}[ev.tipo]||{c:C.muted,icon:"·"};
                         return (
                           <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"6px 10px",borderBottom:`1px solid ${C.border}`}}>
@@ -6282,6 +6273,17 @@ function App() {
                         );
                       })
                     }
+                    {/* Le righe più vecchie ci SONO: non si disegnano, e lo si
+                        dice. Il tetto di prima le cancellava in silenzio, ed
+                        è per questo che non si capiva più cos'era successo.
+                        «Copia» le porta via tutte, comprese queste. */}
+                    {log.length > LOG_VISIBILI && (
+                      <div style={{padding:"8px 10px",textAlign:"center",color:C.muted,fontSize:9,
+                                   borderTop:`1px solid ${C.border}`,fontStyle:"italic"}}>
+                        … e altre {log.length - LOG_VISIBILI} righe più vecchie, non mostrate per non rallentare la pagina.
+                        Ci sono tutte: premi <b>Copia</b>.
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
