@@ -4039,6 +4039,28 @@ function App() {
           senzaId.slice(0,10).map(c => `   · ${c.companies?.nome||"?"} — ${c.email||"(senza email)"}`));
       }
 
+      // 5 · email raccolta che non e' mai diventata un contatto
+      //
+      // E' il #171, e il numero ha deciso la forma: su 3.081 aziende con
+      // `email_generica` quelle senza nessun contatto sono NOVE. Un
+      // contatore fisso in pagina avrebbe pagato una query a ogni
+      // aggiornamento per mostrare quasi sempre zero; qui costa solo quando
+      // si chiede il referto.
+      //
+      // Il caso tipico non e' un guasto: un contatto cancellato a mano
+      // lascia l'azienda con l'indirizzo ancora in colonna, e al prossimo
+      // giro di conversione email→contatti quel contatto RITORNA identico.
+      // Per toglierlo davvero va svuotata anche `email_generica`.
+      const raccolteOrfane = (await sbTutte(url, h,
+        "companies?select=id,nome,email_generica,contacts(id)&email_generica=not.is.null"))
+        .filter(a => (a.email_generica||"").trim() && !(a.contacts||[]).length);
+      if (raccolteOrfane.length) {
+        trovati++;
+        pushAttenzioneGruppo(
+          `📋 ${raccolteOrfane.length} aziende hanno un'email raccolta ma NESSUN contatto: se si rilancia la conversione, quei contatti ritornano`,
+          raccolteOrfane.slice(0,10).map(a => `   · ${a.nome||"?"} — ${a.email_generica}`));
+      }
+
       // 4 · lo stato afferma contatti che non esistono
       const dice = await sbTutte(url, h,
         "companies?stato=eq.contatti_trovati&select=id,nome,contacts(id)");
