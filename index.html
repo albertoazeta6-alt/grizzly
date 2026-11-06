@@ -8818,17 +8818,31 @@ function App() {
               // Le risposte si rendono NELL'ORDINE in cui sono state scritte,
               // e ognuna porta con se' il proprio valore: non c'e' piu' una
               // corrispondenza per posizione da ricordare.
-              <div style={{display:"flex",gap:10,justifyContent:"flex-end",flexWrap:"wrap"}}>
+              // IN COLONNA, NON IN RIGA — 6/11/2026.
+              //
+              // Erano in riga con `flexWrap`, che andava bene finche' le
+              // risposte erano tre e corte. Con quattro etichette lunghe la
+              // riga si spezzava in due, e l'ordine che ne usciva era
+              // ingannevole: «Mandali in campagna» — l'eccezione, quella che
+              // manda posta vera — finiva in alto a destra, nel posto di
+              // maggior rilievo. Nessun collaudo poteva accorgersene: i
+              // controlli leggono il codice, non lo disegnano.
+              //
+              // In colonna l'ordine e' quello scritto e non dipende piu'
+              // dalla lunghezza delle parole: l'ultima in basso e' la piu'
+              // prudente, ed e' dove la mano arriva per prima.
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
                 {confirmModal.scelte.map(s => (
                   <button key={s.val}
                     onClick={()=>{confirmModal.resolve(s.val);setConfirmModal(null);}}
-                    style={
-                      s.stile === "pieno"
-                        ? {padding:"8px 18px",fontSize:12,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#059669,#10b981)",border:"none",borderRadius:6,cursor:"pointer"}
+                    style={{
+                      width:"100%", padding:"10px 16px", fontSize:12, borderRadius:6, cursor:"pointer",
+                      ...(s.stile === "pieno"
+                        ? {fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#059669,#10b981)",border:"none"}
                       : s.stile === "rosso"
-                        ? {padding:"8px 16px",fontSize:12,fontWeight:600,color:"#fca5a5",background:"transparent",border:"1px solid rgba(239,68,68,0.45)",borderRadius:6,cursor:"pointer"}
-                        : {padding:"8px 16px",fontSize:12,fontWeight:600,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer"}
-                    }>
+                        ? {fontWeight:600,color:"#fca5a5",background:"transparent",border:"1px solid rgba(239,68,68,0.45)"}
+                        : {fontWeight:600,color:C.muted,background:"transparent",border:`1px solid ${C.border}`})
+                    }}>
                     {s.label}
                   </button>
                 ))}
