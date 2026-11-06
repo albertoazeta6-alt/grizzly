@@ -3991,12 +3991,18 @@ function App() {
           oltre.slice(0,10).map(c => `   · ${c.companies?.nome||"?"} — ${c.email||"(senza email)"}`));
       }
 
-      // 3 · partiti ma mai registrati su HubSpot
+      // 3 · «inviato» senza id HubSpot: NON vuol dire «mai partiti»
+      // Il 5/11 ne risultavano 119. Cercandoli su HubSpot per email, 117
+      // C'ERANO: non erano invii fantasma, era l'id che non era tornato
+      // indietro su Supabase. La dicitura di prima — «partiti e mai
+      // registrati» — affermava una cosa che il referto non puo' sapere:
+      // da Supabase si vede l'id mancante, non l'assenza su HubSpot.
+      // Quello che si perde davvero e' la riconciliazione per id.
       const senzaId = await sbTutte(url, h,
         "contacts?stato=eq.inviato&hubspot_contact_id=is.null&select=id,email,companies(nome)");
       if (senzaId.length) {
         trovati++;
-        pushAttenzioneGruppo(`📋 ${senzaId.length} contatti risultano «inviato» ma senza id HubSpot: partiti e mai registrati`,
+        pushAttenzioneGruppo(`📋 ${senzaId.length} contatti risultano «inviato» ma senza id HubSpot: non si riconciliano piu' per id (da verificare per email, possono esistere su HubSpot lo stesso)`,
           senzaId.slice(0,10).map(c => `   · ${c.companies?.nome||"?"} — ${c.email||"(senza email)"}`));
       }
 
@@ -4536,10 +4542,30 @@ function App() {
         const esempi = inTrattativa.slice(0, 5)
           .map(r => `· ${r.companies?.nome || "?"} (${r.companies.hs_lifecyclestage})`).join("\n");
         const altri = inTrattativa.length > 5 ? `\n· …e altr${inTrattativa.length-5===1?"a":"e"} ${inTrattativa.length-5}` : "";
+        // DAL 5/11 LA SCELTA NON E' PIU' «mail sì / mail no». Alberto:
+        // «tutti quelli oltre lead li manderei solo ad HubSpot e non a
+        // Lemlist, così arricchisco l'azienda ma non incasiniamo le
+        // campagne». Lo scenario 3 legge `lifecyclestage` dal modulo che
+        // gia' cerca l'azienda e salta i moduli Lemlist da solo: la verifica
+        // sta dove si prende la decisione, e vale per QUALUNQUE invio, non
+        // solo per quelli che partono da questa pagina.
+        //
+        // L'ORDINE DEI PULSANTI NON SI TOCCA, e il motivo sta scritto qui
+        // perche' ci sono gia' cascato: `labelA` risolve "escludi" ed e' il
+        // verde in fondo a destra, `labelB` "procedi", `labelC` "annulla".
+        // Dedurre la corrispondenza dalla posizione sullo schermo porta a
+        // invertirla — e un pulsante che fa il contrario di cio' che dice e'
+        // peggio di un pulsante mancante. Si cambiano le ETICHETTE, mai la
+        // mappatura.
+        //
+        // Il verde resta su «escludi»: anche se nessuna delle due manda piu'
+        // posta, registrare un contatto scrive comunque sul CRM, e chi
+        // clicca d'istinto deve fare la cosa che non lascia tracce.
         const scelta = await customConfirm3(
           `${inTrattativa.length} contatt${inTrattativa.length===1?"o appartiene":"i appartengono"} ad aziende oltre «lead» su HubSpot (${dettFasi}).\n\n` +
-          `Riceverebbero una mail commerciale a freddo mentre c'è una trattativa aperta.\n\n${esempi}${altri}`,
-          "Escludili e manda gli altri", "Mandali lo stesso", "Annulla tutto");
+          `NON entreranno in nessuna campagna Lemlist: vengono solo registrati su HubSpot, ` +
+          `così l'anagrafica si arricchisce senza disturbare la trattativa aperta.\n\n${esempi}${altri}`,
+          "Escludili del tutto", "Registrali su HubSpot", "Annulla tutto");
         if (scelta === "annulla") {
           pushLog("warn", "⬡ Invio annullato");
           return;
@@ -4550,9 +4576,9 @@ function App() {
           pushAttenzione(`✋ ${daTogliere.size} contatti esclusi dall'invio: azienda oltre «lead» su HubSpot`);
           if (!contactIds.length) { pushLog("warn","⬡ Invio annullato: non resta nessun contatto"); return; }
         } else {
-          pushAttenzione(`⚠ ${inTrattativa.length} contatt${inTrattativa.length===1?"o inviato":"i inviati"} ad aziende oltre «lead» — confermato a mano (${dettFasi})`);
+          pushAttenzione(`⬡ ${inTrattativa.length} contatt${inTrattativa.length===1?"o":"i"} di aziende oltre «lead»: ${inTrattativa.length===1?"va":"vanno"} su HubSpot, FUORI dalle campagne (${dettFasi})`);
           for (const r of inTrattativa.slice(0, 8)) {
-            pushLog("info", `⚠ ${r.nome_completo || "(senza nome)"} — ${r.companies?.nome || "?"} (${r.companies.hs_lifecyclestage})`);
+            pushLog("info", `⬡ ${r.nome_completo || "(senza nome)"} — ${r.companies?.nome || "?"} (${r.companies.hs_lifecyclestage}) · solo HubSpot`);
           }
         }
       }
@@ -5792,7 +5818,7 @@ function App() {
                           </button>
                         )}
                         <button onClick={referto}
-                          title="Controlla su Supabase caselle condivise, invii ad aziende in trattativa, contatti partiti e mai registrati, stati che affermano contatti inesistenti"
+                          title="Controlla su Supabase caselle condivise, invii ad aziende in trattativa, contatti «inviato» senza id HubSpot, stati che affermano contatti inesistenti"
                           style={{fontSize:9,fontWeight:700,color:"#5eead4",background:"rgba(20,184,166,0.12)",
                                   border:"1px solid rgba(20,184,166,0.3)",borderRadius:3,padding:"2px 7px",cursor:"pointer"}}>
                           Referto
