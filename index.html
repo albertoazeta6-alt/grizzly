@@ -3899,31 +3899,102 @@ function App() {
   // Uno stato terminale che nessuna vista mostra e' peggio di uno stato
   // mancante: il dato c'e', e' corretto, e nessuno puo' guardarlo.
   const CONTATTI_STATI  = "trovato,enrichment_richiesto,email_trovata,email_non_trovata,inviato,invio_errore";
-  const percorsoContatti = () => {
+  // `leggero` chiede le STESSE RIGHE ma due sole colonne. Serve al polling
+  // silenzioso: vedi il commento sul costo in `fetchContattiRunSilent`.
+  // L'elenco delle righe non cambia fra le due forme — cambia solo quanto
+  // pesa ognuna — ed e' questo che permette di usare la forma leggera per
+  // sapere CHI c'e' senza perdere nessuno.
+  const percorsoContatti = (leggero) => {
     const ts = (runStart && !contattiTutteRunRef.current) ? `&creato_il=gte.${encodeURIComponent(runStart)}` : "";
-    return `contacts?select=${CONTATTI_SELECT}&stato=in.(${CONTATTI_STATI})${ts}&order=creato_il.desc,id.desc`;
+    const campi = leggero ? "id,stato" : CONTATTI_SELECT;
+    return `contacts?select=${campi}&stato=in.(${CONTATTI_STATI})${ts}&order=creato_il.desc,id.desc`;
   };
 
+  // CHIEDERE «E' CAMBIATO QUALCOSA?» NON DEVE COSTARE QUANTO RISCARICARE TUTTO
+  //
+  // 9/11/2026. Questa funzione girava ogni dieci secondi, per tutto il tempo
+  // in cui la fase Lemlist resta in `attesa_utente`, e ogni volta riscaricava
+  // l'intera lista contatti col join sulle aziende: 4.157 righe, **1.502 kB a
+  // chiamata**. Fanno 9 MB al minuto, **528 MB all'ora**.
+  //
+  // Il 5 novembre lo scenario 3 ha lavorato dalle 10:43 alle 16:41 con questa
+  // schermata aperta, e Supabase ha registrato **3,26 GB di traffico REST in
+  // quel solo giorno** — 6,2 ore a questo ritmo. Il 9 novembre il progetto e'
+  // stato sospeso per superamento quota: ferme la webapp, Make e l'agente.
+  // Make, nello stesso giorno, aveva trasferito 12,3 MB in tutto: lo 0,4%.
+  //
+  // Adesso la domanda si fa in due tempi:
+  //   1. un elenco COMPLETO ma di due colonne (`id,stato`) — 134 kB invece di
+  //      1.502, undici volte meno, e non perde nessuna riga;
+  //   2. i campi pieni SOLO per le righe nuove o che hanno cambiato stato.
+  // A regime il secondo giro e' vuoto e il costo orario scende da 528 a 47 MB.
+  //
+  // PERCHE' LA DECISIONE NON RICEVE LE RIGHE APPENA SCARICATE.
+  // `autoCompletaLemlist` non conta soltanto: legge `r.companies.hs_lifecyclestage`
+  // per tenere fuori dall'auto-invio le aziende oltre «lead». Passargli le due
+  // colonne leggere farebbe dire a quel controllo «nessuno e' oltre lead», e
+  // partirebbero in campagna aziende in trattativa — il caso PRISMA e Reggiana
+  // Ascensori del 15/10, rifatto. Passargli solo le righe cambiate gli farebbe
+  // vedere `inCoda === 0` quando la coda e' piena — il difetto del 14/10.
+  // Quindi riceve un elenco RICOSTRUITO: gli stessi id e gli stessi stati del
+  // giro completo, con i campi presi da quelli gia' in memoria.
+  //
+  // E se la ricostruzione non e' completa, non si tira a indovinare: si rifa'
+  // la lettura intera per quel giro. Un risultato parziale indistinguibile da
+  // uno completo e' il modo in cui questo progetto si e' fatto male piu' volte.
   const fetchContattiRunSilent = async () => {
     // Aggiorna senza azzerare selezioni: aggiunge nuovi, rimuove processati
     try {
       const {url:sbUrl, key:sbKey} = getSbCreds();
       if (!sbUrl || !sbKey) return;
-      // Pagina anche qui. Costa due o tre chiamate invece di una ogni dieci
-      // secondi, e in cambio una riga fuori dai primi mille che cambia stato
-      // — per esempio uno dei 13 che parte — si aggiorna a schermo invece di
-      // restare congelata com'era.
-      const fresh = await sbTutte(sbUrl, {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}, percorsoContatti());
-      if (!fresh.length) return;
-      const freshMap = Object.fromEntries(fresh.map(f=>[f.id, f]));
-      setContattiRun(p => {
-        // Aggiorna dati righe esistenti senza rimuoverle (potrebbero mancare per filtro ts)
-        const aggiornati = p.rows.map(row => freshMap[row.id] || row);
-        const existingIds = new Set(aggiornati.map(r=>r.id));
-        const nuovi = fresh.filter(r=>!existingIds.has(r.id));
-        return {...p, rows:[...aggiornati, ...nuovi]};
-      });
-      autoCompletaLemlist(fresh);
+      const h = {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`};
+
+      // 1 · chi c'e' e in che stato — completo, due colonne.
+      const leggere = await sbTutte(sbUrl, h, percorsoContatti(true));
+      // Si esce qui come faceva la versione precedente, che aveva un
+      // `if (!fresh.length) return` nello stesso punto. NON e' una svista
+      // ereditata: toglierlo vorrebbe dire chiamare `autoCompletaLemlist`
+      // con l'elenco vuoto, e quella funzione su elenco vuoto segna la fase
+      // Lemlist come «completato». Sarebbe un comportamento nuovo, introdotto
+      // di straforo da una modifica che doveva solo ridurre il traffico.
+      if (!leggere.length) return;
+
+      // 2 · campi pieni solo per le righe nuove o che hanno cambiato stato.
+      //     Si pagina a gruppi di 200 id: l'URL ha un limite di lunghezza.
+      const noti = new Map((contattiRowsRef.current || []).map(r => [r.id, r]));
+      const daLeggere = leggere.filter(l => (noti.get(l.id) || {}).stato !== l.stato).map(l => l.id);
+      let fresh = [];
+      for (let i = 0; i < daLeggere.length; i += 200) {
+        const parte = daLeggere.slice(i, i + 200);
+        fresh = fresh.concat(await sbTutte(sbUrl, h,
+          `contacts?select=${CONTATTI_SELECT}&id=in.(${parte.join(",")})&order=creato_il.desc,id.desc`));
+      }
+
+      // 3 · l'elenco su cui si DECIDE: stessi id e stessi stati del giro
+      //     completo, campi da quelle appena lette o da quelle gia' in memoria.
+      const pieno = new Map(noti);
+      for (const r of fresh) pieno.set(r.id, r);
+      let perDecidere = leggere.map(l => ({...(pieno.get(l.id) || {}), id: l.id, stato: l.stato}));
+
+      // Rete di sicurezza: se anche una sola riga non ha l'anagrafica azienda
+      // — quella su cui si decide «oltre lead» — la ricostruzione non vale e
+      // si rilegge tutto. Costa un giro pieno, e succede solo di rado.
+      if (perDecidere.some(r => !("companies" in r))) {
+        perDecidere = await sbTutte(sbUrl, h, percorsoContatti());
+        fresh = perDecidere;   // si aggiorna a schermo tutto quello che si e' riletto
+      }
+
+      if (fresh.length) {
+        const freshMap = Object.fromEntries(fresh.map(f=>[f.id, f]));
+        setContattiRun(p => {
+          // Aggiorna dati righe esistenti senza rimuoverle (potrebbero mancare per filtro ts)
+          const aggiornati = p.rows.map(row => freshMap[row.id] || row);
+          const existingIds = new Set(aggiornati.map(r=>r.id));
+          const nuovi = fresh.filter(r=>!existingIds.has(r.id));
+          return {...p, rows:[...aggiornati, ...nuovi]};
+        });
+      }
+      autoCompletaLemlist(perDecidere);
     } catch(e){}
   };
 
@@ -5447,7 +5518,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.71</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.72</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
