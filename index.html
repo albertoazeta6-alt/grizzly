@@ -143,6 +143,82 @@ function sbBearer() {
   return getSbCreds().key;   // prima del login: serve per raggiungere /auth
 }
 
+// ── QUANTO TRAFFICO FACCIAMO VERSO SUPABASE ───────────────────────────────
+//
+// PERCHE' ESISTE, 9/11/2026.
+// Il 9 novembre Supabase ha sospeso il progetto: 7,43 GB di traffico in uscita
+// su 5 inclusi. Ferme la webapp, Make e l'agente. Per capire CHI avesse
+// consumato ci sono volute ore, e ho sbagliato tre ipotesi per strada — le
+// riletture della webapp, una stima di 300.000 richieste, lo scenario 3 di
+// Make — perche' nessuno registrava chi leggeva cosa. Sul piano free i log si
+// fermano a 24 ore, quindi il giorno del picco non era piu' guardabile.
+//
+// Questo contatore non riduce niente: rende VISIBILE. Un consumo che si vede
+// il giorno stesso e' un difetto; un consumo che si scopre al muro della
+// quota e' un fermo macchina.
+//
+// DICHIARA SEMPRE SE STA MISURANDO O STIMANDO. `Content-Length` e' una
+// misura; quando manca si pesa il corpo della risposta, ed e' una stima del
+// grezzo che NON tiene conto della compressione. I due numeri restano
+// separati: un risultato parziale indistinguibile da uno completo e' il modo
+// in cui questo progetto si e' fatto male piu' volte.
+//
+// E RISPONDE DA SOLO ALLA DOMANDA RIMASTA APERTA: se `content-encoding` dice
+// gzip o br, allora sul filo passa molto meno del JSON grezzo, e tutte le
+// stime fatte sulla lunghezza del JSON vanno divise. Finche' nessuna risposta
+// e' arrivata, `compresse` resta `null` — cioe' "non lo so", non "no".
+const TRAFFICO = {
+  richieste: 0,
+  byteMisurati: 0,     // somma dei Content-Length: misura
+  byteStimati: 0,      // pesati dal corpo quando il Content-Length manca
+  senzaMisura: 0,      // quante risposte sono finite nella stima
+  compresse: null,     // null = ancora nessuna risposta vista
+  perRotta: new Map(), // "contacts" -> byte
+  dalle: new Date(),
+};
+
+function annotaTraffico(risposta, urlCompleto) {
+  try {
+    TRAFFICO.richieste++;
+    if (TRAFFICO.compresse === null) {
+      TRAFFICO.compresse = !!risposta.headers.get("content-encoding");
+    }
+    const dichiarati = Number(risposta.headers.get("content-length"));
+    let byte = 0;
+    if (dichiarati > 0) { byte = dichiarati; TRAFFICO.byteMisurati += byte; }
+    else { TRAFFICO.senzaMisura++; }
+    // La rotta e' la tabella: basta a dire da che parte guardare.
+    const m = /\/rest\/v1\/([a-z_]+)/.exec(urlCompleto || "");
+    const rotta = m ? m[1] : "(altro)";
+    TRAFFICO.perRotta.set(rotta, (TRAFFICO.perRotta.get(rotta) || 0) + byte);
+    return rotta;
+  } catch(e) { return "(altro)"; }
+}
+
+// Pesa il corpo quando il Content-Length non c'e'. Si chiama DOPO aver letto
+// il JSON, sul testo gia' in mano: niente clone, niente doppia memoria.
+function annotaStima(rotta, testoLunghezza) {
+  TRAFFICO.byteStimati += testoLunghezza;
+  TRAFFICO.perRotta.set(rotta, (TRAFFICO.perRotta.get(rotta) || 0) + testoLunghezza);
+}
+
+function riassuntoTraffico() {
+  const mb = (n) => (n / 1024 / 1024).toFixed(1);
+  const minuti = Math.max(1, Math.round((Date.now() - TRAFFICO.dalle.getTime()) / 60000));
+  const totale = TRAFFICO.byteMisurati + TRAFFICO.byteStimati;
+  const top = [...TRAFFICO.perRotta.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3)
+    .map(([r,b]) => `${r} ${mb(b)} MB`).join(" · ");
+  const natura = TRAFFICO.compresse === null ? "non ancora noto"
+               : TRAFFICO.compresse ? "compresse (il JSON sul filo pesa meno)"
+               : "NON compresse";
+  return {
+    totale, minuti, top, natura,
+    riga: `${mb(totale)} MB in ${minuti} min su ${TRAFFICO.richieste} richieste`
+        + (TRAFFICO.senzaMisura ? ` (${TRAFFICO.senzaMisura} pesate, non misurate)` : "")
+        + ` — risposte ${natura}${top ? ` — ${top}` : ""}`,
+  };
+}
+
 // Scarica TUTTE le righe di una query PostgREST, a pagine.
 //
 // PostgREST ne restituisce al massimo 1000 per volta, e il codice compensava
@@ -161,9 +237,16 @@ async function sbTutte(url, headers, percorso, BATCH = 1000) {
   let righe = [], offset = 0;
   for (;;) {
     const sep = percorso.includes("?") ? "&" : "?";
-    const r = await fetch(`${url}/rest/v1/${percorso}${sep}limit=${BATCH}&offset=${offset}`, {headers});
+    const indirizzo = `${url}/rest/v1/${percorso}${sep}limit=${BATCH}&offset=${offset}`;
+    const r = await fetch(indirizzo, {headers});
     if (!r.ok) return righe;                 // errore: si restituisce quel che c'e'
-    const b = await r.json();
+    // Il conteggio sta QUI, dove passano tutte le letture a pagine: e' il
+    // punto di convergenza. Contarlo nei singoli chiamanti vorrebbe dire
+    // ricordarselo quindici volte, e prima o poi una se ne dimentica.
+    const rotta = annotaTraffico(r, indirizzo);
+    const testo = await r.text();
+    if (!Number(r.headers.get("content-length"))) annotaStima(rotta, testo.length);
+    const b = JSON.parse(testo);
     righe = righe.concat(b);
     if (b.length < BATCH) return righe;      // ultima pagina
     offset += BATCH;
@@ -4142,6 +4225,13 @@ function App() {
           bugiarde.slice(0,10).map(a => `   · ${a.nome}`));
       }
 
+      // Il traffico verso Supabase si DICHIARA sempre, anche quando e' poco:
+      // e' un numero da guardare crescere, non un allarme da far scattare.
+      // Il 9/11 il progetto e' stato sospeso per quota superata e per capire
+      // chi avesse consumato ci sono volute ore, perche' questo numero non
+      // esisteva da nessuna parte. Vedi il commento su TRAFFICO.
+      pushLog("info", "📶 Traffico Supabase di questa sessione: " + riassuntoTraffico().riga);
+
       if (!trovati) pushLog("ok", "✓ Referto: nessun problema fra quelli che so controllare");
       else showToast(`⚠ Referto: ${trovati} problemi — guarda il riquadro`);
       // Quello che questo referto NON vede, detto sempre: un elenco che tace
@@ -5518,7 +5608,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.72</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.73</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
