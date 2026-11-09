@@ -5447,7 +5447,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.66</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.71</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -8837,11 +8837,23 @@ function App() {
                     onClick={()=>{confirmModal.resolve(s.val);setConfirmModal(null);}}
                     style={{
                       width:"100%", padding:"10px 16px", fontSize:12, borderRadius:6, cursor:"pointer",
+                      // IL NEUTRO NON USA `C.border` — 9/11/2026.
+                      // `C.border` vale "#1e2a3a", che e' ESATTAMENTE lo sfondo
+                      // di questo riquadro: il bordo c'era, ma dipinto del
+                      // colore del muro. Con `C.muted` ("#4b5e78") per il
+                      // testo, le due risposte prudenti — «Annulla tutto» e
+                      // «Registrali su HubSpot» — sembravano disattivate, e
+                      // le uniche due leggibili erano quella che manda posta
+                      // vera e quella che esclude. Qui si usano `borderHi` e
+                      // `text`, che con "#1e2a3a" dietro si vedono.
+                      // Stessa famiglia del `C.panel` indefinito del 5/11: un
+                      // colore sbagliato non da' nessun errore, solo una
+                      // finestra che si legge male.
                       ...(s.stile === "pieno"
                         ? {fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#059669,#10b981)",border:"none"}
                       : s.stile === "rosso"
                         ? {fontWeight:600,color:"#fca5a5",background:"transparent",border:"1px solid rgba(239,68,68,0.45)"}
-                        : {fontWeight:600,color:C.muted,background:"transparent",border:`1px solid ${C.border}`})
+                        : {fontWeight:600,color:C.text,background:C.surfaceHi,border:`1px solid ${C.borderHi}`})
                     }}>
                     {s.label}
                   </button>
