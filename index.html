@@ -3996,7 +3996,26 @@ function App() {
   //
   // L'ordinamento tiene `id.desc` come spareggio: senza un criterio univoco
   // Postgres puo' restituire la stessa riga in due pagine e ometterne un'altra.
-  const CONTATTI_SELECT = "id,nome_completo,ruolo,linkedin_url,email,stato,tipo,email_origine,company_id,companies(nome,settore,sito_web,fatturato,hs_lifecyclestage)";
+  // DAL SERVER ARRIVA SOLO IL CAMPO CHE DECIDE — 11/11/2026.
+  //
+  // Prima il join portava anche nome, settore, sito e fatturato dell'azienda
+  // dentro OGNI contatto: 4.156 contatti su 3.235 aziende distinte, quindi la
+  // stessa anagrafica ripetuta — e ripetuta una seconda volta, perche' la
+  // lista aziende la webapp l'ha gia' scaricata tutta e ce l'ha in memoria.
+  // Misurato: 1.502 kB col corredo completo, 1.030 kB con la sola fase. Il
+  // 31% era ripetizione.
+  //
+  // `hs_lifecyclestage` RESTA, e non e' un dettaglio: e' il campo su cui si
+  // decide se un contatto e' «oltre lead», cioe' se la sua azienda e' gia' in
+  // trattativa e non va disturbata con una campagna. Quel dato continua ad
+  // arrivare dal server INSIEME al contatto, non ricostruito: se mancasse,
+  // il controllo direbbe «nessuno e' oltre lead» e manderebbe in campagna
+  // aziende in trattativa — il caso PRISMA del 15/10.
+  //
+  // Il resto serve solo a far vedere le cose a schermo, e lo completa
+  // `completaAnagrafica` qui sotto. Al massimo si vede un trattino; non si
+  // sbaglia una decisione.
+  const CONTATTI_SELECT = "id,nome_completo,ruolo,linkedin_url,email,stato,tipo,email_origine,company_id,companies(hs_lifecyclestage)";
   // v5.48 — `invio_errore` E' NELL'ELENCO, e deve restarci.
   //
   // Fino alla v5.47 non c'era: quei contatti non venivano nemmeno scaricati e
@@ -4054,6 +4073,36 @@ function App() {
   // E se la ricostruzione non e' completa, non si tira a indovinare: si rifa'
   // la lettura intera per quel giro. Un risultato parziale indistinguibile da
   // uno completo e' il modo in cui questo progetto si e' fatto male piu' volte.
+  // Rimette sui contatti i dati dell'azienda che servono SOLO a mostrarli.
+  //
+  // Si parte da quelle gia' in memoria — la lista aziende e' nello stesso
+  // schermo — e si chiede al server soltanto quello che non si ha gia'. Una
+  // lista completa che si possiede non si ricompra; e chiedere le mancanti a
+  // gruppi di id costa una frazione del join su ogni riga.
+  //
+  // NON TOCCA `hs_lifecyclestage`: quello arriva dal server e deve restare
+  // quello. Lo spread tiene cio' che c'e' gia' e aggiunge solo i campi da
+  // vedere — se un domani qualcuno aggiungesse qui la fase, la decisione
+  // «oltre lead» si appoggerebbe a un dato ricostruito invece che letto.
+  const completaAnagrafica = async (righe, sbUrl, h) => {
+    if (!righe.length) return righe;
+    const reg = new Map((importDatiRowsRef.current || []).map(a => [a.id, a]));
+    const mancanti = [...new Set(righe.map(r => r.company_id).filter(id => id && !reg.has(id)))];
+    for (let i = 0; i < mancanti.length; i += 300) {   // l'URL ha un limite di lunghezza
+      const parte = mancanti.slice(i, i + 300);
+      const extra = await sbTutte(sbUrl, h,
+        `companies?id=in.(${parte.join(",")})&select=id,nome,settore,sito_web,fatturato&order=id.asc`);
+      for (const a of extra) reg.set(a.id, a);
+    }
+    return righe.map(r => {
+      const a = reg.get(r.company_id);
+      if (!a) return r;
+      return {...r, companies: {...(r.companies || {}),
+                                nome: a.nome, settore: a.settore,
+                                sito_web: a.sito_web, fatturato: a.fatturato}};
+    });
+  };
+
   const fetchContattiRunSilent = async () => {
     // Aggiorna senza azzerare selezioni: aggiunge nuovi, rimuove processati
     try {
@@ -4081,6 +4130,7 @@ function App() {
         fresh = fresh.concat(await sbTutte(sbUrl, h,
           `contacts?select=${CONTATTI_SELECT}&id=in.(${parte.join(",")})&order=creato_il.desc,id.desc`));
       }
+      fresh = await completaAnagrafica(fresh, sbUrl, h);
 
       // 3 · l'elenco su cui si DECIDE: stessi id e stessi stati del giro
       //     completo, campi da quelle appena lette o da quelle gia' in memoria.
@@ -4092,7 +4142,7 @@ function App() {
       // — quella su cui si decide «oltre lead» — la ricostruzione non vale e
       // si rilegge tutto. Costa un giro pieno, e succede solo di rado.
       if (perDecidere.some(r => !("companies" in r))) {
-        perDecidere = await sbTutte(sbUrl, h, percorsoContatti());
+        perDecidere = await completaAnagrafica(await sbTutte(sbUrl, h, percorsoContatti()), sbUrl, h);
         fresh = perDecidere;   // si aggiorna a schermo tutto quello che si e' riletto
       }
 
@@ -4119,7 +4169,8 @@ function App() {
       // Stessa query di fetchContattiRunSilent, e a pagine: vedi il commento
       // su `percorsoContatti`. Il tetto a mille nascondeva 952 contatti su
       // 1.952, fra cui 13 pronti da inviare che nessuno poteva selezionare.
-      const rows = await sbTutte(sbUrl, {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`}, percorsoContatti());
+      const h = {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`};
+      const rows = await completaAnagrafica(await sbTutte(sbUrl, h, percorsoContatti()), sbUrl, h);
       contattiRowsRef.current = rows;   // v5.22 — subito, non al giro di React
       setContattiRun(p=>({...p, loading:false, rows}));
       autoCompletaLemlist(rows);
@@ -5637,7 +5688,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.77</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.78</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
