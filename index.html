@@ -5608,7 +5608,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.75</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.76</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -7218,7 +7218,14 @@ function App() {
                           {stato:"URL_AMBIGUA",     color:C.yellow,  desc:"verifica manuale"},
 
                           {stato:"LINKEDIN_OK",     color:C.green,   desc:"URL verificata"},
-                          {stato:"CONTATTI_TROVATI",color:C.green,   desc:"contatti trovati"},
+                          // «contatti trovati: contatti trovati» non spiegava
+                          // niente, e dal 11/11 serve distinguerlo dal gemello.
+                          // I due si leggono insieme o non si leggono: dicono
+                          // cosa ha visto lo scraper sulla pagina LinkedIn,
+                          // l'una volta che c'e' passato — non quanti contatti
+                          // abbiamo in archivio.
+                          {stato:"CONTATTI_TROVATI",color:C.green,   desc:"persone trovate su LinkedIn"},
+                          {stato:"NESSUNO_TROVATO", color:C.muted,   desc:"pagina guardata, nessuno in target"},
                         ].map(({stato,color,desc})=>(
                           <span key={stato} style={{display:"flex",alignItems:"center",gap:4,whiteSpace:"nowrap"}}>
                             <span style={{fontWeight:700,color,letterSpacing:"0.03em"}}>{stato}</span>
