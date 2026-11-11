@@ -232,9 +232,24 @@ function riassuntoTraffico() {
   const totale = TRAFFICO.byteMisurati + TRAFFICO.byteStimati;
   const top = [...TRAFFICO.perRotta.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3)
     .map(([r,b]) => `${r} ${mb(b)} MB`).join(" · ");
+  // SE NON SI PUO' MISURARE, SI DICE COME FARLO — 11/11/2026.
+  //
+  // Dal browser la compressione spesso NON e' misurabile, e le strade
+  // chiuse sono tre, tutte verificate:
+  //   · `content-encoding` non e' fra le intestazioni che Supabase autorizza
+  //     a leggere da un altro dominio;
+  //   · `encodedBodySize` del browser e' 0, perche' manca Timing-Allow-Origin;
+  //   · `Content-Length` arriva solo sulle risposte piccole — in una sessione
+  //     vera erano 27 su 76, e le grandi erano fra le altre 49.
+  //
+  // Un contatore che in quel caso dice soltanto «non lo so» lascia la
+  // persona davanti a un vicolo cieco. Questo dice dove sta la risposta: il
+  // totale qui sopra e' JSON GREZZO, e la pagina Egress della dashboard conta
+  // i byte VERI. Se la dashboard ne segna molto meno, sono compresse — ed e'
+  // l'unico confronto che non dipende da un permesso.
   const r = TRAFFICO.rapportoCompressione;
   const natura = TRAFFICO.compresse === null
-      ? "compressione non ancora misurabile (serve una risposta grande)"
+      ? "compressione non misurabile da qui — confronta questo totale (JSON grezzo) con la pagina Egress della dashboard: se li' e' molto meno, sono compresse"
       : TRAFFICO.compresse
         ? `compresse ${r.toFixed(1)}x (sul filo passa molto meno del JSON)`
         : `NON compresse (misurato: rapporto ${r.toFixed(2)})`;
@@ -5688,7 +5703,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.78</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.79</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
