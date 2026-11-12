@@ -4095,7 +4095,7 @@ function App() {
   // Il resto serve solo a far vedere le cose a schermo, e lo completa
   // `completaAnagrafica` qui sotto. Al massimo si vede un trattino; non si
   // sbaglia una decisione.
-  const CONTATTI_SELECT = "id,nome_completo,ruolo,linkedin_url,email,stato,tipo,email_origine,company_id,companies(hs_lifecyclestage)";
+  const CONTATTI_SELECT = "id,nome_completo,ruolo,ruolo_descrizione,linkedin_url,email,stato,tipo,email_origine,company_id,companies(hs_lifecyclestage)";
   // v5.48 — `invio_errore` E' NELL'ELENCO, e deve restarci.
   //
   // Fino alla v5.47 non c'era: quei contatti non venivano nemmeno scaricati e
@@ -4153,6 +4153,94 @@ function App() {
   // E se la ricostruzione non e' completa, non si tira a indovinare: si rifa'
   // la lettura intera per quel giro. Un risultato parziale indistinguibile da
   // uno completo e' il modo in cui questo progetto si e' fatto male piu' volte.
+  // IL DATORE DICHIARATO DEVE CONCORDARE CON L'AZIENDA — 12/11/2026.
+  //
+  // PERCHE'. La scheda «Persone» di un'azienda, quando non elenca dipendenti,
+  // su LinkedIn mostra altro: risultati di ricerca, profili suggeriti. Lo
+  // scraper raccoglie quelli e li attribuisce all'azienda che stava
+  // guardando. Il 12/11 a `elettrosystem-pn` — una sola ditta di Pordenone —
+  // erano finite venti persone che dichiaravano OTTO datori diversi, tutte
+  // ditte individuali omonime sparse per l'Italia. A KARR ITALIANA era finito
+  // un consulente e una negoziante lituana.
+  //
+  // Se ne e' accorto Alberto guardando la tabella, perche' i ruoli erano
+  // tutti «Titolare». Nessun controllo lo diceva. Sull'archivio la misura ha
+  // poi trovato 145 persone attaccate a un'azienda diversa da quella che
+  // dichiarano, su 100 aziende, e 129 erano gia' state contattate.
+  //
+  // Non e' un dato sporco: e' una mail commerciale che parla a una persona
+  // di un'azienda per cui non lavora.
+  //
+  // COSA CONTROLLA, e cosa NON puo' controllare. Il profilo dice spesso
+  // «<ruolo> presso <azienda>»: quel nome deve somigliare al nome
+  // dell'azienda a cui il contatto e' attaccato. Il confronto e' tollerante —
+  // «Gruppo Alfa Acciai» vale «ALFA ACCIAI S.P.A.» — perche' le varianti di
+  // ragione sociale sono la norma e un controllo che grida a ogni «S.p.A.»
+  // si impara a ignorare.
+  // Resta cieco sulle OMONIME: «Elettrosystem di Piacentino Gianmarco» somiglia
+  // a «Elettrosystem» e passa. Per quelle serve il secondo controllo, che
+  // guarda quanti datori DIVERSI dichiarano i contatti di una stessa azienda.
+  //
+  // DOVE STA. Qui, in un posto solo, e la usano sia la tabella Leads sia il
+  // referto. Due copie della stessa regola prima o poi dicono il contrario.
+  // Il pezzo da leggere e' solo quello che viene dopo «presso». Prima si
+  // taglia su «|» e «·», che sulla descrizione LinkedIn separano le
+  // decorazioni («... presso Gruppo Alfa Acciai | ITIL® | PRINCE2®»): senza
+  // il taglio il nome del datore si porta dietro le certificazioni.
+  const datoreDichiarato = (c) => {
+    // I due campi si guardano SEPARATAMENTE, non incollati. Incollandoli,
+    // «Customer care manager presso SICOR srl» + «Customer care manager»
+    // dava come datore «SICOR srl Customer care manager», che non somiglia
+    // piu' a niente: sulla misura del 12/11 erano 191 segnalati invece di
+    // 110, e la differenza era tutta rumore prodotto dalla concatenazione.
+    for (const campo of [c?.ruolo_descrizione, c?.ruolo]) {
+      const pezzo = String(campo || "").split("\n")[0].split(/[|·•]/)
+        .find(p => /(?:presso|\bat)\s+\S/i.test(p));
+      if (!pezzo) continue;
+      const m = /(?:presso|\bat)\s+(.{2,60}?)\s*$/i.exec(pezzo);
+      if (m) return m[1].trim();
+    }
+    return null;
+  };
+  // CONFRONTARE DUE RAGIONI SOCIALI. La stessa ditta si scrive in dieci modi:
+  // «A.R.E. SRL» e «ARE Ascensori», «ROSSI E RIVIERI S.R.L.» e
+  // «Rossi&Rivieri», «WAMA S.R.L.» e «Wama Group». Un confronto ingenuo le
+  // dichiara tutte diverse, e un avviso che grida sulle varianti si impara a
+  // ignorare — cioe' smette di funzionare proprio quando serve.
+  //
+  // Si riduce ogni nome al suo NOCCIOLO: via le forme societarie e le parole
+  // di contorno, via i punti delle sigle («C.E.M.» → «cem»), e si guarda se
+  // uno contiene l'altro. Piu' una scorciatoia per gli acronimi: «WEI» e
+  // «WELL EQUIPMENTS INTERNATIONAL» sono la stessa ditta.
+  //
+  // Misurato il 12/11 sui 130 casi veri che la prima versione segnalava: 29
+  // erano varianti di scrittura e sono stati scagionati, i 101 restanti
+  // restano segnalati — fra questi Johnson Controls su SABO FOAM e Lucchini
+  // Mame Forge su ALFA ACCIAI, che sono il motivo per cui il controllo esiste.
+  const DEBOLI = new Set(["srl","srls","spa","sas","snc","scarl","sapa","soc","societa","coop","cooperativa","gruppo","group","holding","consorzio","servizi","servizio","service","services","the","and","ltd","gmbh","inc","responsabilita","limitata","per","azioni"]);
+  const parole = (s) => String(s || "")
+    .replace(/\b(?:[a-z]\.){2,}(?![a-z])/gi, m => m.replace(/\./g, ""))
+    .toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .split(/[^a-z0-9]+/).filter(p => p.length >= 2 && !DEBOLI.has(p));
+  const nocciolo = (s) => parole(s).join("");
+  const sigla = (s) => parole(s).map(p => p[0]).join("");
+  // Discorda solo se c'e' una prova POSITIVA di disaccordo: se il profilo non
+  // dichiara nessun datore, o se il nome si riduce a niente, non si conclude
+  // niente. Assenza di prova non e' prova di assenza — la stessa regola della
+  // verifica nome/profilo.
+  const datoreDiscorda = (c) => {
+    const d = nocciolo(datoreDichiarato(c));
+    const a = nocciolo(c?.companies?.nome);
+    if (!d || !a) return false;
+    // Su un nocciolo di due lettere «contiene» non vuol dire niente: «bo»
+    // sta dentro «bosisio». Sotto le tre lettere si pretende l'uguaglianza.
+    const corto = d.length < a.length ? d : a;
+    if (corto.length >= 3 ? (d.includes(a) || a.includes(d)) : d === a) return false;
+    if (parole(datoreDichiarato(c)).length > 1 && sigla(datoreDichiarato(c)) === a) return false;
+    if (parole(c?.companies?.nome).length > 1 && sigla(c?.companies?.nome) === d) return false;
+    return true;
+  };
+
   // Rimette sui contatti i dati dell'azienda che servono SOLO a mostrarli.
   //
   // Si parte da quelle gia' in memoria — la lista aziende e' nello stesso
@@ -4296,7 +4384,7 @@ function App() {
   // sulle aziende, tipo nuove email doppie?». La risposta onesta era: non lo
   // sappiamo — li abbiamo trovati per caso, o perche' li ha visti lui.
   //
-  // Questi quattro controlli guardano SOLO Supabase, quindi possono girare
+  // Questi controlli guardano SOLO Supabase, quindi possono girare
   // da qui. I due che richiedono HubSpot (contatti appesi a piu' aziende,
   // aziende con piu' contatti del previsto) non si possono fare dalla pagina:
   // la webapp parla con Supabase e con Make, non con HubSpot.
@@ -4383,6 +4471,54 @@ function App() {
         trovati++;
         pushAttenzioneGruppo(`📋 ${bugiarde.length} aziende dicono «contatti_trovati» e non hanno nessun contatto`,
           bugiarde.slice(0,10).map(a => `   · ${a.nome}`));
+      }
+
+      // 6 e 7 · persone attaccate all'azienda sbagliata
+      //
+      // Una lettura sola per due controlli, perche' guardano la stessa cosa
+      // da due lati: il primo confronta ogni persona con la propria azienda,
+      // il secondo guarda l'azienda nel suo insieme. Chiederla due volte
+      // costerebbe il doppio per gli stessi dati.
+      //
+      // Perche' ci sono: il 12/11 Alberto ha visto a occhio che a una ditta
+      // di Pordenone erano finite venti persone con lo stesso ruolo. Nessun
+      // controllo lo diceva. Un difetto che si scopre guardando la tabella
+      // per caso e' un difetto che quasi sempre non si scopre.
+      const persone = await sbTutte(url, h,
+        "contacts?tipo=eq.persona&select=id,nome_completo,ruolo,ruolo_descrizione,stato,company_id,companies(nome)");
+
+      // 6 · il profilo dichiara un datore che non e' l'azienda a cui sta
+      const stonate = persone.filter(datoreDiscorda);
+      if (stonate.length) {
+        trovati++;
+        // Quanti sono gia' partiti conta piu' del totale: quelli non si
+        // correggono piu', si possono solo sapere.
+        const partiti = stonate.filter(c => c.stato === "inviato").length;
+        pushAttenzioneGruppo(
+          `📋 ${stonate.length} contatti dichiarano un datore diverso dall'azienda a cui sono attaccati${partiti?` — ${partiti} già inviati`:""}`,
+          stonate.slice(0,10).map(c =>
+            `   · ${c.nome_completo||"?"} — dice «${datoreDichiarato(c)}», è su «${c.companies?.nome||"?"}»`));
+      }
+
+      // 7 · l'azienda nel suo insieme: tre datori diversi sono un'omonimia
+      //
+      // Questo vede quello che il 6 non puo' vedere. «Elettrosystem di
+      // Piacentino Gianmarco» somiglia a «Elettrosystem» e passa il
+      // confronto uno-a-uno; ma se i contatti di una stessa azienda
+      // dichiarano tre ragioni sociali DIVERSE, l'azienda non e' una.
+      // Due si tollerano: una controllata, un gruppo, una sede.
+      const perAzienda = new Map();
+      persone.forEach(c => {
+        const d = datoreDichiarato(c); if (!d) return;
+        if (!perAzienda.has(c.company_id)) perAzienda.set(c.company_id, {nome:c.companies?.nome, datori:new Set()});
+        perAzienda.get(c.company_id).datori.add(nocciolo(d));
+      });
+      const omonime = [...perAzienda.values()].filter(a => a.datori.size >= 3);
+      if (omonime.length) {
+        trovati++;
+        pushAttenzioneGruppo(
+          `📋 ${omonime.length} aziende hanno contatti che dichiarano 3 o più datori diversi: probabile omonimia`,
+          omonime.slice(0,10).map(a => `   · ${a.nome||"?"} — ${a.datori.size} ragioni sociali diverse`));
       }
 
       // Il traffico verso Supabase si DICHIARA sempre, anche quando e' poco:
@@ -5768,7 +5904,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.80</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.81</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -6866,7 +7002,17 @@ function App() {
                                               </div>
                                             </td>
                                             <td style={{padding:"5px 8px",color:C.muted,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ct.ruolo||"—"}</td>
-                                            <td style={{padding:"5px 8px",color:C.muted,whiteSpace:"nowrap"}}>{ct.companies?.nome||"—"}</td>
+                                            {/* Il segno si mette accanto all'AZIENDA, non al nome della
+                                                persona: il sospetto non e' «questa persona non esiste», e'
+                                                «questa persona non lavora qui». Chi guarda deve vedere
+                                                subito quale delle due cose sta sbagliando. */}
+                                            <td style={{padding:"5px 8px",color:C.muted,whiteSpace:"nowrap"}}>
+                                              {datoreDiscorda(ct) && (
+                                                <span title={`Il profilo dichiara «${datoreDichiarato(ct)}», che non somiglia a «${ct.companies?.nome||""}». Puo' essere un'altra azienda, oppure una controllata o il gruppo.`}
+                                                      style={{color:C.yellow,marginRight:4,cursor:"help"}}>⚠</span>
+                                              )}
+                                              {ct.companies?.nome||"—"}
+                                            </td>
                                             <td style={{padding:"5px 8px",maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
                                               {ct.companies?.sito_web
                                                 ? <a href={/^https?:\/\//i.test(ct.companies.sito_web)?ct.companies.sito_web:"https://"+ct.companies.sito_web} target="_blank" style={{color:"#60a5fa",fontSize:9,textDecoration:"none"}} onClick={e=>e.stopPropagation()}>{ct.companies.sito_web.replace(/^https?:\/\//,"")}</a>
