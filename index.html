@@ -4104,7 +4104,7 @@ function App() {
   // Il resto serve solo a far vedere le cose a schermo, e lo completa
   // `completaAnagrafica` qui sotto. Al massimo si vede un trattino; non si
   // sbaglia una decisione.
-  const CONTATTI_SELECT = "id,nome_completo,ruolo,ruolo_descrizione,linkedin_url,email,stato,tipo,email_origine,company_id,companies(hs_lifecyclestage)";
+  const CONTATTI_SELECT = "id,nome_completo,ruolo,ruolo_descrizione,linkedin_url,email,stato,tipo,email_origine,company_id,datore_verificato_il,companies(hs_lifecyclestage)";
   // v5.48 — `invio_errore` E' NELL'ELENCO, e deve restarci.
   //
   // Fino alla v5.47 non c'era: quei contatti non venivano nemmeno scaricati e
@@ -4238,6 +4238,13 @@ function App() {
   // niente. Assenza di prova non e' prova di assenza — la stessa regola della
   // verifica nome/profilo.
   const datoreDiscorda = (c) => {
+    // Chi e' gia' stato guardato non si segnala piu'. Il controllo serve a
+    // portare davanti agli occhi quello che nessuno ha ancora visto; una
+    // riga gia' giudicata che torna a ogni giro e' rumore, e un avviso che
+    // non si puo' spegnere, dopo due o tre volte, si smette di guardare.
+    // Il timbro sta qui dentro, cosi' valgono insieme segno, filtro e
+    // referto: la regola e' una sola.
+    if (c?.datore_verificato_il) return false;
     const d = nocciolo(datoreDichiarato(c));
     const a = nocciolo(c?.companies?.nome);
     if (!d || !a) return false;
@@ -4494,7 +4501,7 @@ function App() {
       // controllo lo diceva. Un difetto che si scopre guardando la tabella
       // per caso e' un difetto che quasi sempre non si scopre.
       const persone = await sbTutte(url, h,
-        "contacts?tipo=eq.persona&select=id,nome_completo,ruolo,ruolo_descrizione,stato,company_id,companies(nome)");
+        "contacts?tipo=eq.persona&select=id,nome_completo,ruolo,ruolo_descrizione,stato,company_id,datore_verificato_il,companies(nome)");
 
       // 6 · il profilo dichiara un datore che non e' l'azienda a cui sta
       const stonate = persone.filter(datoreDiscorda);
@@ -4516,8 +4523,14 @@ function App() {
       // confronto uno-a-uno; ma se i contatti di una stessa azienda
       // dichiarano tre ragioni sociali DIVERSE, l'azienda non e' una.
       // Due si tollerano: una controllata, un gruppo, una sede.
+      // Anche qui i contatti gia' verificati non contano: se una persona ha
+      // guardato e ha detto che quei datori sono la stessa ditta, continuare
+      // a contarli come «ragioni sociali diverse» farebbe gridare il referto
+      // su un caso chiuso — e il controllo 7 diventerebbe il primo a essere
+      // ignorato, proprio perche' e' quello che grida piu' spesso.
       const perAzienda = new Map();
       persone.forEach(c => {
+        if (c.datore_verificato_il) return;
         const d = datoreDichiarato(c); if (!d) return;
         if (!perAzienda.has(c.company_id)) perAzienda.set(c.company_id, {nome:c.companies?.nome, datori:new Set()});
         perAzienda.get(c.company_id).datori.add(nocciolo(d));
@@ -4921,6 +4934,59 @@ function App() {
     } catch(e){
       pushLog("error", `✕ Eliminazione fallita — ${e.message}`);
       showToast("✕ Errore eliminazione");
+    }
+  };
+
+  // ── «Datore va bene»: archiviare un avviso che e' stato guardato ─────────
+  //
+  // Timbra i contatti SELEZIONATI che oggi risultano discordi. Da quel
+  // momento perdono il ⚠, escono dal filtro e non compaiono piu' nel referto.
+  //
+  // DUE SCELTE CHE SEMBRANO DETTAGLI E NON LO SONO.
+  //
+  // 1. Timbra solo i discordi. Se nella selezione ci sono righe che non lo
+  //    sono, non si scrive niente su quelle: un timbro che dice «guardato e
+  //    va bene» su una riga che nessuno ha guardato e' una dichiarazione
+  //    falsa, e fra un mese sarebbe indistinguibile da una vera.
+  //
+  // 2. Lo mette solo una persona, da qui. Nessun automatismo lo scrive, per
+  //    la stessa ragione: la verifica e' fatta a occhio, e scriverla per
+  //    conto di qualcuno significherebbe affermare che quel qualcuno ha
+  //    guardato.
+  const timbraDatoreOk = async () => {
+    const candidati = contattiRun.rows.filter(r => contattiSelected.has(r.id) && datoreDiscorda(r));
+    if (!candidati.length) {
+      showToast("⬡ Nessun contatto discorde fra quelli selezionati");
+      return;
+    }
+    const scartati = contattiSelected.size - candidati.length;
+    if (!await customConfirm(
+      `Segnare ${candidati.length} contatt${candidati.length===1?"o":"i"} come «datore verificato, va bene»?` +
+      (scartati ? `\n\n${scartati} selezionat${scartati===1?"o non e' segnalato":"i non sono segnalati"} come discord${scartati===1?"e":"i"}: su quell${scartati===1?"o":"i"} non si scrive niente.` : "") +
+      `\n\nDa qui in avanti non compariranno piu' fra i ⚠.`)) return;
+    const {url:sbUrl, key:sbKey} = getSbCreds();
+    if (!sbUrl || !sbKey) return;
+    const quando = new Date().toISOString();
+    const ids = candidati.map(r=>r.id);
+    try {
+      const r = await fetch(`${sbUrl}/rest/v1/contacts?id=in.(${ids.join(",")})`, {
+        method:"PATCH",
+        headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`,
+                 "Content-Type":"application/json", Prefer:"return=minimal"},
+        body: JSON.stringify({datore_verificato_il: quando}),
+      });
+      if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+      // La tabella si aggiorna subito con lo stesso valore scritto: senza, il
+      // ⚠ resterebbe li' fino al prossimo giro di lettura e sembrerebbe che
+      // il tasto non abbia funzionato.
+      setContattiRun(p=>({...p, rows:p.rows.map(x =>
+        ids.includes(x.id) ? {...x, datore_verificato_il: quando} : x)}));
+      setContattiSelected(new Set());
+      pushLog("ok", `✓ ${ids.length} contatt${ids.length===1?"o":"i"} con datore verificato: non saranno piu' segnalati`);
+      showToast(`✓ ${ids.length} archiviati`);
+    } catch(e) {
+      pushLog("error", `✕ Non sono riuscito a scrivere la verifica — ${e.message}`);
+      showToast("✕ Errore");
     }
   };
 
@@ -5913,7 +5979,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.82</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.83</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -6824,6 +6890,24 @@ function App() {
                                   border:`1px solid ${quanti ? "rgba(251,191,36,0.45)" : "rgba(148,163,184,0.2)"}`,
                                   borderRadius:5, cursor: quanti ? "pointer" : "default"}}>
                                 ⚠ Solo discordi{quanti ? ` (${quanti})` : ""}
+                              </button>
+                            );
+                          })()}
+                          {/* Il tasto per archiviare compare SOLO quando nella
+                              selezione c'e' davvero qualcosa da archiviare:
+                              un pulsante sempre presente e quasi sempre
+                              inutile e' un pulsante che prima o poi si preme
+                              per sbaglio. */}
+                          {(()=>{
+                            const n = contattiRun.rows.filter(r => contattiSelected.has(r.id) && datoreDiscorda(r)).length;
+                            if (!n) return null;
+                            return (
+                              <button onClick={timbraDatoreOk}
+                                title="Segna che hai guardato il datore dichiarato e che va bene: queste righe perdono il ⚠ ed escono dal filtro e dal referto."
+                                style={{padding:"7px 12px",fontSize:11,fontWeight:700,whiteSpace:"nowrap",
+                                  color:"#a7f3d0",background:"rgba(16,185,129,0.12)",
+                                  border:"1px solid rgba(16,185,129,0.35)",borderRadius:5,cursor:"pointer"}}>
+                                ✓ Datore ok ({n})
                               </button>
                             );
                           })()}
