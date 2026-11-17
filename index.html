@@ -4556,6 +4556,35 @@ function App() {
           omonime.slice(0,10).map(a => `   · ${a.nome||"?"} — ${a.datori.size} ragioni sociali diverse`));
       }
 
+      // 8 · fermi nella coda della ricerca email
+      //
+      // E' il controllo che cerca l'ANELLO, in generale. Tutti e nove quelli
+      // trovati finora si sono manifestati allo stesso modo: una riga ferma
+      // in uno stato di coda che nessuno guardava, e che ogni giro ripescava
+      // ricomprando la stessa ricerca a crediti.
+      //
+      // Qui NON si usa una soglia di giorni, che sarebbe arbitraria: si usa
+      // una CONTRADDIZIONE. Un contatto in coda che ha gia' `email_cercata`
+      // vuol dire che la ricerca su di lui e' passata e non l'ha mosso. O ha
+      // fallito in silenzio, o l'ha trattato senza scrivergli lo stato. In
+      // entrambi i casi al prossimo giro lo ripesca di nuovo.
+      //
+      // E' il caso del #178 («email gia' presente su un altro contatto»), ed
+      // e' la forma che prenderebbe anche un anello nuovo nato dal pulsante
+      // «In coda email».
+      const inCodaEmail = await sbTutte(url, h,
+        "contacts?stato=eq.enrichment_richiesto&select=id,nome_completo,email_cercata,aggiornato_il,companies(nome)");
+      const fermiInCoda = inCodaEmail.filter(c => c.email_cercata);
+      if (fermiInCoda.length) {
+        trovati++;
+        const giorni = (c) => Math.floor((Date.now() - new Date(c.aggiornato_il).getTime()) / 86400000);
+        const piuVecchio = Math.max(...fermiInCoda.map(giorni));
+        pushAttenzioneGruppo(
+          `📋 ${fermiInCoda.length} contatti sono in coda per la ricerca email ma la ricerca c'è già passata: al prossimo giro si ricomprano (il più fermo da ${piuVecchio} giorn${piuVecchio===1?"o":"i"})`,
+          fermiInCoda.slice(0,10).map(c =>
+            `   · ${c.nome_completo||"?"} — ${c.companies?.nome||"?"} (fermo da ${giorni(c)} g)`));
+      }
+
       // Il traffico verso Supabase si DICHIARA sempre, anche quando e' poco:
       // e' un numero da guardare crescere, non un allarme da far scattare.
       // Il 9/11 il progetto e' stato sospeso per quota superata e per capire
@@ -6049,7 +6078,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.85</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.86</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
