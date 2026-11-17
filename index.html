@@ -4421,11 +4421,17 @@ function App() {
   //
   // Il risultato finisce nel riquadro «Da guardare», non in una finestra che
   // si chiude: cosi' resta li' finche' non e' stato sistemato.
+  // Restituisce quanti problemi ha trovato, oppure `null` se non ha potuto
+  // girare. Serve a chi lo lancia da solo (vedi `refertoAutomatico`): un
+  // referto che non ha potuto girare e un referto che non ha trovato niente
+  // si somigliano troppo, e confonderli vorrebbe dire dichiarare «tutto a
+  // posto» per un guasto.
   const referto = useCallback(async () => {
-    const {url, key} = getSbCreds(); if(!url||!key) { showToast("⚠ Credenziali Supabase mancanti"); return; }
+    const {url, key} = getSbCreds(); if(!url||!key) { showToast("⚠ Credenziali Supabase mancanti"); return null; }
     const h = {apikey:key, Authorization:`Bearer ${sbBearer()}`};
     pushLog("info", "▶ Referto: controllo in corso…");
     let trovati = 0;
+    let esito = null;
     try {
       // 1 · la stessa casella su piu' aziende
       const gen = await sbTutte(url, h, "contacts?tipo=eq.generico&email=neq.&select=id,email,company_id,companies(nome)");
@@ -4594,13 +4600,60 @@ function App() {
 
       if (!trovati) pushLog("ok", "✓ Referto: nessun problema fra quelli che so controllare");
       else showToast(`⚠ Referto: ${trovati} problemi — guarda il riquadro`);
+      esito = trovati;
       // Quello che questo referto NON vede, detto sempre: un elenco che tace
       // sui propri limiti sembra completo.
       pushLog("info", "⬡ Il referto non vede HubSpot: contatti appesi a più aziende e aziende con contatti in più vanno controllati a parte");
     } catch(e) {
       pushLog("error", "✕ Referto interrotto: " + e.message);
     }
+    return esito;
   }, [pushLog, showToast]);
+
+  // ── IL REFERTO CHE PARTE DA SOLO ─────────────────────────────────────────
+  //
+  // Alberto, 17/11/2026: «processando tanti contatti, quello che passa dal log
+  // non lo vedo». Vero: il log scorre e il riquadro «Da guardare» bisogna
+  // aprirlo. Finche' il referto dipende dal fatto che uno se lo ricordi, non
+  // e' una rete — e' un'abitudine.
+  //
+  // NON SU TIMER, E IL MOTIVO E' MISURATO. Il referto legge circa 1,15 MB a
+  // esecuzione (441 kB le persone, 313 kB i generici, 302 kB le aziende con
+  // email). Dentro un `setInterval` da dieci secondi farebbe 414 MB l'ora:
+  // e' esattamente la forma del 5 novembre, quando un polling che rileggeva
+  // tutto ha bruciato 3,26 GB in un giorno. Una lettura grossa su timer e' il
+  // difetto; una lettura grossa su un evento che accade cinque o dieci volte
+  // al giorno costa dieci MB al giorno, cioe' niente.
+  //
+  // PARTE QUANDO UNA LAVORAZIONE FINISCE, che e' il momento in cui qualcosa
+  // puo' essersi rotto davvero. Se non lavori, non gira mai.
+  //
+  // LA PAUSA FRA DUE GIRI non e' una gentilezza: due lavorazioni che finiscono
+  // a pochi secondi l'una dall'altra lo lancerebbero due volte sugli stessi
+  // dati, e la seconda risposta sarebbe identica alla prima.
+  const refertoAutoRef = React.useRef(0);
+  const PAUSA_REFERTO = 3 * 60 * 1000;
+
+  const refertoAutomatico = useCallback(async (motivo) => {
+    const ora = Date.now();
+    if (ora - refertoAutoRef.current < PAUSA_REFERTO) return;
+    refertoAutoRef.current = ora;
+    pushLog("info", `▶ Referto automatico (${motivo})`);
+    const trovati = await referto();
+    // Tre esiti, non due. `null` vuol dire che non ha potuto girare, e tacere
+    // in quel caso lascerebbe credere che sia andato tutto bene.
+    if (trovati === null) {
+      pushLog("warn", "⬡ Il referto automatico non ha potuto girare: lancialo a mano dal riquadro «Da guardare»");
+      return;
+    }
+    if (!trovati) return;   // niente da dire: resta la riga verde nel log
+    // Qui si alza la voce, ed e' il punto di tutto l'intervento: una cosa che
+    // merita attenzione non puo' finire in una riga di log che scorre mentre
+    // si lavora su novecento contatti.
+    await customConfirm(
+      `Il referto ha trovato ${trovati} cos${trovati===1?"a":"e"} da guardare dopo «${motivo}».\n\n` +
+      `Il dettaglio è nel riquadro «Da guardare», in fondo al log: ogni voce dice quante righe riguarda e ne elenca le prime dieci.`);
+  }, [referto, pushLog, customConfirm]);
 
   // ── Ricerca dell'indirizzo email aziendale ────────────────────────────────
   // Per le aziende senza pagina LinkedIn non c'e' una buyer persona: l'agente
@@ -4716,10 +4769,11 @@ function App() {
           }
           if (u.ultimo_errore) pushLog("warn", `⬡ Ultimo errore: ${u.ultimo_errore}`);
           fetchContattiRun();
+          refertoAutomatico("ricerca indirizzi aziendali conclusa");
         }
       } catch(e) { /* l'agente puo' riavviarsi: si riprova al giro dopo */ }
     }, 5000);
-  }, [pushLog]);
+  }, [pushLog, refertoAutomatico]);
 
   // Sincronizza su HubSpot le aziende selezionate. Il modulo 212 dello scenario
   // accetta companyIds espliciti e in quel caso ignora il filtro per stato:
@@ -5709,6 +5763,10 @@ function App() {
             pushLog("info", "⬡ Sono persone entrate due volte: vanno unite, e nel frattempo non vengono ricercate di nuovo");
           }
           fetchContattiRun();
+          // E' il caso che ha fatto nascere questo automatismo: dopo una
+          // ricerca su centinaia di contatti il log e' lunghissimo e quello
+          // che conta ci si perde dentro.
+          refertoAutomatico("ricerca email conclusa");
         }
       } catch(e) {
         // L'agente puo' riavviarsi: si riprova al giro dopo. Ma se tace troppo
@@ -5721,7 +5779,7 @@ function App() {
         }
       }
     }, 5000);
-  }, [pushLog, fetchContattiRun]);
+  }, [pushLog, fetchContattiRun, refertoAutomatico]);
 
   const saveContattoSettore = async (companyId, settore) => {
     const {url:sbUrl, key:sbKey} = getSbCreds();
@@ -6078,7 +6136,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.86</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.87</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
