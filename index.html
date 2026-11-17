@@ -4950,6 +4950,63 @@ function App() {
     }
   };
 
+  // ── «In coda email»: scremare oggi, lanciare una volta sola ──────────────
+  //
+  // CHI PUO' ENTRARE IN CODA. Solo `trovato` (mai cercato) e
+  // `email_non_trovata` (cercato senza esito, si puo' ritentare). Sono gli
+  // stessi che l'agente considera avanzabili.
+  //
+  // Chi NON entra, e perche' il pulsante lo dice invece di tacere:
+  //   · `email_trovata` — l'indirizzo c'e' gia', rimetterlo in coda vuol dire
+  //     ricomprare una ricerca che si paga a crediti;
+  //   · `inviato` — e' gia' partito;
+  //   · `scartato` — l'ha escluso una persona, e un automatismo non annulla
+  //     una decisione presa a mano;
+  //   · `enrichment_richiesto` — c'e' gia'.
+  //
+  // Scrivere comunque su tutti sarebbe piu' semplice e costerebbe crediti su
+  // contatti che non ne hanno bisogno, in silenzio.
+  const CODA_EMAIL_DA = ["trovato", "email_non_trovata"];
+
+  const accodaPerEmail = async () => {
+    const scelti = contattiRun.rows.filter(r => contattiSelected.has(r.id));
+    const accodabili = scelti.filter(r => CODA_EMAIL_DA.includes(r.stato));
+    if (!accodabili.length) {
+      showToast("⬡ Nessuno dei selezionati puo' entrare in coda");
+      pushLog("warn", "⬡ In coda email: nessuno dei selezionati e' in «trovato» o «email non trovata»");
+      return;
+    }
+    const fuori = scelti.length - accodabili.length;
+    const gia = scelti.filter(r => r.stato === "enrichment_richiesto").length;
+    if (!await customConfirm(
+      `Mettere ${accodabili.length} contatt${accodabili.length===1?"o":"i"} nella coda della ricerca email?` +
+      (fuori ? `\n\n${fuori} selezionat${fuori===1?"o resta":"i restano"} fuori${gia?` (${gia} ${gia===1?"e'":"sono"} gia' in coda)`:""}: hanno gia' l'email, sono gia' partiti o sono stati scartati a mano.` : "") +
+      `\n\nLa coda resta nel database: puoi aggiungerne altri piu' tardi e lanciare una volta sola.`)) return;
+    const {url:sbUrl, key:sbKey} = getSbCreds();
+    if (!sbUrl || !sbKey) return;
+    const ids = accodabili.map(r=>r.id);
+    try {
+      const r = await fetch(`${sbUrl}/rest/v1/contacts?id=in.(${ids.join(",")})`, {
+        method:"PATCH",
+        headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`,
+                 "Content-Type":"application/json", Prefer:"return=minimal"},
+        body: JSON.stringify({stato:"enrichment_richiesto"}),
+      });
+      if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+      // La tabella si aggiorna subito: senza, il contatore della coda sul
+      // pulsante «Avvia ricerca» resterebbe indietro e sembrerebbe non aver
+      // funzionato.
+      setContattiRun(p=>({...p, rows:p.rows.map(x =>
+        ids.includes(x.id) ? {...x, stato:"enrichment_richiesto"} : x)}));
+      setContattiSelected(new Set());
+      pushLog("ok", `⧉ ${ids.length} contatt${ids.length===1?"o messo":"i messi"} in coda per la ricerca email`);
+      showToast(`✓ ${ids.length} in coda`);
+    } catch(e) {
+      pushLog("error", `✕ Non sono riuscito a metterli in coda — ${e.message}`);
+      showToast("✕ Errore");
+    }
+  };
+
   // ── «Datore va bene»: archiviare un avviso che e' stato guardato ─────────
   //
   // Timbra i contatti SELEZIONATI che oggi risultano discordi. Da quel
@@ -5992,7 +6049,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.84</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.85</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -6953,11 +7010,33 @@ function App() {
                             title="Incolla un elenco di id contatto (da una query) e seleziona quelle righe"
                             style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#a7f3d0",background:"rgba(16,185,129,0.12)",border:"1px solid rgba(16,185,129,0.3)",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>⌸ Da elenco</button>
                           <button onClick={deleteSelected} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>🗑 {contattiSelected.size>0?`Elimina (${contattiSelected.size})`:"Elimina"}</button>
-                          {/* Il pulsante «In coda email» non c'e' piu' (22/10/2026, deciso da
-                              Alberto). Era un passaggio in piu' che non serviva: «Avvia ricerca»
-                              lavora sui contatti selezionati, e se non ce n'e' nessuno su quelli
-                              gia' in coda. La coda resta nei dati — ci sono righe che hanno
-                              ancora stato enrichment_richiesto — ma non si alimenta piu' da qui. */}
+                          {/* «In coda email»: tolto il 22/10/2026, RIMESSO il 17/11/2026.
+                              Non e' un ripensamento: e' cambiato il vincolo che lo
+                              aveva fatto togliere. A ottobre si selezionava e si
+                              lanciava nello stesso momento, quindi la coda era un
+                              passaggio in piu'. Oggi i contatti da scremare sono
+                              quasi novecento, la selezione si fa in piu' riprese, e
+                              una selezione vive solo dentro la pagina: basta un
+                              filtro o un ricaricamento e si ricomincia. La coda sta
+                              nel database, quindi regge fra una sessione e l'altra.
+                              Un intervento deciso sotto un vincolo va rivalutato
+                              quando il vincolo cambia, non difeso per coerenza. */}
+                          {(()=>{
+                            const accodabili = contattiRun.rows.filter(r =>
+                              contattiSelected.has(r.id) && CODA_EMAIL_DA.includes(r.stato));
+                            if (!contattiSelected.size) return null;
+                            return (
+                              <button onClick={accodaPerEmail} disabled={!accodabili.length}
+                                title="Mette i contatti selezionati nella coda della ricerca email. La coda resta nel database: puoi selezionare oggi, aggiungerne altri domani e lanciare una volta sola."
+                                style={{padding:"7px 14px",fontSize:11,fontWeight:700,whiteSpace:"nowrap",
+                                  color: accodabili.length ? "#c7d2fe" : C.muted,
+                                  background: accodabili.length ? "rgba(99,102,241,0.14)" : "transparent",
+                                  border:`1px solid ${accodabili.length ? "rgba(99,102,241,0.4)" : "rgba(148,163,184,0.2)"}`,
+                                  borderRadius:5, cursor: accodabili.length ? "pointer" : "default"}}>
+                                ⧉ In coda email ({accodabili.length})
+                              </button>
+                            );
+                          })()}
                           {/* La ricerca vera. Il conteggio mostra la coda, non la
                               selezione: senza selezione e' quello che verra'
                               lavorato, ed e' bene vederlo prima di premere. */}
