@@ -2379,6 +2379,19 @@ function App() {
         autoPhantomAttesaRef.current = attesaPhantom(resData.ids.length);
         autoPhantomFiringRef.current  = true;
         autoPhantomFiredAtRef.current = Date.now();
+        // Domini condivisi nel lotto: non blocca niente, ma lo dice.
+        // Phantom restituisce un dominio e lo scenario 1 ritrova l'azienda
+        // cercando `sito_web` uguale a quello; se due aziende condividono il
+        // dominio, il risultato puo' finire sulla riga sbagliata e nessuno se
+        // ne accorgerebbe. Qui si nominano, cosi' il controllo lo fa una
+        // persona subito invece di scoprirlo mesi dopo da un dato storto.
+        if (resData.dominiCondivisi === null) {
+          pushLog("warn", "⚠ Non sono riuscito a controllare i domini condivisi: se un risultato finisse sull'azienda sbagliata, non ce ne accorgeremmo");
+        } else if (Array.isArray(resData.dominiCondivisi) && resData.dominiCondivisi.length) {
+          pushLog("warn", `⚠ ${resData.dominiCondivisi.length} domini di questo lotto sono di piu' aziende: il risultato di Phantom potrebbe finire sulla riga sbagliata`);
+          resData.dominiCondivisi.slice(0,10).forEach(d =>
+            pushLog("warn", `   · ${d.dominio} → ${(d.aziende||[]).map(a=>`${a.nome} (${a.id})`).join(" + ")}`));
+        }
         if (resData.timbrate === false) {
           // Senza timbro il controllo di completamento e' cieco: meglio dirlo
           // subito che scoprirlo quando le aziende restano appese.
@@ -5979,7 +5992,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.83</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.84</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
