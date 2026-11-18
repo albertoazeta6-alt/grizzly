@@ -1387,17 +1387,17 @@ function App() {
       .filter(Boolean).join(" ").toLowerCase();
     return q.toLowerCase().split(/\s+/).filter(Boolean).every(p => testo.includes(p));
   };
-  // Filtro «solo i ⚠»: isola le persone il cui profilo dichiara un'azienda
-  // diversa da quella a cui sono attaccate. Il segno sulla riga si vede solo
-  // se si passa di li'; con cinquecento righe caricate, trovarli a occhio
-  // vuol dire scorrere tutto — cioe' non farlo. Il filtro li mette insieme.
+  // Filtro «solo i ⚠»: isola le righe su cui c'e' qualcosa da guardare prima
+  // di mandarle in campagna. Il segno sulla riga si vede solo se si passa di
+  // li'; con cinquecento righe caricate, trovarli a occhio vuol dire scorrere
+  // tutto — cioe' non farlo. Il filtro li mette insieme.
   //
-  // Usa `datoreDiscorda`, la stessa funzione del segno e del referto: tre
-  // viste della stessa cosa devono dire la stessa cosa.
+  // Usa `daGuardare`, la stessa funzione del segno: due viste della stessa
+  // cosa devono dire la stessa cosa.
   const [soloDiscordi, setSoloDiscordi] = useState(false);
   const applicaFiltriContatti = rows => (rows||[]).filter(r =>
     (contattiStatoFilter.size === 0 || contattiStatoFilter.has(r.stato)) &&
-    (!soloDiscordi || datoreDiscorda(r)) &&
+    (!soloDiscordi || daGuardare(r)) &&
     cercaInContatto(r, contattiSearch)
   );
   // Larghezze colonne Ricerca Aziende (px). Gli indici seguono la POSIZIONE in
@@ -4270,6 +4270,91 @@ function App() {
     return true;
   };
 
+  // ── IL NOME E' UNA RAGIONE SOCIALE, NON UNA PERSONA ──────────────────────
+  //
+  // Su ESSEGI 2 sono entrati «Essegi Distribuzioni alimentari» e «Essegi sas»
+  // nel campo del nome, con tanto di profilo /in/. La verifica nome/indirizzo
+  // dello scraper non li ferma, e fa bene: lo slug combacia davvero
+  // (`essegi-distribuzioni-alimentari`). Non e' un errore di raccolta, e'
+  // un'azienda che si e' aperta un profilo da persona.
+  //
+  // Conta perche' a quel nome si scrive «Gentile Essegi Distribuzioni
+  // alimentari,» — e perche' dietro non c'e' nessuno che decide.
+  const FORME = /(?:^|[\s.,(-])(s\.?r\.?l\.?s?|s\.?p\.?a|s\.?a\.?s|s\.?n\.?c|s\.?c\.?a\.?r\.?l|sagl|gmbh|ltd|inc|b\.?v|&\s*c\.?)(?:[\s.,)]|$)/i;
+  // Restituisce IL MOTIVO, non un si'/no: i due casi che riconosce sono
+  // diversi fra loro e chi guarda deve sapere quale dei due ha davanti.
+  const nomeSembraAzienda = (c) => {
+    const nome = c?.nome_completo || "";
+    if (!nome) return false;
+    // Prima strada: la forma societaria scritta nel nome. «Essegi sas».
+    if (FORME.test(" " + nome + " ")) return `«${nome}» contiene una forma societaria: è un'azienda, non una persona`;
+    // Seconda strada, per i casi senza forma societaria: il nome della
+    // persona E' il datore che dichiara. «Essegi Distribuzioni alimentari»
+    // che lavora «presso Essegi distribuzioni alimentari» non e' una persona
+    // che lavora in un'azienda: e' l'azienda.
+    //
+    // Si pretendono almeno DUE parole: in Italia un artigiano si chiama come
+    // la sua ditta individuale — «Rossi» presso «Rossi» e' normale, ed e' una
+    // persona vera. Con due o piu' parole la coincidenza non e' piu' tale.
+    const n = nocciolo(nome), d = nocciolo(datoreDichiarato(c));
+    if (n && d && n === d && parole(nome).length >= 2)
+      return `il nome e il datore dichiarato sono la stessa cosa («${nome}»): o è l'azienda, o è un artigiano che si chiama come la sua ditta`;
+    return null;
+  };
+
+  // ── L'AZIENDA RACCOGLIE OMONIME ──────────────────────────────────────────
+  //
+  // E' il controllo 7 del referto portato dentro Leads, ed e' il motivo per
+  // cui ci voleva: il referto lo vede, ma si lavora qui.
+  //
+  // Il confronto uno-a-uno (`datoreDiscorda`) e' CIECO su questi casi, per
+  // costruzione. «ESSEGI 2 S.R.L.» ridotto al nocciolo e' `essegi` — la cifra
+  // e' un carattere solo, «S.R.L.» e' forma societaria — e `essegi` sta dentro
+  // «essegi grafica e pubblicita'», «Essegi distribuzioni alimentari»,
+  // «ESSEGI SICUREZZA», «Agenzia Essegi». Quindi per la regola CONCORDANO
+  // tutti, uno per uno, ed e' giusto cosi': preso singolarmente, nessuno di
+  // quei nomi e' sospetto.
+  //
+  // Il sospetto nasce solo guardando l'insieme: otto ragioni sociali diverse
+  // sotto la stessa azienda non sono otto varianti di scrittura, sono otto
+  // aziende. Misurato il 18/11: 66 aziende, 376 contatti, 141 gia' inviati.
+  //
+  // Si calcola sulle righe GIA' in memoria — la tabella Leads le ha tutte,
+  // con `ruolo_descrizione` — quindi non costa nessuna lettura in piu'.
+  const SOGLIA_OMONIME = 3;
+  const aziendeOmonimeRef = React.useRef(new Set());
+  const aziendeOmonime = React.useMemo(() => {
+    const perAzienda = new Map();
+    (contattiRun.rows || []).forEach(c => {
+      if (c.tipo !== "persona" || c.datore_verificato_il) return;
+      const d = datoreDichiarato(c); if (!d) return;
+      if (!perAzienda.has(c.company_id)) perAzienda.set(c.company_id, new Set());
+      perAzienda.get(c.company_id).add(nocciolo(d));
+    });
+    const fuori = new Set();
+    perAzienda.forEach((datori, id) => { if (datori.size >= SOGLIA_OMONIME) fuori.add(id); });
+    aziendeOmonimeRef.current = fuori;
+    return fuori;
+  }, [contattiRun.rows]);
+
+  // ── UN SOLO «DA GUARDARE», TRE RAGIONI ───────────────────────────────────
+  //
+  // Tre segni diversi sulla stessa riga sarebbero tre cose da imparare. Qui
+  // il segno e' uno e il motivo si legge passandoci sopra. Il timbro
+  // «Datore ok» li spegne tutti insieme: chi ha guardato ha guardato.
+  const motiviDaGuardare = (c) => {
+    if (c?.datore_verificato_il) return [];
+    const m = [];
+    if (datoreDiscorda(c))
+      m.push(`il profilo dichiara «${datoreDichiarato(c)}», che non somiglia a «${c?.companies?.nome||""}»`);
+    if (aziendeOmonimeRef.current.has(c?.company_id))
+      m.push(`i contatti di questa azienda dichiarano ${SOGLIA_OMONIME} o più ragioni sociali diverse: probabile omonimia`);
+    const perNome = nomeSembraAzienda(c);
+    if (perNome) m.push(perNome);
+    return m;
+  };
+  const daGuardare = (c) => motiviDaGuardare(c).length > 0;
+
   // Rimette sui contatti i dati dell'azienda che servono SOLO a mostrarli.
   //
   // Si parte da quelle gia' in memoria — la lista aziende e' nello stesso
@@ -5107,9 +5192,9 @@ function App() {
   //    conto di qualcuno significherebbe affermare che quel qualcuno ha
   //    guardato.
   const timbraDatoreOk = async () => {
-    const candidati = contattiRun.rows.filter(r => contattiSelected.has(r.id) && datoreDiscorda(r));
+    const candidati = contattiRun.rows.filter(r => contattiSelected.has(r.id) && daGuardare(r));
     if (!candidati.length) {
-      showToast("⬡ Nessun contatto discorde fra quelli selezionati");
+      showToast("⬡ Niente da archiviare fra quelli selezionati");
       return;
     }
     const scartati = contattiSelected.size - candidati.length;
@@ -6136,7 +6221,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.87</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.88</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -7037,16 +7122,16 @@ function App() {
                               preme solo se si sospetta gia' che ci sia qualcosa, e il
                               punto di questo controllo e' che il sospetto non serva. */}
                           {(()=>{
-                            const quanti = contattiRun.rows.filter(datoreDiscorda).length;
+                            const quanti = contattiRun.rows.filter(daGuardare).length;
                             return (
                               <button onClick={()=>setSoloDiscordi(v=>!v)} disabled={!quanti && !soloDiscordi}
-                                title="Solo le persone il cui profilo dichiara un'azienda diversa da quella a cui sono attaccate. Da guardare prima di mandarle: dopo non si correggono piu'."
+                                title="Solo le righe con qualcosa da guardare: datore dichiarato diverso, azienda che raccoglie omonime, o nome che sembra una ragione sociale. Da guardare prima di mandarle: dopo non si correggono piu'."
                                 style={{padding:"7px 12px",fontSize:11,fontWeight:700,whiteSpace:"nowrap",
                                   color: soloDiscordi ? "#0f172a" : (quanti ? "#fbbf24" : C.muted),
                                   background: soloDiscordi ? "#fbbf24" : (quanti ? "rgba(251,191,36,0.12)" : "transparent"),
                                   border:`1px solid ${quanti ? "rgba(251,191,36,0.45)" : "rgba(148,163,184,0.2)"}`,
                                   borderRadius:5, cursor: quanti ? "pointer" : "default"}}>
-                                ⚠ Solo discordi{quanti ? ` (${quanti})` : ""}
+                                ⚠ Solo da guardare{quanti ? ` (${quanti})` : ""}
                               </button>
                             );
                           })()}
@@ -7056,7 +7141,7 @@ function App() {
                               inutile e' un pulsante che prima o poi si preme
                               per sbaglio. */}
                           {(()=>{
-                            const n = contattiRun.rows.filter(r => contattiSelected.has(r.id) && datoreDiscorda(r)).length;
+                            const n = contattiRun.rows.filter(r => contattiSelected.has(r.id) && daGuardare(r)).length;
                             if (!n) return null;
                             return (
                               <button onClick={timbraDatoreOk}
@@ -7297,8 +7382,9 @@ function App() {
                                                 «questa persona non lavora qui». Chi guarda deve vedere
                                                 subito quale delle due cose sta sbagliando. */}
                                             <td style={{padding:"5px 8px",color:C.muted,whiteSpace:"nowrap"}}>
-                                              {datoreDiscorda(ct) && (
-                                                <span title={`Il profilo dichiara «${datoreDichiarato(ct)}», che non somiglia a «${ct.companies?.nome||""}». Puo' essere un'altra azienda, oppure una controllata o il gruppo.`}
+                                              {daGuardare(ct) && (
+                                                <span title={motiviDaGuardare(ct).map(m => "• " + m).join("\n") +
+                                                        "\n\nPuo' essere un caso buono — una controllata, un gruppo, un secondo impiego. Guarda, e se va bene archivialo con «✓ Datore ok»."}
                                                       style={{color:C.yellow,marginRight:4,cursor:"help"}}>⚠</span>
                                               )}
                                               {ct.companies?.nome||"—"}
