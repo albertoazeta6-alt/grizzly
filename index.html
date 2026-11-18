@@ -1291,13 +1291,45 @@ function App() {
   // La ricerca libera guarda in tutti i campi testuali della riga: cercando
   // "milano" o un pezzo di dominio si arriva all'azienda senza dover prima
   // indovinare in quale colonna stia il dato.
+  // ── COME SI LEGGE QUELLO CHE SI SCRIVE NELLA CASELLA DI RICERCA ──────────
+  //
+  // Finora due parole volevano dire «ci sono tutte e due, dove capita». E'
+  // comodo per `rossi milano`, ed e' inutile per `service manager`: su
+  // quattromila righe esce chiunque faccia il manager e chiunque lavori in un
+  // service, cioe' quasi tutti. Alberto, 18/11: «sarebbe utile un filtro
+  // evoluto».
+  //
+  // Tre regole, e si imparano guardando il segnaposto della casella:
+  //   parola         deve esserci
+  //   "due parole"   devono esserci IN QUESTO ORDINE, attaccate
+  //   -parola        NON deve esserci
+  //
+  // Lo spazio resta un «e», quindi chi scriveva come prima continua a trovare
+  // le stesse righe: la modifica aggiunge, non cambia.
+  //
+  // UNA SOLA FUNZIONE per aziende e contatti. Due caselle che si somigliano e
+  // si comportano diversamente sono peggio di due caselle diverse.
+  const termini = (q) => {
+    const fuori = [];
+    (q || "").toLowerCase().match(/-?"[^"]*"|\S+/g)?.forEach(t => {
+      const no = t.startsWith("-");
+      const nudo = (no ? t.slice(1) : t).replace(/^"|"$/g, "").trim();
+      if (nudo) fuori.push({no, testo: nudo});
+    });
+    return fuori;
+  };
+  const passaRicerca = (testo, q) => {
+    const ts = termini(q);
+    if (!ts.length) return true;
+    const t = testo.toLowerCase();
+    return ts.every(x => x.no ? !t.includes(x.testo) : t.includes(x.testo));
+  };
+
   const cercaInRiga = (r, q) => {
     if (!q) return true;
-    const testo = [r.nome, r.sito_web, r.linkedin_url, r.citta, r.settore,
-                   r.settore_confidenza, r.stato, r.icebreaker, r.fatturato]
-      .filter(Boolean).join(" ").toLowerCase();
-    // Piu' parole: devono esserci tutte, in qualsiasi ordine e campo
-    return q.toLowerCase().split(/\s+/).filter(Boolean).every(p => testo.includes(p));
+    return passaRicerca([r.nome, r.sito_web, r.linkedin_url, r.citta, r.settore,
+                         r.settore_confidenza, r.stato, r.icebreaker, r.fatturato]
+      .filter(Boolean).join(" "), q);
   };
   // "In coda" = aziende che aspettano un intervento e su cui si puo' ancora
   // lavorare, cioe' che hanno un sito. Senza dominio non c'e' niente da
@@ -1379,13 +1411,15 @@ function App() {
   // Ricerca libera nei Leads. I campi utili sono altri rispetto alle aziende:
   // qui si cerca per persona, indirizzo o azienda di appartenenza.
   const [contattiSearch, setContattiSearch] = useState("");
+  // Stessa regola delle aziende (vedi `passaRicerca`), campi diversi: qui si
+  // cerca per persona, indirizzo o azienda di appartenenza. `ruolo_descrizione`
+  // e' dentro perche' e' li' che sta scritto «presso chi».
   const cercaInContatto = (r, q) => {
     if (!q) return true;
-    const testo = [r.nome_completo, r.ruolo, r.email, r.linkedin_url, r.stato,
-                   r.tipo, r.email_origine, r.companies?.nome, r.companies?.settore,
-                   r.companies?.sito_web]
-      .filter(Boolean).join(" ").toLowerCase();
-    return q.toLowerCase().split(/\s+/).filter(Boolean).every(p => testo.includes(p));
+    return passaRicerca([r.nome_completo, r.ruolo, r.ruolo_descrizione, r.email,
+                         r.linkedin_url, r.stato, r.tipo, r.email_origine,
+                         r.companies?.nome, r.companies?.settore, r.companies?.sito_web]
+      .filter(Boolean).join(" "), q);
   };
   // Filtro «solo i ⚠»: isola le righe su cui c'e' qualcosa da guardare prima
   // di mandarle in campagna. Il segno sulla riga si vede solo se si passa di
@@ -6221,7 +6255,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.88</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.89</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -7112,11 +7146,24 @@ function App() {
                               setContattiTutteRun(attiva);
                               await fetchContattiRun();
                             }} C={C}/>
-                          <input value={contattiSearch} onChange={e=>setContattiSearch(e.target.value)}
-                            placeholder="🔍 Cerca nome, email, azienda…"
-                            style={{padding:"6px 10px",fontSize:11,borderRadius:5,minWidth:210,
-                              border:`1px solid ${contattiSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
-                              background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
+                          {/* La X non e' un vezzo: la casella resta piena fra un
+                              filtro e l'altro, e una ricerca dimenticata fa
+                              sembrare vuota una lista che non lo e'. Esc fa lo
+                              stesso, per chi tiene le mani sulla tastiera. */}
+                          <span style={{position:"relative",display:"inline-flex",alignItems:"center"}}>
+                            <input value={contattiSearch} onChange={e=>setContattiSearch(e.target.value)}
+                              onKeyDown={e=>{ if (e.key === "Escape") setContattiSearch(""); }}
+                              placeholder={'🔍 Cerca…  "frase esatta"  -escludi'}
+                              title={'Una parola: deve esserci.\n"due parole": devono esserci in questo ordine, attaccate.\n-parola: non deve esserci.\nLo spazio resta un «e».'}
+                              style={{padding:"6px 26px 6px 10px",fontSize:11,borderRadius:5,minWidth:230,
+                                border:`1px solid ${contattiSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
+                                background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
+                            {contattiSearch && (
+                              <button onClick={()=>setContattiSearch("")} title="Svuota la ricerca (Esc)"
+                                style={{position:"absolute",right:4,border:"none",background:"transparent",
+                                  color:C.muted,cursor:"pointer",fontSize:13,lineHeight:1,padding:"2px 4px"}}>×</button>
+                            )}
+                          </span>
                           {/* «Solo ⚠»: il numero sul pulsante si vede SEMPRE, anche a
                               filtro spento. Un filtro che non dice quanto nasconde si
                               preme solo se si sospetta gia' che ci sia qualcosa, e il
@@ -7675,12 +7722,21 @@ function App() {
                                 </button>
                               );
                             })()}
-                            <input value={importSearch} onChange={e=>setImportSearch(e.target.value)}
-                              placeholder="🔍 Cerca azienda, sito, città…"
-                              onClick={e=>e.stopPropagation()}
-                              style={{padding:"3px 8px",fontSize:10,borderRadius:5,minWidth:190,
-                                border:`1px solid ${importSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
-                                background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
+                            <span style={{position:"relative",display:"inline-flex",alignItems:"center"}}
+                                  onClick={e=>e.stopPropagation()}>
+                              <input value={importSearch} onChange={e=>setImportSearch(e.target.value)}
+                                onKeyDown={e=>{ if (e.key === "Escape") setImportSearch(""); }}
+                                placeholder={'🔍 Cerca…  "frase esatta"  -escludi'}
+                                title={'Una parola: deve esserci.\n"due parole": devono esserci in questo ordine, attaccate.\n-parola: non deve esserci.\nLo spazio resta un «e».'}
+                                style={{padding:"3px 22px 3px 8px",fontSize:10,borderRadius:5,minWidth:200,
+                                  border:`1px solid ${importSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
+                                  background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
+                              {importSearch && (
+                                <button onClick={()=>setImportSearch("")} title="Svuota la ricerca (Esc)"
+                                  style={{position:"absolute",right:3,border:"none",background:"transparent",
+                                    color:C.muted,cursor:"pointer",fontSize:12,lineHeight:1,padding:"1px 3px"}}>×</button>
+                              )}
+                            </span>
                             {/* Il conteggio e' SEMPRE visibile, non solo con un filtro
                                 attivo: sapere quante aziende si sta guardando e' come
                                 ci si accorge di stare lavorando su una lista parziale.
@@ -8041,7 +8097,7 @@ function App() {
                 return (
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center",padding:"6px 12px",borderBottom:`1px solid rgba(59,130,246,0.15)`,background:"rgba(59,130,246,0.03)",flexShrink:0}}>
                     <input value={classifSearch} onChange={e=>setClassifSearch(e.target.value)}
-                      placeholder="🔍 Cerca azienda, sito, città…"
+                      placeholder={'🔍 Cerca…  "frase esatta"  -escludi'}
                       style={{padding:"3px 8px",fontSize:10,borderRadius:5,minWidth:200,
                         border:`1px solid ${classifSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
                         background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
@@ -8822,7 +8878,7 @@ function App() {
                           schede dentro l'iframe, che la ricevono per postMessage.
                           Fino al 22/10/2026 filtrava solo la tabella. */}
                       <input value={urlSearch} onChange={e=>setUrlSearch(e.target.value)}
-                        placeholder="🔍 Cerca azienda, sito, città…"
+                        placeholder={'🔍 Cerca…  "frase esatta"  -escludi'}
                         style={{padding:"3px 8px",fontSize:10,borderRadius:5,minWidth:200,
                           border:`1px solid ${urlSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
                           background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
@@ -9296,7 +9352,7 @@ function App() {
                         <option value="__vuoto__" style={STILE_OPZIONE}>— senza settore —</option>
                       </select>
                       <input value={classifSearch} onChange={e=>{setClassifSearch(e.target.value);setClassifSelected(0);}}
-                        placeholder="🔍 Cerca azienda, sito, città…"
+                        placeholder={'🔍 Cerca…  "frase esatta"  -escludi'}
                         style={{padding:"3px 8px",fontSize:10,borderRadius:5,minWidth:190,
                           border:`1px solid ${classifSearch?"#3b82f6":"rgba(148,163,184,0.2)"}`,
                           background:"rgba(15,23,42,0.6)",color:C.text,outline:"none"}}/>
