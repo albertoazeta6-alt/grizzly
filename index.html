@@ -1491,6 +1491,27 @@ function App() {
   );
   // Ricerca libera nei Leads. I campi utili sono altri rispetto alle aziende:
   // qui si cerca per persona, indirizzo o azienda di appartenenza.
+  // ── I CONTATORI IN CIMA: APERTI O IN UNA RIGA ────────────────────────────
+  //
+  // Misurato sulla schermata di Alberto del 19/11: «Run corrente» e «Code»
+  // occupano 350 pixel su 900, cioe' il 40% dello schermo, e lui ha detto che
+  // sono «dati utili ma non li uso sempre». La tabella dei contatti — dove si
+  // lavora davvero — ne aveva 200: SETTE righe su 986. Per scorrerle sette
+  // alla volta servono centoquaranta schermate.
+  //
+  // Chiusi, quei numeri stanno in una riga sola e la tabella arriva a ~15
+  // righe. Niente sparisce: si piega, e la piega si ricorda — perche' un
+  // pannello che si riapre da solo a ogni ricarica si richiude a mano ogni
+  // volta, e dopo tre giorni si smette di chiuderlo.
+  const [topAperto, setTopAperto] = useState(() => {
+    try { return localStorage.getItem("grizzly_top_aperto") === "1"; } catch { return false; }
+  });
+  const cambiaTop = () => setTopAperto(v => {
+    const n = !v;
+    try { localStorage.setItem("grizzly_top_aperto", n ? "1" : "0"); } catch {}
+    return n;
+  });
+
   const [contattiSearch, setContattiSearch] = useState("");
   // Stessa regola delle aziende (vedi `passaRicerca`), campi diversi: qui si
   // cerca per persona, indirizzo o azienda di appartenenza. `ruolo_descrizione`
@@ -6336,7 +6357,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.91</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.92</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -6708,11 +6729,47 @@ function App() {
               <div style={{display:"flex",gap:0,alignItems:"flex-start",position:"relative",flexShrink:0}}>
                 <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",position:"relative",paddingRight:logWidth+16,maxHeight:"calc(100vh - 300px)",overflowY:"auto"}}>
                 {/* ── TOP AREA: Run corrente | Da gestire ── */}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1px 1fr",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",marginBottom:16,flexShrink:0}}>
+                <div style={{display:"grid",gridTemplateColumns:topAperto?"1fr 1px 1fr":"1fr",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",marginBottom:16,flexShrink:0}}>
                   {/* Pannello sinistro — Run corrente */}
                   <div style={{padding:"14px 16px"}}>
-                    <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:10}}>Run corrente</div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
+                    {/* La riga compatta. Gli zeri restano SCRITTI, solo smorzati:
+                        nasconderli vorrebbe dire non distinguere «ho guardato e
+                        non c'e' niente» da «non l'ho guardato», che e' l'errore
+                        tolto tre volte questo mese. I numeri che chiedono
+                        un'azione restano colorati, cosi' la riga si legge senza
+                        aprirla. */}
+                    {!topAperto && (
+                      <div style={{display:"flex",alignItems:"center",flexWrap:"wrap",gap:10,fontSize:11}}>
+                        <button onClick={cambiaTop} title="Apri i contatori"
+                          style={{...BTN.base,...BTN.grigio,padding:"3px 8px",fontSize:11}}>▸ Numeri</button>
+                        {[
+                          {l:"importate",      v:counters.az_input,  c:"#60a5fa"},
+                          {l:"company page",   v:counters.az_output, c:"#34d399"},
+                          {sep:true},
+                          {l:"siti mancanti",  v:queueCounts.siti,        c:C.orange},
+                          {l:"url ambigui",    v:queueCounts.urlAmbigue,  c:C.orange},
+                          {l:"coda scraper",   v:queueCounts.codaScraper, c:"#fdba74"},
+                          {l:"pronti mai inviati", v:queueCounts.prontiMaiInviati, c:C.purple},
+                          {l:"da revisionare", v:queueCounts.bassaConf,   c:C.yellow},
+                          {l:"mai verificate", v:queueCounts.classifMaiVerif, c:C.muted},
+                        ].map((k,i)=> k.sep
+                          ? <span key={i} style={{color:C.border}}>│</span>
+                          : (
+                            <span key={i} style={{display:"inline-flex",alignItems:"baseline",gap:4,
+                                                  opacity: (k.v===0 || k.v===null) ? 0.45 : 1}}>
+                              <b style={{fontSize:12,color:(k.v===0||k.v===null)?C.muted:k.c}}>{k.v===null?"—":k.v}</b>
+                              <span style={{color:C.muted}}>{k.l}</span>
+                            </span>
+                          ))}
+                      </div>
+                    )}
+                    {topAperto && (
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                      <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase"}}>Run corrente</div>
+                      <button onClick={cambiaTop} title="Chiudi i contatori in una riga"
+                        style={{...BTN.base,...BTN.grigio,padding:"2px 7px",fontSize:10}}>▾ Chiudi</button>
+                    </div>)}
+                    {topAperto && <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
                       {[
                         {label:"Aziende importate",     value:counters.az_input??"—",  color:"#60a5fa"},
                         {label:"Company page verificate",  value:counters.az_output??"—", color:"#34d399"},
@@ -6726,7 +6783,7 @@ function App() {
                           </div>
                         </div>
                       ))}
-                    </div>
+                    </div>}
 
                     {/* ── DA GUARDARE ───────────────────────────────────────
                         Occupa lo spazio che restava vuoto sotto i quattro
@@ -6801,9 +6858,11 @@ function App() {
                           </div>}
                     </div>
                   </div>
-                  {/* Divisore verticale */}
-                  <div style={{background:C.border}}/>
-                  {/* Pannello destro — Da gestire */}
+                  {/* Divisore e pannello destro esistono solo da aperto: chiusi,
+                      la griglia e' a una colonna e la riga compatta porta anche
+                      i numeri delle code. */}
+                  {topAperto && <div style={{background:C.border}}/>}
+                  {topAperto &&
                   <div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:0}}>
                     <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:10}}>Code</div>
                     {/* Code */}
@@ -6862,7 +6921,7 @@ function App() {
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </div>}
                 </div>
                 <div style={{display:"flex",flexDirection:"column",gap:16,overflowY:"auto"}}>
 
