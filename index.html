@@ -824,6 +824,37 @@ const SettingRow = ({chiave,label,tipo="text",placeholder="",settingEdit,setSett
 // continuava a spendere crediti credendo di averlo fermato.
 // Due pulsanti tolgono il problema alla radice: i valori possibili sono due,
 // e li scrive il codice.
+// ── I COLORI DEI PULSANTI: UNA REGOLA, NON SETTE DECISIONI ───────────────
+//
+// Alberto, 19/11: «in alto c'e' un po' di confusione coi colori, mi
+// piacerebbe uno stile piu' uniforme». Aveva ragione: i pulsanti erano nati
+// uno alla volta, ognuno col colore che sembrava giusto quel giorno, e
+// «Elimina» era finito blu pieno come «Aggiorna» — cioe' la cosa che
+// distrugge aveva l'aspetto della cosa piu' innocua della barra.
+//
+// LA REGOLA, e si legge in una riga: il colore dice QUANTO COSTA SBAGLIARE.
+//
+//   grigio  non cambia niente              Aggiorna, Seleziona, Da elenco, schermo intero
+//   blu     scrive in archivio, reversibile   In coda email, Datore ok
+//   verde   parte qualcosa fuori da qui, e si paga   Avvia ricerca, Contatti a HubSpot+Lemlist
+//   rosso   distrugge                      Elimina
+//
+// Cosi' un pulsante nuovo non obbliga a scegliere un colore: obbliga a
+// chiedersi cosa fa, e il colore viene da solo. Stanno qui e non sparsi nel
+// JSX perche' sette copie dello stesso stile divergono, e la regola smette di
+// essere leggibile proprio mentre sembra rispettata.
+const BTN = {
+  base:   {padding:"7px 14px",fontSize:11,fontWeight:700,borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"},
+  grigio: {color:"#94a3b8",background:"transparent",border:"1px solid rgba(148,163,184,0.25)"},
+  // La variante «accesa» del grigio: stesso pulsante, stato attivo (per
+  // esempio la selezione completa). Non un colore nuovo, lo stesso piu' presente.
+  grigioOn:{color:"#e2e8f0",background:"rgba(148,163,184,0.18)",border:"1px solid rgba(148,163,184,0.5)"},
+  blu:    {color:"#bfdbfe",background:"rgba(59,130,246,0.14)",border:"1px solid rgba(59,130,246,0.45)"},
+  verde:  {color:"#fff",background:"linear-gradient(135deg,#059669,#10b981)",border:"none"},
+  rosso:  {color:"#fca5a5",background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.45)"},
+  spento: {color:"#64748b",background:"rgba(100,116,139,0.18)",border:"1px solid rgba(100,116,139,0.3)",cursor:"default"},
+};
+
 // ── LA «i» ACCANTO ALLA RICERCA ──────────────────────────────────────────
 //
 // Le tre regole della casella (`passaRicerca`) sono inutili se nessuno sa che
@@ -6305,7 +6336,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.90</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.91</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -7226,9 +7257,7 @@ function App() {
                             return (
                               <button onClick={timbraDatoreOk}
                                 title="Segna che hai guardato il datore dichiarato e che va bene: queste righe perdono il ⚠ ed escono dal filtro e dal referto."
-                                style={{padding:"7px 12px",fontSize:11,fontWeight:700,whiteSpace:"nowrap",
-                                  color:"#a7f3d0",background:"rgba(16,185,129,0.12)",
-                                  border:"1px solid rgba(16,185,129,0.35)",borderRadius:5,cursor:"pointer"}}>
+                                style={{...BTN.base,...BTN.blu,padding:"7px 12px"}}>
                                 ✓ Datore ok ({n})
                               </button>
                             );
@@ -7243,7 +7272,7 @@ function App() {
                               {n===tot ? `${tot}` : `${n} di ${tot}`}
                             </span>;
                           })()}
-                          <button onClick={fetchContattiRun} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>↻ Aggiorna</button>
+                          <button onClick={fetchContattiRun} style={{...BTN.base,...BTN.grigio}}>↻ Aggiorna</button>
                           {(()=>{
                             const filteredCt = applicaFiltriContatti(contattiRun.rows);
                             const allSel = filteredCt.length>0 && filteredCt.every(r=>contattiSelected.has(r.id));
@@ -7251,7 +7280,7 @@ function App() {
                               <button onClick={()=>{
                                 if(allSel) setContattiSelected(new Set());
                                 else setContattiSelected(new Set(filteredCt.map(r=>r.id)));
-                              }} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:allSel?"#fff":C.muted,background:allSel?"rgba(59,130,246,0.3)":"transparent",border:`1px solid ${allSel?"rgba(59,130,246,0.5)":C.border}`,borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>
+                              }} style={{...BTN.base,...(allSel?BTN.grigioOn:BTN.grigio)}}>
                                 {allSel ? `☑ Deseleziona (${filteredCt.length})` : `☐ Seleziona tutti (${filteredCt.length})`}
                               </button>
                             );
@@ -7260,8 +7289,8 @@ function App() {
                               Qui gli id sono quelli di `contacts`, non di `companies`. */}
                           <button onClick={()=>setSelezionaDaElenco({testo:"", esito:null, dove:"contatti"})}
                             title="Incolla un elenco di id contatto (da una query) e seleziona quelle righe"
-                            style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#a7f3d0",background:"rgba(16,185,129,0.12)",border:"1px solid rgba(16,185,129,0.3)",borderRadius:5,cursor:"pointer",whiteSpace:"nowrap"}}>⌸ Da elenco</button>
-                          <button onClick={deleteSelected} style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#2563eb,#3b82f6)",border:"none",borderRadius:5,cursor:"pointer"}}>🗑 {contattiSelected.size>0?`Elimina (${contattiSelected.size})`:"Elimina"}</button>
+                            style={{...BTN.base,...BTN.grigio}}>⌸ Da elenco</button>
+                          <button onClick={deleteSelected} style={{...BTN.base,...BTN.rosso}}>🗑 {contattiSelected.size>0?`Elimina (${contattiSelected.size})`:"Elimina"}</button>
                           {/* «In coda email»: tolto il 22/10/2026, RIMESSO il 17/11/2026.
                               Non e' un ripensamento: e' cambiato il vincolo che lo
                               aveva fatto togliere. A ottobre si selezionava e si
@@ -7280,11 +7309,7 @@ function App() {
                             return (
                               <button onClick={accodaPerEmail} disabled={!accodabili.length}
                                 title="Mette i contatti selezionati nella coda della ricerca email. La coda resta nel database: puoi selezionare oggi, aggiungerne altri domani e lanciare una volta sola."
-                                style={{padding:"7px 14px",fontSize:11,fontWeight:700,whiteSpace:"nowrap",
-                                  color: accodabili.length ? "#c7d2fe" : C.muted,
-                                  background: accodabili.length ? "rgba(99,102,241,0.14)" : "transparent",
-                                  border:`1px solid ${accodabili.length ? "rgba(99,102,241,0.4)" : "rgba(148,163,184,0.2)"}`,
-                                  borderRadius:5, cursor: accodabili.length ? "pointer" : "default"}}>
+                                style={{...BTN.base, ...(accodabili.length ? BTN.blu : BTN.spento)}}>
                                 ⧉ In coda email ({accodabili.length})
                               </button>
                             );
@@ -7299,9 +7324,8 @@ function App() {
                               <button onClick={avviaRicercaEmailPersone} disabled={!n}
                                 title={n ? "Avvia la ricerca sull'agente: Dropcontact, poi Lemlist, poi Apollo. Consuma crediti."
                                          : "Nessun contatto da cercare: selezionane almeno uno nella tabella"}
-                                style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",
-                                  background: n ? "linear-gradient(135deg,#059669,#10b981)" : "rgba(100,116,139,0.35)",
-                                  border:"none",borderRadius:5,cursor: n ? "pointer" : "not-allowed"}}>
+                                style={{...BTN.base, ...(n ? BTN.verde : BTN.spento),
+                                  cursor: n ? "pointer" : "not-allowed"}}>
                                 ▶ Avvia ricerca{n?` (${n})`:""}
                               </button>
                             );
@@ -7311,8 +7335,8 @@ function App() {
                               giro restavano bloccati senza via d'uscita. Senza selezione manda
                               tutti quelli in email_trovata/email_non_trovata; chi e' gia'
                               "inviato" resta fuori. */}
-                          <button onClick={avviaLemlist} title="Invia a HubSpot e Lemlist i contatti con ricerca email conclusa" style={{padding:"7px 14px",fontSize:11,fontWeight:700,color:"#fff",background:"linear-gradient(135deg,#0891b2,#06b6d4)",border:"none",borderRadius:5,cursor:"pointer"}}>⇪ Contatti a HubSpot + Lemlist{contattiSelected.size>0?` (${contattiSelected.size})`:""}</button>
-                          <button onClick={()=>setLeadsFullscreen(f=>!f)} style={{padding:"7px 10px",fontSize:13,fontWeight:700,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,cursor:"pointer"}} title={leadsFullscreen?"Esci da schermo intero":"Schermo intero"}>{leadsFullscreen?"⤡":"⤢"}</button>
+                          <button onClick={avviaLemlist} title="Invia a HubSpot e Lemlist i contatti con ricerca email conclusa" style={{...BTN.base,...BTN.verde}}>⇪ Contatti a HubSpot + Lemlist{contattiSelected.size>0?` (${contattiSelected.size})`:""}</button>
+                          <button onClick={()=>setLeadsFullscreen(f=>!f)} style={{...BTN.base,...BTN.grigio,padding:"7px 10px",fontSize:13}} title={leadsFullscreen?"Esci da schermo intero":"Schermo intero"}>{leadsFullscreen?"⤡":"⤢"}</button>
                         </div>
                       </div>
                       {/* Filtro stato */}
@@ -7354,9 +7378,17 @@ function App() {
                                 <button onClick={()=>setSoloDiscordi(v=>!v)} disabled={!n && !on}
                                   title="Solo le righe con qualcosa da guardare: datore dichiarato diverso, azienda che raccoglie omonime, o nome che sembra una ragione sociale. Da guardare prima di mandarle: dopo non si correggono piu'."
                                   style={{display:"flex",flexDirection:"column",alignItems:"flex-start",padding:"5px 10px",borderRadius:6,
-                                    border:`1px solid ${on?"#fbbf24":(n?"rgba(251,191,36,0.45)":"rgba(148,163,184,0.2)")}`,
-                                    background:on?"rgba(251,191,36,0.22)":"transparent",
-                                    color:on?"#fde68a":(n?"#fbbf24":C.muted),
+                                    // ESATTAMENTE lo stile dei vicini: spento e' grigio,
+                                    // acceso prende il suo colore. Prima restava giallo
+                                    // anche da spento, «per farsi notare»: con sette chip
+                                    // accanto che obbediscono alla regola «colore = acceso»,
+                                    // quell'eccezione non si leggeva come un avviso, si
+                                    // leggeva come un filtro attivo che non lo era.
+                                    // Un'interfaccia si impara dalla regola, non dai casi
+                                    // speciali.
+                                    border:`1px solid ${on?"#fbbf24":"rgba(148,163,184,0.2)"}`,
+                                    background:on?"#fbbf2418":"transparent",
+                                    color:on?"#fbbf24":"#64748b",
                                     cursor:n||on?"pointer":"default"}}>
                                   <span style={{fontSize:10,fontWeight:700,lineHeight:1.2}}>⚠ Da guardare{n>0?` ${n}`:""}</span>
                                   <span style={{fontSize:8,fontWeight:400,opacity:0.75,marginTop:2,lineHeight:1.2}}>datore, omonimia o nome d'azienda</span>
