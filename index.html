@@ -4125,7 +4125,7 @@ function App() {
         // righe che il filtro ha gia' escluso.
         // hubspot_id: serve alla colonna «HubSpot». Senza, direbbe "no" a tutte
         // le righe — una colonna che mente e' peggio di una che manca.
-        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,citta,stato,settore,settore_confidenza,semaforo_verifica,fatturato,icebreaker,partita_iva,hs_lifecyclestage,hs_contatti,hubspot_id${filter}&order=creato_il.desc,id.desc&limit=${BATCH}&offset=${offset}`, {
+        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,pagina_verificata_il,citta,stato,settore,settore_confidenza,semaforo_verifica,fatturato,icebreaker,partita_iva,hs_lifecyclestage,hs_contatti,hubspot_id${filter}&order=creato_il.desc,id.desc&limit=${BATCH}&offset=${offset}`, {
           headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"count=none"}
         });
         const batch = r.ok ? await r.json() : [];
@@ -4416,6 +4416,78 @@ function App() {
   //
   // Conta perche' a quel nome si scrive «Gentile Essegi Distribuzioni
   // alimentari,» — e perche' dietro non c'e' nessuno che decide.
+  // ── LA PAGINA LINKEDIN DELL'AZIENDA CONTRO IL SUO NOME ──────────────────
+  //
+  // Stessa regola del nocciolo usata per il datore, applicata a un'altra
+  // coppia: lo slug della pagina `/company/...` e il nome dell'azienda.
+  //
+  // STA QUI, E NON DENTRO `referto`, PER LA RAGIONE DI SEMPRE. Dal 20/11 la
+  // stessa regola serve in due posti — il controllo 9 del referto e il tasto
+  // «Pagina ok» nella tabella Aziende — e due copie della stessa regola prima
+  // o poi danno due risposte diverse: il tasto archivierebbe righe che il
+  // referto continua a segnalare, o viceversa. E' la lezione del timbro sul
+  // datore, dove la verifica sta DENTRO `datoreDiscorda` e non accanto.
+  const FORME_SLUG = ["srls","srl","spa","sas","snc","scarl","sapa","soc","societa","coop","cooperativa"];
+  // Uno slug e' tutto attaccato: `garaventaliftsrl`. Le parole deboli che nel
+  // nome vengono scartate una per una (srl, spa, sas...) li' restano
+  // incollate, e due scritture della STESSA ditta risultavano diverse.
+  //
+  // Si toglie SOLO la forma societaria, SOLO dalla coda, e SOLO se quello che
+  // resta e' ancora una parola. In testa no e in mezzo no: provando la regola
+  // e' saltato fuori che `spagnolimacchine` diventava `gnolimacchine`. Le
+  // parole che possono essere nome vero — group, servizi, service — non si
+  // toccano affatto.
+  const ripulisciSlug = (x) => {
+    let s = x, ancora = true;
+    while (ancora) {
+      ancora = false;
+      for (const d of FORME_SLUG) {
+        if (s.endsWith(d) && s.length - d.length >= 4) { s = s.slice(0, -d.length); ancora = true; }
+      }
+    }
+    return s;
+  };
+  // `prandoni-%26-curci-srl` e' «Prandoni & Curci»: la `&` viaggia codificata
+  // dentro l'indirizzo. Senza decodificarla il confronto legge
+  // `prandoni26curci` e dichiara discorde una ditta che e' la stessa. Undici
+  // casi su 174, trovati passando l'elenco a mano il 20/11.
+  const slugGrezzoDi = (u) => {
+    const crudo = (String(u||"").split("/company/")[1] || "").split(/[/?#]/)[0];
+    try { return decodeURIComponent(crudo); } catch { return crudo; }
+  };
+  // `s-m-e-i-c-srl` e' la stessa cosa che nel nome si scrive `S.M.E.I.C.`: una
+  // sigla. Nel nome i punti fra lettere singole si tolgono gia'; qui si
+  // tolgono i trattini, altrimenti la sigla si sbriciola in lettere sole, che
+  // vengono scartate, e l'azienda resta senza slug da confrontare.
+  const slugDi = (u) => ripulisciSlug(nocciolo(
+    slugGrezzoDi(u).replace(/(?:[a-z]-){2,}[a-z]/gi, m => m.replace(/-/g, ""))));
+  // Il dominio del sito, ridotto allo stesso nocciolo: `cassaniascensorimilano.com`
+  // diventa `cassaniascensorimilano`. Serve solo a dire se il sito conferma la
+  // pagina — non a decidere.
+  const dominioDi = (sito) => nocciolo(
+    String(sito||"").replace(/^https?:\/\//i,"").replace(/^www\./i,"").split(/[/?#]/)[0].split(".")[0]);
+  const sitoConferma = (a) => {
+    const s = slugDi(a?.linkedin_url), d = dominioDi(a?.sito_web);
+    if (!s || !d) return false;
+    const corto = s.length < d.length ? s : d;
+    return corto.length >= 3 && (s.includes(d) || d.includes(s));
+  };
+  const paginaDiscorde = (a) => {
+    // Chi e' gia' stato guardato non si segnala piu'. Il 20/11 CRANE su
+    // `/idrogru` e NEWTECNIK su `/giannettigroup` sono risultate corrette: il
+    // nome commerciale e la stessa ditta. Senza un posto dove scriverlo
+    // sarebbero tornate a ogni referto, mescolate ai casi nuovi.
+    if (a?.pagina_verificata_il) return false;
+    const slugGrezzo = slugGrezzoDi(a?.linkedin_url);
+    if (/^\d+$/.test(slugGrezzo)) return false;   // pagina muta: non si giudica
+    const s = slugDi(a?.linkedin_url), n = nocciolo(a?.nome);
+    if (!s || !n) return false;
+    const corto = s.length < n.length ? s : n;
+    if (corto.length >= 3 ? (s.includes(n) || n.includes(s)) : s === n) return false;
+    if (parole(a?.nome).length > 1 && sigla(a?.nome) === s) return false;
+    return true;
+  };
+
   const FORME = /(?:^|[\s.,(-])(s\.?r\.?l\.?s?|s\.?p\.?a|s\.?a\.?s|s\.?n\.?c|s\.?c\.?a\.?r\.?l|sagl|gmbh|ltd|inc|b\.?v|&\s*c\.?)(?:[\s.,)]|$)/i;
   // Restituisce IL MOTIVO, non un si'/no: i due casi che riconosce sono
   // diversi fra loro e chi guarda deve sapere quale dei due ha davanti.
@@ -4846,62 +4918,7 @@ function App() {
       // Gli slug tutti numerici (`/company/598168`) NON si giudicano: sono
       // pagine valide e mute, la regola non puo' esprimersi. Assenza di prova.
       const conLinkedin = await sbTutte(url, h,
-        "companies?linkedin_url=ilike.*linkedin.com/company/*&select=id,nome,sito_web,linkedin_url,contacts(id,stato,tipo)");
-      // Uno slug e' tutto attaccato: `garaventaliftsrl`. Le parole deboli che
-      // nel nome vengono scartate una per una (srl, spa, sas...) li' restano
-      // incollate, e due scritture della STESSA ditta risultavano diverse.
-      //
-      // Si toglie SOLO la forma societaria, SOLO dalla coda, e SOLO se quello
-      // che resta e' ancora una parola. In testa no e in mezzo no: provando la
-      // regola e' saltato fuori che `spagnolimacchine` diventava
-      // `gnolimacchine`. Le parole che possono essere nome vero — group,
-      // servizi, service — non si toccano affatto.
-      const FORME_SLUG = ["srls","srl","spa","sas","snc","scarl","sapa","soc","societa","coop","cooperativa"];
-      const ripulisciSlug = (x) => {
-        let s = x, ancora = true;
-        while (ancora) {
-          ancora = false;
-          for (const d of FORME_SLUG) {
-            if (s.endsWith(d) && s.length - d.length >= 4) { s = s.slice(0, -d.length); ancora = true; }
-          }
-        }
-        return s;
-      };
-      // `s-m-e-i-c-srl` e' la stessa cosa che nel nome si scrive `S.M.E.I.C.`:
-      // una sigla. Nel nome i punti fra lettere singole si tolgono gia'; qui si
-      // tolgono i trattini, altrimenti la sigla si sbriciola in lettere sole,
-      // che vengono scartate, e l'azienda resta senza slug da confrontare.
-      // `prandoni-%26-curci-srl` e' «Prandoni & Curci»: la `&` viaggia
-      // codificata dentro l'indirizzo. Senza decodificarla il confronto legge
-      // `prandoni26curci` e dichiara discorde una ditta che e' la stessa.
-      // Undici casi su 174, trovati passando l'elenco a mano.
-      const slugGrezzoDi = (u) => {
-        const crudo = (String(u||"").split("/company/")[1] || "").split(/[/?#]/)[0];
-        try { return decodeURIComponent(crudo); } catch { return crudo; }
-      };
-      const slugDi = (u) => ripulisciSlug(nocciolo(
-        slugGrezzoDi(u).replace(/(?:[a-z]-){2,}[a-z]/gi, m => m.replace(/-/g, ""))));
-      // Il dominio del sito, ridotto allo stesso nocciolo: `cassaniascensorimilano.com`
-      // diventa `cassaniascensorimilano`. Serve solo a dire se il sito conferma
-      // la pagina — non a decidere.
-      const dominioDi = (sito) => nocciolo(
-        String(sito||"").replace(/^https?:\/\//i,"").replace(/^www\./i,"").split(/[/?#]/)[0].split(".")[0]);
-      const sitoConferma = (a) => {
-        const s = slugDi(a.linkedin_url), d = dominioDi(a.sito_web);
-        if (!s || !d) return false;
-        const corto = s.length < d.length ? s : d;
-        return corto.length >= 3 && (s.includes(d) || d.includes(s));
-      };
-      const paginaDiscorde = (a) => {
-        const slugGrezzo = slugGrezzoDi(a.linkedin_url);
-        if (/^\d+$/.test(slugGrezzo)) return false;   // pagina muta: non si giudica
-        const s = slugDi(a.linkedin_url), n = nocciolo(a.nome);
-        if (!s || !n) return false;
-        const corto = s.length < n.length ? s : n;
-        if (corto.length >= 3 ? (s.includes(n) || n.includes(s)) : s === n) return false;
-        if (parole(a.nome).length > 1 && sigla(a.nome) === s) return false;
-        return true;
-      };
+        "companies?linkedin_url=ilike.*linkedin.com/company/*&select=id,nome,sito_web,linkedin_url,pagina_verificata_il,contacts(id,stato,tipo)");
       const pagineStorte = conLinkedin.filter(paginaDiscorde);
       if (pagineStorte.length) {
         trovati++;
@@ -5335,6 +5352,55 @@ function App() {
       cancellati += blocco.length;
     }
     return {ok: true, cancellati, errore: null};
+  };
+
+  // ── «PAGINA OK»: IL TIMBRO SULLA PAGINA LINKEDIN DELL'AZIENDA ───────────
+  //
+  // Gemello di «Datore ok» in Leads, e per la stessa ragione. Il controllo 9
+  // del referto e' una spia: su 174 aziende segnalate il 20/11, molte sono la
+  // stessa ditta scritta in un altro modo o il nome commerciale — CRANE sta
+  // su `/idrogru` ed e' giusto cosi'. Senza un posto dove scrivere «guardata,
+  // va bene», quelle righe tornano identiche a ogni referto, mescolate ai
+  // casi nuovi: dopo due o tre volte si smette di leggere l'elenco, e il
+  // controllo muore mentre sembra ancora vivo.
+  //
+  // Si timbra SOLO quello che la regola segnala davvero. Timbrare una riga
+  // che nessuno ha guardato sarebbe una dichiarazione falsa, e fra un mese
+  // indistinguibile da una vera.
+  const timbraPaginaOk = async () => {
+    const candidate = importDati.rows.filter(r => importSelected.has(r.id) && paginaDiscorde(r));
+    if (!candidate.length) {
+      showToast("⬡ Nessuna pagina segnalata fra quelle selezionate");
+      return;
+    }
+    const scartate = importSelected.size - candidate.length;
+    if (!await customConfirm(
+      `Segnare la pagina LinkedIn di ${candidate.length} aziend${candidate.length===1?"a":"e"} come «guardata, va bene»?` +
+      (scartate ? `\n\n${scartate} selezionat${scartate===1?"a non e'":"e non sono"} segnalat${scartate===1?"a":"e"}: su quell${scartate===1?"a":"e"} non si scrive niente.` : "") +
+      `\n\nDa qui in avanti il referto non le segnalera' piu'.`)) return;
+    const {url:sbUrl, key:sbKey} = getSbCreds();
+    if (!sbUrl || !sbKey) { showToast("⚠ Credenziali Supabase mancanti"); return; }
+    const quando = new Date().toISOString();
+    const ids = candidate.map(r=>r.id);
+    try {
+      const r = await fetch(`${sbUrl}/rest/v1/companies?id=in.(${ids.join(",")})`, {
+        method:"PATCH",
+        headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`,
+                 "Content-Type":"application/json", Prefer:"return=minimal"},
+        body: JSON.stringify({pagina_verificata_il: quando}),
+      });
+      if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+      // Come per il datore: la riga in memoria si aggiorna subito, altrimenti
+      // fino alla prossima lettura sembra che il tasto non abbia funzionato.
+      setImportDati(p=>({...p, rows:p.rows.map(x =>
+        ids.includes(x.id) ? {...x, pagina_verificata_il: quando} : x)}));
+      setImportSelected(new Set());
+      pushLog("ok", `✓ ${ids.length} pagin${ids.length===1?"a LinkedIn verificata":"e LinkedIn verificate"}: il referto non le segnalera' piu'`);
+      showToast(`✓ ${ids.length} archiviate`);
+    } catch(e) {
+      pushLog("error", `✕ Non sono riuscito a scrivere la verifica — ${e.message}`);
+      showToast("✕ Errore");
+    }
   };
 
   const deleteImportSelected = async () => {
@@ -6470,7 +6536,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.96</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.97</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -7774,6 +7840,8 @@ function App() {
                           {importSelected.size>0&&<button onClick={rilanciPhantomSelezionate} style={{fontSize:10,fontWeight:700,color:"#86efac",background:"rgba(34,197,94,0.12)",border:"1px solid rgba(34,197,94,0.3)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🔄 Phantom ({importSelected.size})</button>}
                           {importSelected.size>0&&<button onClick={mettiInCodaScraper} title="Mette queste aziende nella coda dello Scraper: aprendolo e premendo Avvia lavorera' esattamente queste, invece di prendersi da solo un blocco da 200"
                             style={{fontSize:10,fontWeight:700,color:"#fdba74",background:"rgba(249,115,22,0.12)",border:"1px solid rgba(249,115,22,0.35)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>⧉ In coda Scraper ({importSelected.size})</button>}
+                          {importSelected.size>0&&<button onClick={timbraPaginaOk} title="Segna come giusta la pagina LinkedIn delle aziende selezionate che il referto segnala: non le segnalera' piu'"
+                            style={{...BTN.base,...BTN.verde,fontSize:10,padding:"2px 8px",whiteSpace:"nowrap"}}>✓ Pagina ok ({importDati.rows.filter(r=>importSelected.has(r.id)&&paginaDiscorde(r)).length})</button>}
                           <button onClick={deleteImportSelected} style={{fontSize:10,fontWeight:700,color:"#fff",color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🗑 {importSelected.size>0?`Elimina (${importSelected.size})`:"Elimina"}</button>
                           <button onClick={()=>openImportDati(runStart)} style={{fontSize:10,color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>⟳ Aggiorna</button>
                           <button onClick={()=>setImportFullscreen(f=>!f)} style={{fontSize:10,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}} title={importFullscreen?"Esci da schermo intero":"Schermo intero"}>{importFullscreen?"⤡":"⤢"}</button>
