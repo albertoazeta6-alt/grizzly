@@ -4812,6 +4812,87 @@ function App() {
             `   · ${c.nome_completo||"?"} — ${c.companies?.nome||"?"} (fermo da ${giorni(c)} g)`));
       }
 
+      // 9 · la pagina LinkedIn non somiglia al nome dell'azienda
+      //
+      // IL DIFETTO CHE STA A MONTE DI TUTTI GLI ALTRI. Il 20/11 Alberto ha
+      // trovato Daniele Marconi, responsabile IT del Gruppo Gesenu, attaccato
+      // a TRASIMENO SISTEMI ANTINCENDIO. Lo scraper non aveva sbagliato
+      // niente: aveva aperto la pagina che gli avevamo dato, che era
+      // `/company/trasimeno-servizi-ambientali` — un'altra societa'. Tutti e
+      // quattro i contatti di quell'azienda erano di quell'altra, e tutti e
+      // quattro erano gia' partiti.
+      //
+      // Quando la pagina e' sbagliata, TUTTO quello che ne esce e' sbagliato,
+      // e i controlli 6 e 7 ne prendono solo una parte: il profilo di Marconi
+      // non dice «presso», quindi non c'era niente da confrontare. L'ha
+      // trovato lui, non il sistema.
+      //
+      // Qui si confronta lo SLUG della pagina col nome dell'azienda, con la
+      // stessa regola del nocciolo usata per il datore. E' una spia, non un
+      // verdetto: `OCTA Group - CMS` su `/company/octagrp` e' quasi certamente
+      // la stessa ditta e finira' in elenco lo stesso. Misurato il 20/11: 174 aziende su 2.414,
+      // da cui sono usciti 191 contatti, 131 gia' inviati. Separare i veri dai
+      // falsi e' lavoro a occhio — ma prima di oggi nessuno poteva nemmeno
+      // cominciarlo.
+      //
+      // Gli slug tutti numerici (`/company/598168`) NON si giudicano: sono
+      // pagine valide e mute, la regola non puo' esprimersi. Assenza di prova.
+      const conLinkedin = await sbTutte(url, h,
+        "companies?linkedin_url=ilike.*linkedin.com/company/*&select=id,nome,linkedin_url,contacts(id,stato,tipo)");
+      // Uno slug e' tutto attaccato: `garaventaliftsrl`. Le parole deboli che
+      // nel nome vengono scartate una per una (srl, spa, sas...) li' restano
+      // incollate, e due scritture della STESSA ditta risultavano diverse.
+      //
+      // Si toglie SOLO la forma societaria, SOLO dalla coda, e SOLO se quello
+      // che resta e' ancora una parola. In testa no e in mezzo no: provando la
+      // regola e' saltato fuori che `spagnolimacchine` diventava
+      // `gnolimacchine`. Le parole che possono essere nome vero — group,
+      // servizi, service — non si toccano affatto.
+      const FORME_SLUG = ["srls","srl","spa","sas","snc","scarl","sapa","soc","societa","coop","cooperativa"];
+      const ripulisciSlug = (x) => {
+        let s = x, ancora = true;
+        while (ancora) {
+          ancora = false;
+          for (const d of FORME_SLUG) {
+            if (s.endsWith(d) && s.length - d.length >= 4) { s = s.slice(0, -d.length); ancora = true; }
+          }
+        }
+        return s;
+      };
+      // `s-m-e-i-c-srl` e' la stessa cosa che nel nome si scrive `S.M.E.I.C.`:
+      // una sigla. Nel nome i punti fra lettere singole si tolgono gia'; qui si
+      // tolgono i trattini, altrimenti la sigla si sbriciola in lettere sole,
+      // che vengono scartate, e l'azienda resta senza slug da confrontare.
+      const slugDi = (u) => ripulisciSlug(nocciolo(
+        ((String(u||"").split("/company/")[1] || "").split(/[/?#]/)[0])
+          .replace(/(?:[a-z]-){2,}[a-z]/gi, m => m.replace(/-/g, ""))));
+      const paginaDiscorde = (a) => {
+        const slugGrezzo = (String(a.linkedin_url||"").split("/company/")[1] || "").split(/[/?#]/)[0];
+        if (/^\d+$/.test(slugGrezzo)) return false;   // pagina muta: non si giudica
+        const s = slugDi(a.linkedin_url), n = nocciolo(a.nome);
+        if (!s || !n) return false;
+        const corto = s.length < n.length ? s : n;
+        if (corto.length >= 3 ? (s.includes(n) || n.includes(s)) : s === n) return false;
+        if (parole(a.nome).length > 1 && sigla(a.nome) === s) return false;
+        return true;
+      };
+      const pagineStorte = conLinkedin.filter(paginaDiscorde);
+      if (pagineStorte.length) {
+        trovati++;
+        // Le aziende da cui sono gia' usciti dei contatti vengono prima: li'
+        // l'errore ha gia' prodotto qualcosa, e qualcuno puo' averlo ricevuto.
+        const conPersone = pagineStorte
+          .map(a => ({...a, persone: (a.contacts||[]).filter(c => c.tipo === "persona"),}))
+          .sort((x,y) => y.persone.length - x.persone.length);
+        const totPersone = conPersone.reduce((n,a) => n + a.persone.length, 0);
+        const totInviati = conPersone.reduce((n,a) => n + a.persone.filter(c=>c.stato==="inviato").length, 0);
+        pushAttenzioneGruppo(
+          `📋 ${pagineStorte.length} aziende hanno una pagina LinkedIn che non somiglia al loro nome — ne sono usciti ${totPersone} contatti, ${totInviati} già inviati`,
+          conPersone.slice(0,10).map(a =>
+            `   · ${a.nome} → ${(String(a.linkedin_url||"").split("/company/")[1]||"").split(/[/?#]/)[0]}` +
+            (a.persone.length ? ` (${a.persone.length} persone)` : " (nessun contatto)")));
+      }
+
       // Il traffico verso Supabase si DICHIARA sempre, anche quando e' poco:
       // e' un numero da guardare crescere, non un allarme da far scattare.
       // Il 9/11 il progetto e' stato sospeso per quota superata e per capire
@@ -6357,7 +6438,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.94</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.95</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
