@@ -4752,14 +4752,42 @@ function App() {
       }
 
       // 2 · inviati ad aziende oltre «lead»
+      //
+      // DUE NUMERI, NON UNO. Il 20/11 questo controllo diceva «293 contatti
+      // inviati ad aziende oltre lead» e sembrava un disastro. Guardandoci
+      // dentro: 275 erano CASELLE (info@, contact@) e 18 erano persone. Sono
+      // due cose diverse — una casella aziendale e una persona in trattativa
+      // non pesano uguale — e un numero solo le faceva sembrare la stessa.
+      //
+      // E C'E' UNA SECONDA COSA DA SAPERE, scritta qui perche' chi legge
+      // l'avviso se la chiede subito: la fase dell'azienda la muoviamo NOI.
+      // Verificato sulla storia della proprieta' di due aziende prese a caso:
+      // l'azienda passa da `lead` a `opportunity` quaranta secondi dopo che
+      // scriviamo il contatto, perche' il flusso crea la trattativa
+      // «<Nome> - New Deal» e un'impostazione di HubSpot propaga la fase. Il
+      // grosso di questo elenco e' quindi l'impronta del nostro stesso
+      // lavoro, non gente disturbata in trattativa.
+      //
+      // La protezione vera NON sta qui: sta negli scenari Lemlist, che
+      // leggono la FASE DELLA TRATTATIVA — in Campagna, NoGo, Identificazione
+      // e vuota si possono toccare; Avvicinamento, Qualificazione, Proposta e
+      // oltre no, e in quel caso arriva una mail ad Alberto. Questo controllo
+      // e' una spia di secondo livello, e va letto sapendolo.
       const oltre = await sbTutte(url, h,
-        "contacts?stato=eq.inviato&select=id,email,companies!inner(nome,hs_lifecyclestage)&companies.hs_lifecyclestage=not.is.null&companies.hs_lifecyclestage=neq.lead");
+        "contacts?stato=eq.inviato&select=id,email,tipo,nome_completo,companies!inner(nome,hs_lifecyclestage)&companies.hs_lifecyclestage=not.is.null&companies.hs_lifecyclestage=neq.lead");
       if (oltre.length) {
         trovati++;
+        const persone = oltre.filter(c => c.tipo === "persona");
+        const caselle = oltre.length - persone.length;
         const fasi = {};
-        oltre.forEach(c => { const f=c.companies?.hs_lifecyclestage||"?"; fasi[f]=(fasi[f]||0)+1; });
-        pushAttenzioneGruppo(`📋 ${oltre.length} contatti inviati ad aziende oltre «lead» (${Object.entries(fasi).map(([f,n])=>`${n} in «${f}»`).join(", ")})`,
-          oltre.slice(0,10).map(c => `   · ${c.companies?.nome||"?"} — ${c.email||"(senza email)"}`));
+        persone.forEach(c => { const f=c.companies?.hs_lifecyclestage||"?"; fasi[f]=(fasi[f]||0)+1; });
+        // In elenco vanno le PERSONE: le caselle si contano e basta.
+        pushAttenzioneGruppo(
+          persone.length
+            ? `📋 ${persone.length} PERSONE inviate ad aziende oltre «lead» (${Object.entries(fasi).map(([f,n])=>`${n} in «${f}»`).join(", ")}) — più ${caselle} caselle aziendali, che contano meno`
+            : `📋 ${caselle} caselle aziendali inviate ad aziende oltre «lead» — nessuna persona`,
+          (persone.length ? persone : oltre).slice(0,10).map(c =>
+            `   · ${c.companies?.nome||"?"} — ${c.nome_completo||"?"}${c.email?` (${c.email})`:" (senza email)"}`));
       }
 
       // 3 · «inviato» senza id HubSpot: NON vuol dire «mai partiti»
@@ -6587,7 +6615,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.99</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.00</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
