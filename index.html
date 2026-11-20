@@ -4830,15 +4830,23 @@ function App() {
       // Qui si confronta lo SLUG della pagina col nome dell'azienda, con la
       // stessa regola del nocciolo usata per il datore. E' una spia, non un
       // verdetto: `OCTA Group - CMS` su `/company/octagrp` e' quasi certamente
-      // la stessa ditta e finira' in elenco lo stesso. Misurato il 20/11: 174 aziende su 2.414,
-      // da cui sono usciti 191 contatti, 131 gia' inviati. Separare i veri dai
-      // falsi e' lavoro a occhio — ma prima di oggi nessuno poteva nemmeno
-      // cominciarlo.
+      // la stessa ditta e finira' in elenco lo stesso. Misurato il 20/11: 174
+      // aziende su 2.414, da cui sono usciti 191 contatti, 131 gia' inviati.
+      //
+      // IL SITO NON SPEGNE LA SPIA, LA ORDINA. Passando a mano quelle 174 e'
+      // venuto fuori che in 90 casi lo slug somiglia al dominio del SITO
+      // dell'azienda: li' la pagina e' quasi sempre quella giusta ed e' il
+      // nome in archivio a essere diverso. Quei casi restano in elenco, con
+      // scritto «il sito conferma», e vanno in fondo. Non si tolgono, perche'
+      // il sito arriva dalla stessa fonte della pagina e puo' essere sbagliato
+      // anche lui: IKONIX ha sito `quadient.com` E pagina `/quadient`, che e'
+      // coerente e resta da capire. Spegnere la spia col sito avrebbe nascosto
+      // proprio quel caso.
       //
       // Gli slug tutti numerici (`/company/598168`) NON si giudicano: sono
       // pagine valide e mute, la regola non puo' esprimersi. Assenza di prova.
       const conLinkedin = await sbTutte(url, h,
-        "companies?linkedin_url=ilike.*linkedin.com/company/*&select=id,nome,linkedin_url,contacts(id,stato,tipo)");
+        "companies?linkedin_url=ilike.*linkedin.com/company/*&select=id,nome,sito_web,linkedin_url,contacts(id,stato,tipo)");
       // Uno slug e' tutto attaccato: `garaventaliftsrl`. Le parole deboli che
       // nel nome vengono scartate una per una (srl, spa, sas...) li' restano
       // incollate, e due scritture della STESSA ditta risultavano diverse.
@@ -4863,11 +4871,29 @@ function App() {
       // una sigla. Nel nome i punti fra lettere singole si tolgono gia'; qui si
       // tolgono i trattini, altrimenti la sigla si sbriciola in lettere sole,
       // che vengono scartate, e l'azienda resta senza slug da confrontare.
+      // `prandoni-%26-curci-srl` e' «Prandoni & Curci»: la `&` viaggia
+      // codificata dentro l'indirizzo. Senza decodificarla il confronto legge
+      // `prandoni26curci` e dichiara discorde una ditta che e' la stessa.
+      // Undici casi su 174, trovati passando l'elenco a mano.
+      const slugGrezzoDi = (u) => {
+        const crudo = (String(u||"").split("/company/")[1] || "").split(/[/?#]/)[0];
+        try { return decodeURIComponent(crudo); } catch { return crudo; }
+      };
       const slugDi = (u) => ripulisciSlug(nocciolo(
-        ((String(u||"").split("/company/")[1] || "").split(/[/?#]/)[0])
-          .replace(/(?:[a-z]-){2,}[a-z]/gi, m => m.replace(/-/g, ""))));
+        slugGrezzoDi(u).replace(/(?:[a-z]-){2,}[a-z]/gi, m => m.replace(/-/g, ""))));
+      // Il dominio del sito, ridotto allo stesso nocciolo: `cassaniascensorimilano.com`
+      // diventa `cassaniascensorimilano`. Serve solo a dire se il sito conferma
+      // la pagina — non a decidere.
+      const dominioDi = (sito) => nocciolo(
+        String(sito||"").replace(/^https?:\/\//i,"").replace(/^www\./i,"").split(/[/?#]/)[0].split(".")[0]);
+      const sitoConferma = (a) => {
+        const s = slugDi(a.linkedin_url), d = dominioDi(a.sito_web);
+        if (!s || !d) return false;
+        const corto = s.length < d.length ? s : d;
+        return corto.length >= 3 && (s.includes(d) || d.includes(s));
+      };
       const paginaDiscorde = (a) => {
-        const slugGrezzo = (String(a.linkedin_url||"").split("/company/")[1] || "").split(/[/?#]/)[0];
+        const slugGrezzo = slugGrezzoDi(a.linkedin_url);
         if (/^\d+$/.test(slugGrezzo)) return false;   // pagina muta: non si giudica
         const s = slugDi(a.linkedin_url), n = nocciolo(a.nome);
         if (!s || !n) return false;
@@ -4882,15 +4908,21 @@ function App() {
         // Le aziende da cui sono gia' usciti dei contatti vengono prima: li'
         // l'errore ha gia' prodotto qualcosa, e qualcuno puo' averlo ricevuto.
         const conPersone = pagineStorte
-          .map(a => ({...a, persone: (a.contacts||[]).filter(c => c.tipo === "persona"),}))
-          .sort((x,y) => y.persone.length - x.persone.length);
+          .map(a => ({...a, persone: (a.contacts||[]).filter(c => c.tipo === "persona"),
+                            confermata: sitoConferma(a)}))
+          // Prima quelle che il sito NON conferma, poi quelle da cui sono
+          // uscite piu' persone: in cima finisce dove l'errore e' piu'
+          // probabile E ha gia' prodotto qualcosa.
+          .sort((x,y) => (x.confermata?1:0) - (y.confermata?1:0)
+                      || y.persone.length - x.persone.length);
         const totPersone = conPersone.reduce((n,a) => n + a.persone.length, 0);
         const totInviati = conPersone.reduce((n,a) => n + a.persone.filter(c=>c.stato==="inviato").length, 0);
         pushAttenzioneGruppo(
           `📋 ${pagineStorte.length} aziende hanno una pagina LinkedIn che non somiglia al loro nome — ne sono usciti ${totPersone} contatti, ${totInviati} già inviati`,
           conPersone.slice(0,10).map(a =>
-            `   · ${a.nome} → ${(String(a.linkedin_url||"").split("/company/")[1]||"").split(/[/?#]/)[0]}` +
-            (a.persone.length ? ` (${a.persone.length} persone)` : " (nessun contatto)")));
+            `   · ${a.nome} → ${slugGrezzoDi(a.linkedin_url)}` +
+            (a.persone.length ? ` (${a.persone.length} persone)` : " (nessun contatto)") +
+            (a.confermata ? " — il sito conferma la pagina" : "")));
       }
 
       // Il traffico verso Supabase si DICHIARA sempre, anche quando e' poco:
@@ -6438,7 +6470,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.95</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v5.96</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
