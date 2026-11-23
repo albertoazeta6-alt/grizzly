@@ -3763,11 +3763,18 @@ function App() {
   // finivano SOPRA il titolo a cui appartengono: si leggeva un elenco di nomi
   // e solo in fondo si scopriva di che cosa fossero l'elenco.
   // Qui il blocco entra gia' ordinato, in una volta sola.
-  const pushAttenzioneGruppo = (titolo, righe) => {
+  // L'AZIONE ACCANTO AL TITOLO — 23/11/2026. Alberto: «se il referto resta
+  // pieno di roba da fare, alla fine si ignora». Due controlli (caselle
+  // condivise, persone oltre lead) non avevano nessun modo di dire «visto,
+  // va bene», e si ripresentavano identici a ogni giro. Il tasto sta dove si
+  // guarda la cosa, e timbra SOLO le righe elencate sotto il titolo: si timbra
+  // quello che una persona ha avuto davanti, non quello oltre la decima riga.
+  const pushAttenzioneGruppo = (titolo, righe, azione = null) => {
     pushLog("warn", titolo);
     righe.forEach(r => pushLog("warn", r));
     const ts = new Date().toISOString();
-    const blocco = [{ts, msg: titolo}, ...righe.map(msg => ({ts, msg}))];
+    const id = ts + "·" + Math.random().toString(36).slice(2, 8);
+    const blocco = [{ts, msg: titolo, azione: azione ? {...azione, id} : null}, ...righe.map(msg => ({ts, msg}))];
     setAttenzioni(p => [...blocco, ...p].slice(0, 200));
   };
 
@@ -4846,20 +4853,30 @@ function App() {
     let esito = null;
     try {
       // 1 · la stessa casella su piu' aziende
-      const gen = await sbTutte(url, h, "contacts?tipo=eq.generico&email=neq.&select=id,email,company_id,companies(nome)");
+      const gen = await sbTutte(url, h, "contacts?tipo=eq.generico&email=neq.&select=id,email,company_id,casella_verificata_il,companies(nome)");
       const perMail = new Map();
       gen.forEach(c => {
         const e = (c.email||"").trim().toLowerCase(); if(!e) return;
         if (!perMail.has(e)) perMail.set(e, []);
         perMail.get(e).push(c);
       });
+      // Una casella guardata e giudicata a posto (v31) non si segnala piu' —
+      // a meno che non compaia su un'azienda NUOVA: basta un contatto non
+      // timbrato perche' torni, ed e' giusto, perche' quello nessuno l'ha visto.
       const condivise = [...perMail.entries()]
-        .filter(([,v]) => new Set(v.map(x=>x.company_id)).size > 1);
+        .filter(([,v]) => new Set(v.map(x=>x.company_id)).size > 1
+                          && v.some(x => !x.casella_verificata_il));
       if (condivise.length) {
         trovati++;
+        const mostrate = condivise.slice(0,10);
         pushAttenzioneGruppo(`📋 ${condivise.length} casell${condivise.length===1?"a usata":"e usate"} da più aziende`,
-          condivise.slice(0,10).map(([e,v]) =>
-            `   · ${e} → ${v.map(x=>x.companies?.nome||x.company_id).join(" + ")}`));
+          mostrate.map(([e,v]) =>
+            `   · ${e} → ${v.map(x=>x.companies?.nome||x.company_id).join(" + ")}`),
+          { etichetta: `✓ Viste, vanno bene (${mostrate.length})`,
+            colonna: "casella_verificata_il",
+            ids: mostrate.flatMap(([,v]) => v.map(x => x.id)),
+            domanda: `Segnare queste ${mostrate.length} casell${mostrate.length===1?"a":"e"} come «condivisa, va bene»?\n\nVale solo per le righe elencate qui sotto.`,
+            fatto: `${mostrate.length} casell${mostrate.length===1?"a condivisa archiviata":"e condivise archiviate"}: non si segnalano più` });
       }
 
       // 2 · inviati ad aziende oltre «lead»
@@ -4885,20 +4902,32 @@ function App() {
       // oltre no, e in quel caso arriva una mail ad Alberto. Questo controllo
       // e' una spia di secondo livello, e va letto sapendolo.
       const oltre = await sbTutte(url, h,
-        "contacts?stato=eq.inviato&select=id,email,tipo,nome_completo,companies!inner(nome,hs_lifecyclestage)&companies.hs_lifecyclestage=not.is.null&companies.hs_lifecyclestage=neq.lead");
-      if (oltre.length) {
+        "contacts?stato=eq.inviato&select=id,email,tipo,nome_completo,fase_verificata_il,companies!inner(nome,hs_lifecyclestage)&companies.hs_lifecyclestage=not.is.null&companies.hs_lifecyclestage=neq.lead");
+      // LE CASELLE SI CONTANO, NON ACCENDONO LA VOCE — 23/11/2026. Ogni casella
+      // che inviamo porta la sua azienda in «opportunity» dopo 40-80 secondi
+      // (lo fa il nostro stesso flusso): una voce che si accendesse sulle
+      // caselle non si spegnerebbe MAI, ed e' esattamente il referto che si
+      // smette di leggere. Accendono la voce solo le persone non ancora viste.
+      const personeTutte = oltre.filter(c => c.tipo === "persona");
+      const caselle = oltre.length - personeTutte.length;
+      const personeOltre = personeTutte.filter(c => !c.fase_verificata_il);
+      if (!personeOltre.length && oltre.length)
+        pushLog("info", `⬡ Oltre «lead»: nessuna persona da guardare (${personeTutte.length - personeOltre.length} già viste) — ${caselle} caselle aziendali, che contano meno`);
+      if (personeOltre.length) {
         trovati++;
-        const persone = oltre.filter(c => c.tipo === "persona");
-        const caselle = oltre.length - persone.length;
         const fasi = {};
-        persone.forEach(c => { const f=c.companies?.hs_lifecyclestage||"?"; fasi[f]=(fasi[f]||0)+1; });
+        personeOltre.forEach(c => { const f=c.companies?.hs_lifecyclestage||"?"; fasi[f]=(fasi[f]||0)+1; });
         // In elenco vanno le PERSONE: le caselle si contano e basta.
+        const mostrate = personeOltre.slice(0,10);
         pushAttenzioneGruppo(
-          persone.length
-            ? `📋 ${persone.length} PERSONE inviate ad aziende oltre «lead» (${Object.entries(fasi).map(([f,n])=>`${n} in «${f}»`).join(", ")}) — più ${caselle} caselle aziendali, che contano meno`
-            : `📋 ${caselle} caselle aziendali inviate ad aziende oltre «lead» — nessuna persona`,
-          (persone.length ? persone : oltre).slice(0,10).map(c =>
-            `   · ${c.companies?.nome||"?"} — ${c.nome_completo||"?"}${c.email?` (${c.email})`:" (senza email)"}`));
+          `📋 ${personeOltre.length} PERSONE inviate ad aziende oltre «lead» (${Object.entries(fasi).map(([f,n])=>`${n} in «${f}»`).join(", ")}) — più ${caselle} caselle aziendali, che contano meno`,
+          mostrate.map(c =>
+            `   · ${c.companies?.nome||"?"} — ${c.nome_completo||"?"}${c.email?` (${c.email})`:" (senza email)"}`),
+          { etichetta: `✓ Viste, vanno bene (${mostrate.length})`,
+            colonna: "fase_verificata_il",
+            ids: mostrate.map(c => c.id),
+            domanda: `Segnare queste ${mostrate.length} persone come «inviata oltre lead, va bene»?\n\nVale solo per le righe elencate qui sotto.`,
+            fatto: `${mostrate.length} person${mostrate.length===1?"a":"e"} oltre «lead» archiviat${mostrate.length===1?"a":"e"}: non si segnalano più` });
       }
 
       // 3 · «inviato» senza id HubSpot: NON vuol dire «mai partiti»
@@ -5788,6 +5817,39 @@ function App() {
   //    la stessa ragione: la verifica e' fatta a occhio, e scriverla per
   //    conto di qualcuno significherebbe affermare che quel qualcuno ha
   //    guardato.
+  // Timbro su contatti, lanciato dal riquadro «Da guardare». Una funzione sola
+  // per le due colonne nuove (v31): la differenza fra «casella vista» e «fase
+  // vista» e' solo il nome della colonna e la frase di conferma.
+  const [azioniFatte, setAzioniFatte] = useState({});
+  const timbraContattiDalReferto = async (azione) => {
+    const {ids, colonna, domanda, fatto} = azione;
+    if (!ids?.length) return;
+    if (!await customConfirm(domanda + `\n\nAl prossimo referto non compariranno più. Se ne arrivano di nuovi, quelli sì.`)) return;
+    const {url:sbUrl, key:sbKey} = getSbCreds();
+    if (!sbUrl || !sbKey) { showToast("⚠ Credenziali Supabase mancanti"); return; }
+    const quando = new Date().toISOString();
+    try {
+      // A blocchi di cento: un elenco di id troppo lungo nell'indirizzo viene
+      // rifiutato, e un rifiuto a meta' lascerebbe timbrati solo alcuni.
+      for (let i = 0; i < ids.length; i += 100) {
+        const parte = ids.slice(i, i + 100);
+        const r = await fetch(`${sbUrl}/rest/v1/contacts?id=in.(${parte.join(",")})`, {
+          method:"PATCH",
+          headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`,
+                   "Content-Type":"application/json", Prefer:"return=minimal"},
+          body: JSON.stringify({[colonna]: quando}),
+        });
+        if (!r.ok) throw new Error(`${r.status} ${await r.text()}` + (i ? ` — i primi ${i} sono già timbrati` : ""));
+      }
+      setAzioniFatte(p => ({...p, [azione.id]: true}));
+      pushLog("ok", `✓ ${fatto}`);
+      showToast("✓ Archiviati");
+    } catch(e) {
+      pushLog("error", `✕ Non sono riuscito a scrivere la verifica — ${e.message}`);
+      showToast("✕ Errore");
+    }
+  };
+
   const timbraDatoreOk = async () => {
     const candidati = contattiRun.rows.filter(r => contattiSelected.has(r.id) && daGuardare(r));
     if (!candidati.length) {
@@ -6818,7 +6880,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.02</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.03</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -7314,6 +7376,13 @@ function App() {
                                   {(a.ts||"").slice(11,16)}
                                 </span>
                                 <span style={{whiteSpace:"pre-wrap"}}>{a.msg}</span>
+                                {a.azione && (azioniFatte[a.azione.id]
+                                  ? <span style={{fontSize:9,color:C.muted,flexShrink:0}}>✓ archiviate</span>
+                                  : <button onClick={()=>timbraContattiDalReferto(a.azione)}
+                                      title="Scrive in archivio che queste righe sono state guardate: il referto non le segnalerà più. Si può annullare dal database."
+                                      style={{...BTN.base,...BTN.blu,padding:"1px 7px",fontSize:9,marginLeft:"auto",flexShrink:0}}>
+                                      {a.azione.etichetta}
+                                    </button>)}
                               </div>
                             ))}
                           </div>}
