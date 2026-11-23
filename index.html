@@ -1343,6 +1343,10 @@ function App() {
   // 1.108 avevano gia' contatti su HubSpot. Mandarle tutte al Phantom avrebbe
   // significato fare prospecting su trattative aperte e su clienti acquisiti.
   const [importPronteScraper, setImportPronteScraper] = useState(false);
+  // Il filtro dei domini discordi: come «Pronte per lo Scraper», non si ricorda
+  // fra una sessione e l'altra. E' una lente che si accende quando serve, non
+  // uno stato della schermata.
+  const [importDominiDiscordi, setImportDominiDiscordi] = useState(false);
   const [importInCoda, setImportInCoda] = useState(() => {
     try { return localStorage.getItem("grizzly_filtro_in_coda") === "1"; } catch { return false; }
   });
@@ -1440,6 +1444,7 @@ function App() {
   // `caricaContatiPerAzienda`), non con un join annidato nella lista aziende:
   // un filtro sbagliato dentro quel join farebbe sparire righe dalla tabella,
   // e sarebbe un danno molto peggiore del problema che risolve.
+  const dominiPerAziendaRef = useRef(new Map());
   const nostriContattiRef = React.useRef(new Map());
   const nostrePersoneRef  = React.useRef(new Map());
 
@@ -1483,6 +1488,7 @@ function App() {
 
   const applicaFiltriImport = rows => (rows||[]).filter(r =>
     (!importPronteScraper || ePronta(r)) &&
+    (!importDominiDiscordi || dominiDiscordi(r)) &&
     (!importInCoda || eInCoda(r)) &&
     (importStatoFilter.size === 0 || importStatoFilter.has(r.stato)) &&
     (!importSettoreFilter || (importSettoreFilter === "__vuoto__" ? !r.settore : r.settore === importSettoreFilter)) &&
@@ -4125,7 +4131,7 @@ function App() {
         // righe che il filtro ha gia' escluso.
         // hubspot_id: serve alla colonna «HubSpot». Senza, direbbe "no" a tutte
         // le righe — una colonna che mente e' peggio di una che manca.
-        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,pagina_verificata_il,citta,stato,settore,settore_confidenza,semaforo_verifica,fatturato,icebreaker,partita_iva,hs_lifecyclestage,hs_contatti,hubspot_id${filter}&order=creato_il.desc,id.desc&limit=${BATCH}&offset=${offset}`, {
+        const r = await fetch(`${sbUrl}/rest/v1/companies?select=id,nome,sito_web,linkedin_url,pagina_verificata_il,domini_verificati_il,citta,stato,settore,settore_confidenza,semaforo_verifica,fatturato,icebreaker,partita_iva,hs_lifecyclestage,hs_contatti,hubspot_id${filter}&order=creato_il.desc,id.desc&limit=${BATCH}&offset=${offset}`, {
           headers: {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, Prefer:"count=none"}
         });
         const batch = r.ok ? await r.json() : [];
@@ -4144,6 +4150,7 @@ function App() {
       });
       setImportDati(p=>({...p, loading:false, rows:righeUniche}));
       caricaContattiPerAzienda();
+      caricaDominiPerAzienda();
     } catch(e) { if (!silent) setImportDati(p=>({...p, loading:false})); }
   };
 
@@ -4159,6 +4166,29 @@ function App() {
   // si vede subito confrontandolo col numero atteso.
   //
   // Costa poco: due campi corti su circa quattromila righe.
+  // I domini email delle persone, azienda per azienda. Lettura PICCOLA e a
+  // parte: solo le persone che hanno davvero un indirizzo, due colonne. Sono
+  // ~750 righe, una trentina di kB — e non si appende a
+  // `caricaContattiPerAzienda`, che di righe ne legge 5.000 e a cui
+  // aggiungere l'email costerebbe cinque volte tanto per niente.
+  const caricaDominiPerAzienda = async () => {
+    try {
+      const {url:sbUrl, key:sbKey} = getSbCreds();
+      if (!sbUrl || !sbKey) return;
+      const righe = await sbTutte(sbUrl,
+        {apikey:sbKey, Authorization:`Bearer ${sbBearer()}`},
+        "contacts?select=company_id,email&tipo=eq.persona&email=not.is.null&company_id=not.is.null&order=company_id.asc,id.asc");
+      const m = new Map();
+      for (const c of righe) {
+        const d = dominioMail(c.email);
+        if (!d) continue;
+        if (!m.has(c.company_id)) m.set(c.company_id, new Set());
+        m.get(c.company_id).add(d);
+      }
+      dominiPerAziendaRef.current = m;
+    } catch(e) {}
+  };
+
   const caricaContattiPerAzienda = async () => {
     try {
       const {url:sbUrl, key:sbKey} = getSbCreds();
@@ -4472,6 +4502,71 @@ function App() {
     const corto = s.length < d.length ? s : d;
     return corto.length >= 3 && (s.includes(d) || d.includes(s));
   };
+  // ── I DOMINI EMAIL CHE SI CONTRADDICONO DENTRO LA STESSA AZIENDA ────────
+  //
+  // L'esempio di Alberto, 23/11: «l'azienda Pippo che ha sito pippo.it ha due
+  // contatti, Mario e Pino. Mario ha mario@pippo.it, Pino ha pino@acme.it.
+  // Deve segnalarmelo perche' indagando magari emerge che Pippo e' stata
+  // acquisita da Acme, o che Acme e' il gruppo».
+  //
+  // PARLA L'INSIEME, NON IL SINGOLO. Un contatto con un'email su un dominio
+  // strano puo' voler dire mille cose, e infatti la versione per-contatto,
+  // misurata lo stesso giorno, rendeva un quarto: 69 segnalati, e guardandone
+  // sedici a mano quasi tutti erano ditte con due domini propri. Due persone
+  // della stessa azienda che si contraddicono FRA LORO invece vogliono dire
+  // una cosa sola. E' lo stesso ragionamento di ESSEGI 2 e delle omonime.
+  //
+  // SERVONO TUTTE E DUE LE FACCE: almeno uno sul dominio del sito e almeno
+  // uno fuori. Se stanno tutti fuori non e' un gruppo, e' il sito in archivio
+  // a essere sbagliato — un altro difetto, che questa regola non sa giudicare
+  // e quindi non giudica.
+  //
+  // Misurato il 23/11: 23 aziende su 151 che hanno due o piu' persone con
+  // email. CRANE+idrogru, OCTA+crippa, EUROIMPIANTI+skilledgroup, TECHINT+
+  // woodplc, e Rodi Ascensori e DUELLE che hanno la STESSA persona su
+  // dualitygroup.it.
+  // UN DOMINIO NON SI RIDUCE COL NOCCIOLO. Provando la regola sui casi veri e'
+  // saltato fuori che `nocciolo` butta via le parole deboli — e in un dominio
+  // «group» NON e' debole, e' meta' del nome: `octa-group.com` diventava
+  // «octa» e `octagroup.com` restava «octagroup», cioe' la stessa ditta
+  // risultava in contraddizione con se stessa. Qui si fa solo il minimo:
+  // tutto minuscolo, via quello che non e' lettera o cifra, e via la forma
+  // societaria attaccata in coda (`cranesrl` → `crane`).
+  //
+  // LA STESSA FUNZIONE PER TUTTI E DUE I LATI. L'altro difetto trovato dal
+  // collaudo era peggio: il dominio dell'email passava da `ripulisciSlug` e
+  // quello del sito no, quindi `cranesrl.it` contro `cranesrl.it` risultava
+  // diverso da se stesso. Due normalizzazioni diverse sulle due facce dello
+  // stesso confronto non sbagliano quasi mai in modo vistoso: sbagliano in
+  // silenzio.
+  const etichettaDominio = (host) => {
+    const prima = String(host||"").replace(/^https?:\/\//i,"").replace(/^www\./i,"")
+                    .split(/[/?#]/)[0].split(".")[0];
+    return ripulisciSlug(prima.toLowerCase().normalize("NFD")
+             .replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,""));
+  };
+  const dominioMail = (e) => etichettaDominio(String(e||"").split("@")[1] || "");
+  // `dominiPerAziendaRef` lo riempie `caricaDominiPerAzienda`: una Map da
+  // id azienda all'insieme dei domini delle sue persone con email.
+  const dominiDiscordi = (a) => {
+    if (a?.domini_verificati_il) return false;
+    const sito = etichettaDominio(a?.sito_web);
+    if (!sito) return false;                       // senza sito non si giudica
+    const domini = dominiPerAziendaRef.current?.get(a?.id);
+    if (!domini || domini.size < 2) return false;  // una voce sola non si contraddice
+    let dentro = 0, fuori = 0;
+    domini.forEach(d => { if (d === sito) dentro++; else fuori++; });
+    return dentro > 0 && fuori > 0;
+  };
+  // I domini che NON stanno sul sito: sono quelli da andare a vedere, ed e'
+  // quello che si scrive nel referto e nel titolo del filtro.
+  const dominiFuori = (a) => {
+    const sito = etichettaDominio(a?.sito_web);
+    const domini = dominiPerAziendaRef.current?.get(a?.id);
+    if (!sito || !domini) return [];
+    return [...domini].filter(d => d !== sito);
+  };
+
   const paginaDiscorde = (a) => {
     // Chi e' gia' stato guardato non si segnala piu'. Il 20/11 CRANE su
     // `/idrogru` e NEWTECNIK su `/giannettigroup` sono risultate corrette: il
@@ -4978,6 +5073,47 @@ function App() {
             (a.confermata ? " — il sito conferma la pagina" : "")));
       }
 
+      // 10 · dentro la stessa azienda, email su domini che si contraddicono
+      //
+      // L'ha chiesto Alberto il 23/11, con l'esempio piu' chiaro possibile:
+      // «l'azienda Pippo che ha sito pippo.it ha due contatti, Mario e Pino.
+      // Mario ha mario@pippo.it, Pino ha pino@acme.it. Deve segnalarmelo
+      // perche' indagando magari emerge che Pippo e' stata acquisita da Acme,
+      // o che Acme e' il gruppo».
+      //
+      // QUI SI RILEGGE DAL SERVER invece di usare la mappa che la tabella
+      // Aziende tiene in memoria. Il referto deve poter girare anche su una
+      // schermata appena aperta, dove quella mappa e' vuota: un controllo che
+      // funziona solo se prima hai aperto la scheda giusta e' un controllo
+      // che prima o poi tace senza dirlo.
+      const perDomini = await sbTutte(url, h,
+        "contacts?tipo=eq.persona&email=not.is.null&company_id=not.is.null&select=company_id,email,companies!inner(id,nome,sito_web,domini_verificati_il)&companies.sito_web=not.is.null");
+      const perAz = new Map();
+      perDomini.forEach(c => {
+        const d = dominioMail(c.email);
+        if (!d) return;
+        if (!perAz.has(c.company_id)) perAz.set(c.company_id, {az: c.companies, domini: new Set()});
+        perAz.get(c.company_id).domini.add(d);
+      });
+      const discordi = [...perAz.values()].filter(({az, domini}) => {
+        if (az?.domini_verificati_il) return false;
+        const sito = etichettaDominio(az?.sito_web);
+        if (!sito || domini.size < 2) return false;
+        let dentro = 0, fuori = 0;
+        domini.forEach(d => { if (d === sito) dentro++; else fuori++; });
+        return dentro > 0 && fuori > 0;
+      });
+      if (discordi.length) {
+        trovati++;
+        pushAttenzioneGruppo(
+          `📋 ${discordi.length} aziende hanno persone con email su domini diversi fra loro: può esserci un gruppo o un'acquisizione`,
+          discordi.slice(0,10).map(({az, domini}) => {
+            const sito = etichettaDominio(az?.sito_web);
+            const fuori = [...domini].filter(d => d !== sito);
+            return `   · ${az?.nome||"?"} — sito ${az?.sito_web||"?"}, ma anche ${fuori.join(", ")}`;
+          }));
+      }
+
       // Il traffico verso Supabase si DICHIARA sempre, anche quando e' poco:
       // e' un numero da guardare crescere, non un allarme da far scattare.
       // Il 9/11 il progetto e' stato sospeso per quota superata e per capire
@@ -5475,6 +5611,50 @@ function App() {
         ids.includes(x.id) ? {...x, pagina_verificata_il: quando} : x)}));
       setImportSelected(new Set());
       pushLog("ok", `✓ ${ids.length} pagin${ids.length===1?"a LinkedIn verificata":"e LinkedIn verificate"}: il referto non le segnalera' piu'`);
+      showToast(`✓ ${ids.length} archiviate`);
+    } catch(e) {
+      pushLog("error", `✕ Non sono riuscito a scrivere la verifica — ${e.message}`);
+      showToast("✕ Errore");
+    }
+  };
+
+  // ── «DOMINI OK»: IL TIMBRO SUI DOMINI DISCORDI ─────────────────────────
+  //
+  // Terzo timbro con la stessa forma, e per la stessa ragione dei primi due:
+  // un avviso che non si puo' spegnere torna identico a ogni giro, mescolato
+  // ai casi nuovi, e dopo due o tre volte si smette di guardarlo.
+  //
+  // Qui serve anche per un'altra cosa, detta da Alberto il 23/11:
+  // «sull'esistente mi interessa poco, vorrei che finissero in coda i nuovi».
+  // Le 23 di oggi compaiono una volta, si selezionano tutte e si archiviano:
+  // da li' in avanti si vedono solo le aziende nuove che si contraddicono.
+  const timbraDominiOk = async () => {
+    const candidate = importDati.rows.filter(r => importSelected.has(r.id) && dominiDiscordi(r));
+    if (!candidate.length) {
+      showToast("⬡ Nessun dominio discorde fra quelle selezionate");
+      return;
+    }
+    const scartate = importSelected.size - candidate.length;
+    if (!await customConfirm(
+      `Segnare ${candidate.length} aziend${candidate.length===1?"a":"e"} come «domini guardati, va bene»?` +
+      (scartate ? `\n\n${scartate} selezionat${scartate===1?"a non ha":"e non hanno"} domini discordi: su quell${scartate===1?"a":"e"} non si scrive niente.` : "") +
+      `\n\nDa qui in avanti non compariranno più nel filtro né nel referto.`)) return;
+    const {url:sbUrl, key:sbKey} = getSbCreds();
+    if (!sbUrl || !sbKey) { showToast("⚠ Credenziali Supabase mancanti"); return; }
+    const quando = new Date().toISOString();
+    const ids = candidate.map(r=>r.id);
+    try {
+      const r = await fetch(`${sbUrl}/rest/v1/companies?id=in.(${ids.join(",")})`, {
+        method:"PATCH",
+        headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`,
+                 "Content-Type":"application/json", Prefer:"return=minimal"},
+        body: JSON.stringify({domini_verificati_il: quando}),
+      });
+      if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+      setImportDati(p=>({...p, rows:p.rows.map(x =>
+        ids.includes(x.id) ? {...x, domini_verificati_il: quando} : x)}));
+      setImportSelected(new Set());
+      pushLog("ok", `✓ ${ids.length} aziend${ids.length===1?"a archiviata":"e archiviate"}: i domini discordi non si segnalano più`);
       showToast(`✓ ${ids.length} archiviate`);
     } catch(e) {
       pushLog("error", `✕ Non sono riuscito a scrivere la verifica — ${e.message}`);
@@ -6615,7 +6795,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.00</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.01</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -7931,6 +8111,8 @@ function App() {
                           {importSelected.size>0&&<button onClick={rilanciPhantomSelezionate} style={{fontSize:10,fontWeight:700,color:"#86efac",background:"rgba(34,197,94,0.12)",border:"1px solid rgba(34,197,94,0.3)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🔄 Phantom ({importSelected.size})</button>}
                           {importSelected.size>0&&<button onClick={mettiInCodaScraper} title="Mette queste aziende nella coda dello Scraper: aprendolo e premendo Avvia lavorera' esattamente queste, invece di prendersi da solo un blocco da 200"
                             style={{fontSize:10,fontWeight:700,color:"#fdba74",background:"rgba(249,115,22,0.12)",border:"1px solid rgba(249,115,22,0.35)",borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>⧉ In coda Scraper ({importSelected.size})</button>}
+                          {importSelected.size>0&&<button onClick={timbraDominiOk} title="Segna come guardati i domini email discordi delle aziende selezionate: non compariranno più nel filtro né nel referto"
+                            style={{...BTN.base,...BTN.blu,fontSize:10,padding:"2px 8px",whiteSpace:"nowrap"}}>✓ Domini ok ({importDati.rows.filter(r=>importSelected.has(r.id)&&dominiDiscordi(r)).length})</button>}
                           {importSelected.size>0&&<button onClick={timbraPaginaOk} title="Segna come giusta la pagina LinkedIn delle aziende selezionate che il referto segnala: non le segnalera' piu'"
                             style={{...BTN.base,...BTN.blu,fontSize:10,padding:"2px 8px",whiteSpace:"nowrap"}}>✓ Pagina ok ({importDati.rows.filter(r=>importSelected.has(r.id)&&paginaDiscorde(r)).length})</button>}
                           <button onClick={deleteImportSelected} style={{fontSize:10,fontWeight:700,color:"#fff",color:C.accent,background:C.accentDim,border:`1px solid rgba(59,130,246,.3)`,borderRadius:3,padding:"2px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>🗑 {importSelected.size>0?`Elimina (${importSelected.size})`:"Elimina"}</button>
@@ -8111,6 +8293,40 @@ function App() {
                                   }
                                 }
                               }} C={C}/>
+                            {/* I DOMINI CHE SI CONTRADDICONO — 23/11.
+                                Sta qui e non in Leads perche' la domanda e'
+                                sull'AZIENDA: «questa ditta ha due domini, come
+                                mai?». Il conteggio si vede sempre, zero
+                                compreso. */}
+                            {(()=>{
+                              const n = (importDati.rows||[]).filter(dominiDiscordi).length;
+                              return (
+                                <button onClick={async ()=>{
+                                    const attiva = !importDominiDiscordi;
+                                    setImportDominiDiscordi(attiva);
+                                    if (attiva) {
+                                      setImportInCoda(false);
+                                      setImportPronteScraper(false);
+                                      setImportStatoFilter(new Set());
+                                      if (!importTutteRunRef.current) {
+                                        importTutteRunRef.current = true;
+                                        setImportTutteRun(true);
+                                        await openImportDati(null);
+                                      }
+                                    }
+                                  }}
+                                  title={"Aziende dove le persone hanno l'email su domini diversi fra loro:\n" +
+                                         "una sul dominio del sito e almeno un'altra fuori.\n" +
+                                         "Di solito vuol dire un gruppo, un'acquisizione o un secondo marchio.\n" +
+                                         "Guardale e archiviale col tasto «✓ Domini ok»."}
+                                  style={{padding:"3px 10px",fontSize:10,fontWeight:700,borderRadius:5,cursor:"pointer",whiteSpace:"nowrap",
+                                    color: importDominiDiscordi ? "#fff" : "#94a3b8",
+                                    background: importDominiDiscordi ? "rgba(168,85,247,0.35)" : "transparent",
+                                    border: `1px solid ${importDominiDiscordi ? "rgba(168,85,247,0.7)" : "rgba(148,163,184,0.25)"}`}}>
+                                  ⚠ Domini discordi <span style={{opacity:n?1:0.5}}>({n})</span>
+                                </button>
+                              );
+                            })()}
                             {/* v5.23 — risponde alla domanda «quali mando al Phantom?».
                                 Accende da solo tutte le run: le pronte stanno sparse,
                                 non nella sola run corrente. */}
