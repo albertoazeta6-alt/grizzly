@@ -855,6 +855,26 @@ const BTN = {
   spento: {color:"#64748b",background:"rgba(100,116,139,0.18)",border:"1px solid rgba(100,116,139,0.3)",cursor:"default"},
 };
 
+// ── IL RIQUADRO A FISARMONICA — 23/11/2026 ─────────────────────────────────
+//
+// Alberto: le informazioni nel riquadro «sono una sbrodolata». Era un elenco
+// piatto: titoli e righe tutti allo stesso livello, e ogni referto ne
+// aggiungeva una copia intera sopra la precedente. Ora ogni voce e' UNA riga,
+// chiusa; si apre col clic. Questa funzione rimette insieme i blocchi: un
+// titolo (`titolo: true`) si porta dietro le righe con lo stesso `blocco`.
+// Un avviso singolo (senza blocco) resta una voce a se'.
+// E' pura e sta fuori dal componente apposta: la si puo' eseguire nei collaudi.
+const raggruppaAttenzioni = (lista) => {
+  const out = [];
+  let cur = null;
+  (lista || []).forEach(a => {
+    if (a.titolo) { cur = {id: a.blocco, testa: a, righe: []}; out.push(cur); }
+    else if (a.blocco && cur && cur.id === a.blocco) cur.righe.push(a);
+    else { cur = null; out.push({id: null, testa: a, righe: []}); }
+  });
+  return out;
+};
+
 // ── LA «i» ACCANTO ALLA RICERCA ──────────────────────────────────────────
 //
 // Le tre regole della casella (`passaRicerca`) sono inutili se nessuno sa che
@@ -1307,6 +1327,17 @@ function App() {
   const azOutputRef = React.useRef(0); // ref stabile per evitare loop in fetchUrlSheet
   const fasiRef = React.useRef([]);
   const prevCountersRef = React.useRef({az_input:null, az_output:null, exec:null, scartati:null});
+  // LA PRIMA LETTURA DOPO UN RICARICAMENTO NON E' UNA NOTIZIA — 23/11/2026.
+  // Alberto, dopo un Ctrl+F5 senza aver fatto niente, si e' trovato nel log
+  // «✓ Import completato», «✓ Classificazione completato», «✓ Cerca Company
+  // Page completato», «✓ Aggiornamento HubSpot completato» e «✓ Company page
+  // trovate: 0». Le quattro fasi erano del 20/11: la pagina appena aperta
+  // partiva da fasi vuote, leggeva pipeline_state e scambiava «com'e' adesso»
+  // per «e' appena cambiato». E il log mostra l'ora senza la data, quindi
+  // sembravano di quel momento. Un log che racconta cose non successe insegna
+  // a non leggerlo. La prima lettura allinea lo stato in silenzio; dalla
+  // seconda in poi si annunciano solo i cambiamenti visti a pagina aperta.
+  const pipelineGiaLettoRef = React.useRef(false);
   const [importDati, setImportDati] = useState({open:false, rows:[], loading:false, edits:{}, sortCol:null, sortDir:"asc"});
   // Le righe servono anche subito dopo una ricarica, quando lo state non e'
   // ancora propagato nella closure di chi l'ha chiesta.
@@ -2122,7 +2153,7 @@ function App() {
       const pc = prevCountersRef.current;
       if (az_input !== null && az_input !== pc.az_input && pc.az_input !== null)
         pushLog("info", `📊 Aziende in DB: ${az_input}`);
-      if (az_output !== null && az_output !== pc.az_output)
+      if (az_output !== null && az_output !== pc.az_output && pc.az_output !== null)
         pushLog("ok", `✓ Company page trovate: ${az_output}${scartati ? ` · ${scartati} ambigue` : ""}`);
       if (exec !== null && exec !== pc.exec && exec > 0 && pc.exec !== null)
         pushLog("info", `📋 EasyBusiness con LinkedIn: ${exec}`);
@@ -2442,6 +2473,8 @@ function App() {
       });
       if (rPipeline.ok) {
         const pipelineRows = await rPipeline.json();
+        const primaLettura = !pipelineGiaLettoRef.current;
+        pipelineGiaLettoRef.current = true;
         if (pipelineRows && pipelineRows.length > 0) {
           // Applica solo righe più recenti del runStart (evita stati di run precedenti).
           // Senza runStart — es. classificatore lanciato a mano, o reload dopo che
@@ -2456,7 +2489,7 @@ function App() {
             // Log transizioni di stato
             const FASE_LABELS = {import:"Import & Normalizzazione", classifica:"Classificazione Settori e creazione Icebreaker", company:"Cerca Company Page", hubspot:"Aggiornamento HubSpot", lemlist:"Carica Contatti", url_check:"Risolvi URL ambigui"};
             const currentFasi = fasiRef.current;
-            validRows.forEach(ps => {
+            if (!primaLettura) validRows.forEach(ps => {
               const f = currentFasi.find(f => f.id === ps.fase);
               if (!f || ps.stato === f.stato) return;
               const label = FASE_LABELS[ps.fase] || ps.fase;
@@ -3753,6 +3786,22 @@ function App() {
   // lo stato serve solo a far vedere il tasto spento.
   const refertoInCorsoRef = React.useRef(false);
   const [refertoInCorso, setRefertoInCorso] = useState(false);
+  // UN REFERTO SOSTITUISCE IL PRECEDENTE — 23/11/2026. Prima ogni giro si
+  // aggiungeva sopra a quello prima: alle 14:41 e alle 14:44 il riquadro
+  // conteneva due copie identiche di tutto. Ogni blocco del referto porta il
+  // `giro` che l'ha prodotto; a giro concluso, quelli dei giri vecchi escono.
+  // Gli avvisi che non vengono dal referto (invii, agente) restano.
+  const giroRefertoRef = React.useRef(null);
+  const [gruppiAperti, setGruppiAperti] = useState({});
+  // A SCHERMO INTERO, su richiesta di Alberto (23/11): il riquadro sta in uno
+  // spazio piccolo, e con dieci voci aperte non si legge. Esc lo richiude.
+  const [riquadroGrande, setRiquadroGrande] = useState(false);
+  useEffect(() => {
+    if (!riquadroGrande) return;
+    const esc = (e) => { if (e.key === "Escape") setRiquadroGrande(false); };
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [riquadroGrande]);
   const pushAttenzione = (msg) => {
     pushLog("warn", msg);
     setAttenzioni(p => [{ts: new Date().toISOString(), msg}, ...p].slice(0, 200));
@@ -3774,7 +3823,9 @@ function App() {
     righe.forEach(r => pushLog("warn", r));
     const ts = new Date().toISOString();
     const id = ts + "·" + Math.random().toString(36).slice(2, 8);
-    const blocco = [{ts, msg: titolo, azione: azione ? {...azione, id} : null}, ...righe.map(msg => ({ts, msg}))];
+    const giro = giroRefertoRef.current;
+    const blocco = [{ts, msg: titolo, azione: azione ? {...azione, id} : null, titolo: true, blocco: id, giro},
+                    ...righe.map(msg => ({ts, msg, blocco: id, giro}))];
     setAttenzioni(p => [...blocco, ...p].slice(0, 200));
   };
 
@@ -4847,6 +4898,8 @@ function App() {
     }
     refertoInCorsoRef.current = true;
     setRefertoInCorso(true);
+    const giro = new Date().toISOString();
+    giroRefertoRef.current = giro;
     const h = {apikey:key, Authorization:`Bearer ${sbBearer()}`};
     pushLog("info", "▶ Referto: controllo in corso…");
     let trovati = 0;
@@ -5169,12 +5222,19 @@ function App() {
       if (!trovati) pushLog("ok", "✓ Referto: nessun problema fra quelli che so controllare");
       else showToast(`⚠ Referto: ${trovati} problemi — guarda il riquadro`);
       esito = trovati;
+      // Giro concluso: escono i blocchi dei referti precedenti.
+      setAttenzioni(p => p.filter(a => !a.giro || a.giro === giro));
       // Quello che questo referto NON vede, detto sempre: un elenco che tace
       // sui propri limiti sembra completo.
       pushLog("info", "⬡ Il referto non vede HubSpot: contatti appesi a più aziende e aziende con contatti in più vanno controllati a parte");
     } catch(e) {
       pushLog("error", "✕ Referto interrotto: " + e.message);
+      // Un giro a meta' non sostituisce quello completo di prima: si toglie
+      // quello che ha fatto in tempo a scrivere e resta il precedente. Un
+      // elenco a meta' che sembra intero e' peggio di nessun elenco.
+      setAttenzioni(p => p.filter(a => a.giro !== giro));
     } finally {
+      giroRefertoRef.current = null;
       refertoInCorsoRef.current = false;
       setRefertoInCorso(false);
     }
@@ -6880,7 +6940,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.03</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.04</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -7319,16 +7379,32 @@ function App() {
                         5/11 ci siamo accorti che gli avvisi sparivano prima
                         che qualcuno potesse leggerli. Questa lista non viene
                         toccata da quell'alluvione. */}
-                    <div style={{marginTop:10,background:attenzioni.length?"rgba(245,158,11,0.07)":C.bg,
+                    {riquadroGrande && <div onClick={()=>setRiquadroGrande(false)}
+                      style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:999}}/>}
+                    <div style={{background:attenzioni.length?(riquadroGrande?C.surface||C.bg:"rgba(245,158,11,0.07)"):C.bg,
                                  border:`1px solid ${attenzioni.length?"rgba(245,158,11,0.35)":C.border}`,
-                                 borderRadius:6,overflow:"hidden"}}>
+                                 borderRadius:6,overflow:"hidden",
+                                 ...(riquadroGrande
+                                   ? {position:"fixed",inset:"4vh 4vw",zIndex:1000,display:"flex",flexDirection:"column",
+                                      boxShadow:"0 20px 60px rgba(0,0,0,0.6)",background:C.bg}
+                                   : {marginTop:10})}}>
                       <div style={{padding:"7px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",
                                    borderBottom:attenzioni.length?`1px solid rgba(245,158,11,0.2)`:"none"}}>
                         <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",
                                      color:attenzioni.length?C.yellow:C.muted}}>
-                          👁 Da guardare {attenzioni.length>0 && `(${attenzioni.length})`}
+                          👁 Da guardare {attenzioni.length>0 && (() => {
+                            const g = raggruppaAttenzioni(attenzioni);
+                            const ultimo = attenzioni.find(a => a.giro)?.giro;
+                            return `· ${g.length} voc${g.length===1?"e":"i"}` + (ultimo ? ` · referto ${ultimo.slice(11,16)}` : "");
+                          })()}
                         </div>
                         <div style={{display:"flex",gap:6}}>
+                        <button onClick={()=>setRiquadroGrande(v=>!v)}
+                          title={riquadroGrande ? "Torna al riquadro piccolo (Esc)" : "Apri a schermo intero"}
+                          style={{fontSize:9,fontWeight:700,color:C.text,background:"transparent",
+                                  border:`1px solid ${C.border}`,borderRadius:3,padding:"2px 7px",cursor:"pointer"}}>
+                          {riquadroGrande ? "✕ Chiudi" : "⛶"}
+                        </button>
                         {attenzioni.length>0 && (
                           <button onClick={()=>{
                             // Il testo da portare altrove: in una mail, in un
@@ -7367,24 +7443,39 @@ function App() {
                         ? <div style={{padding:"9px 12px",fontSize:10,color:C.muted}}>
                             Niente da guardare. Qui finiscono i casi su cui decidi tu.
                           </div>
-                        : <div style={{maxHeight:132,overflowY:"auto"}}>
-                            {attenzioni.map((a,i)=>(
-                              <div key={i} style={{padding:"4px 12px",fontSize:10,color:C.text,
-                                                   display:"flex",gap:8,alignItems:"baseline",
-                                                   borderTop:i?`1px solid rgba(245,158,11,0.10)`:"none"}}>
-                                <span style={{fontSize:9,color:C.muted,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>
-                                  {(a.ts||"").slice(11,16)}
-                                </span>
-                                <span style={{whiteSpace:"pre-wrap"}}>{a.msg}</span>
-                                {a.azione && (azioniFatte[a.azione.id]
-                                  ? <span style={{fontSize:9,color:C.muted,flexShrink:0}}>✓ archiviate</span>
-                                  : <button onClick={()=>timbraContattiDalReferto(a.azione)}
-                                      title="Scrive in archivio che queste righe sono state guardate: il referto non le segnalerà più. Si può annullare dal database."
-                                      style={{...BTN.base,...BTN.blu,padding:"1px 7px",fontSize:9,marginLeft:"auto",flexShrink:0}}>
-                                      {a.azione.etichetta}
-                                    </button>)}
-                              </div>
-                            ))}
+                        : <div style={riquadroGrande ? {flex:1,overflowY:"auto"} : {maxHeight:132,overflowY:"auto"}}>
+                            {raggruppaAttenzioni(attenzioni).map((g,i)=>{
+                              const a = g.testa;
+                              const chiave = g.id || ("s" + i);
+                              const aperto = !!gruppiAperti[chiave];
+                              const fs = riquadroGrande ? 12 : 10;
+                              return (
+                              <div key={chiave} style={{borderTop:i?`1px solid rgba(245,158,11,0.10)`:"none"}}>
+                                <div onClick={g.righe.length ? ()=>setGruppiAperti(p=>({...p,[chiave]:!p[chiave]})) : undefined}
+                                  style={{padding:"4px 12px",fontSize:fs,color:C.text,display:"flex",gap:8,alignItems:"baseline",
+                                          cursor:g.righe.length?"pointer":"default"}}>
+                                  <span style={{fontSize:fs,color:C.yellow,flexShrink:0,width:10}}>
+                                    {g.righe.length ? (aperto ? "▾" : "▸") : ""}
+                                  </span>
+                                  <span style={{fontSize:9,color:C.muted,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>
+                                    {(a.ts||"").slice(11,16)}
+                                  </span>
+                                  <span style={{whiteSpace:"pre-wrap"}}>{a.msg}</span>
+                                  {a.azione && (azioniFatte[a.azione.id]
+                                    ? <span style={{fontSize:9,color:C.muted,flexShrink:0,marginLeft:"auto"}}>✓ archiviate</span>
+                                    : <button onClick={(e)=>{ e.stopPropagation(); timbraContattiDalReferto(a.azione); }}
+                                        title="Scrive in archivio che le righe di questa voce sono state guardate: il referto non le segnalerà più. Si può annullare dal database."
+                                        style={{...BTN.base,...BTN.blu,padding:"1px 7px",fontSize:9,marginLeft:"auto",flexShrink:0}}>
+                                        {a.azione.etichetta}
+                                      </button>)}
+                                </div>
+                                {aperto && g.righe.map((r,j)=>(
+                                  <div key={j} style={{padding:"2px 12px 2px 46px",fontSize:fs,color:C.text,whiteSpace:"pre-wrap"}}>
+                                    {r.msg.replace(/^\s*·\s*/, "· ")}
+                                  </div>
+                                ))}
+                              </div>);
+                            })}
                           </div>}
                     </div>
                   </div>
