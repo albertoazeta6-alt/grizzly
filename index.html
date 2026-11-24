@@ -3820,7 +3820,12 @@ function App() {
   // quello che una persona ha avuto davanti, non quello oltre la decima riga.
   const pushAttenzioneGruppo = (titolo, righe, azione = null) => {
     pushLog("warn", titolo);
-    righe.forEach(r => pushLog("warn", r));
+    // NEL LOG VA IL TESTO, MAI LA RIGA INTERA — 24/11/2026. Dalla v6.05 una
+    // riga puo' essere un oggetto {msg, azioni, link}; passato cosi' al log,
+    // React non sa disegnarlo e smonta TUTTA la pagina: Alberto preme
+    // «Referto» e lo schermo diventa nero. I collaudi non l'avevano visto
+    // perche' sostituivano `pushLog` con una funzione che accetta tutto.
+    righe.forEach(r => pushLog("warn", typeof r === "string" ? r : (r?.msg ?? "")));
     const ts = new Date().toISOString();
     const id = ts + "·" + Math.random().toString(36).slice(2, 8);
     const giro = giroRefertoRef.current;
@@ -7007,7 +7012,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.05</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.06</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
