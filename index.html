@@ -3824,8 +3824,16 @@ function App() {
     const ts = new Date().toISOString();
     const id = ts + "·" + Math.random().toString(36).slice(2, 8);
     const giro = giroRefertoRef.current;
-    const blocco = [{ts, msg: titolo, azione: azione ? {...azione, id} : null, titolo: true, blocco: id, giro},
-                    ...righe.map(msg => ({ts, msg, blocco: id, giro}))];
+    // 24/11: una voce puo' avere piu' tasti (archivia / accetta l'arretrato),
+    // e ogni riga i suoi: «✓» su UNA riga, invece che tutto o niente. Una riga
+    // puo' essere un testo, oppure {msg, azioni, link}.
+    const azioniTesta = (Array.isArray(azione) ? azione : (azione ? [azione] : []))
+      .map((a, k) => ({...a, id: `${id}·t${k}`}));
+    const blocco = [{ts, msg: titolo, azioni: azioniTesta, titolo: true, blocco: id, giro},
+                    ...righe.map((r, j) => typeof r === "string"
+                      ? {ts, msg: r, blocco: id, giro}
+                      : {ts, msg: r.msg, link: r.link || null, blocco: id, giro,
+                         azioni: (r.azioni || []).map((a, k) => ({...a, id: `${id}·${j}·${k}`}))})];
     setAttenzioni(p => [...blocco, ...p].slice(0, 200));
   };
 
@@ -4351,7 +4359,7 @@ function App() {
   // Il resto serve solo a far vedere le cose a schermo, e lo completa
   // `completaAnagrafica` qui sotto. Al massimo si vede un trattino; non si
   // sbaglia una decisione.
-  const CONTATTI_SELECT = "id,nome_completo,ruolo,ruolo_descrizione,linkedin_url,email,stato,tipo,email_origine,company_id,datore_verificato_il,companies(hs_lifecyclestage)";
+  const CONTATTI_SELECT = "id,nome_completo,ruolo,ruolo_descrizione,linkedin_url,email,stato,tipo,email_origine,company_id,datore_verificato_il,arretrato_accettato_il,companies(hs_lifecyclestage)";
   // v5.48 — `invio_errore` E' NELL'ELENCO, e deve restarci.
   //
   // Fino alla v5.47 non c'era: quei contatti non venivano nemmeno scaricati e
@@ -4484,6 +4492,12 @@ function App() {
   // dichiara nessun datore, o se il nome si riduce a niente, non si conclude
   // niente. Assenza di prova non e' prova di assenza — la stessa regola della
   // verifica nome/profilo.
+  // CHI E' GIA' CHIUSO, PER UNA DELLE DUE STRADE — 24/11/2026. O una persona
+  // l'ha guardato (`datore_verificato_il`), o e' arretrato gia' inviato
+  // accettato senza guardarlo (`arretrato_accettato_il`, v32). Sono due cose
+  // diverse e restano scritte diverse; per il SEGNO valgono uguale: tutte e
+  // due spengono il ⚠, il filtro e il referto insieme.
+  const datoreChiuso = (c) => !!(c?.datore_verificato_il || c?.arretrato_accettato_il);
   const datoreDiscorda = (c) => {
     // Chi e' gia' stato guardato non si segnala piu'. Il controllo serve a
     // portare davanti agli occhi quello che nessuno ha ancora visto; una
@@ -4491,7 +4505,7 @@ function App() {
     // non si puo' spegnere, dopo due o tre volte, si smette di guardare.
     // Il timbro sta qui dentro, cosi' valgono insieme segno, filtro e
     // referto: la regola e' una sola.
-    if (c?.datore_verificato_il) return false;
+    if (datoreChiuso(c)) return false;
     const d = nocciolo(datoreDichiarato(c));
     const a = nocciolo(c?.companies?.nome);
     if (!d || !a) return false;
@@ -4697,7 +4711,7 @@ function App() {
   const aziendeOmonime = React.useMemo(() => {
     const perAzienda = new Map();
     (contattiRun.rows || []).forEach(c => {
-      if (c.tipo !== "persona" || c.datore_verificato_il) return;
+      if (c.tipo !== "persona" || datoreChiuso(c)) return;
       const d = datoreDichiarato(c); if (!d) return;
       if (!perAzienda.has(c.company_id)) perAzienda.set(c.company_id, new Set());
       perAzienda.get(c.company_id).add(nocciolo(d));
@@ -4714,7 +4728,7 @@ function App() {
   // il segno e' uno e il motivo si legge passandoci sopra. Il timbro
   // «Datore ok» li spegne tutti insieme: chi ha guardato ha guardato.
   const motiviDaGuardare = (c) => {
-    if (c?.datore_verificato_il) return [];
+    if (datoreChiuso(c)) return [];
     const m = [];
     if (datoreDiscorda(c))
       m.push(`il profilo dichiara «${datoreDichiarato(c)}», che non somiglia a «${c?.companies?.nome||""}»`);
@@ -4923,12 +4937,14 @@ function App() {
         trovati++;
         const mostrate = condivise.slice(0,10);
         pushAttenzioneGruppo(`📋 ${condivise.length} casell${condivise.length===1?"a usata":"e usate"} da più aziende`,
-          mostrate.map(([e,v]) =>
-            `   · ${e} → ${v.map(x=>x.companies?.nome||x.company_id).join(" + ")}`),
+          mostrate.map(([e,v]) => ({
+            msg: `   · ${e} → ${v.map(x=>x.companies?.nome||x.company_id).join(" + ")}`,
+            azioni: [{etichetta:"✓", titoloTasto:"Questa casella condivisa va bene", colonna:"casella_verificata_il",
+                      ids: v.map(x => x.id), fatto: `casella ${e} archiviata`}]})),
           { etichetta: `✓ Viste, vanno bene (${mostrate.length})`,
             colonna: "casella_verificata_il",
             ids: mostrate.flatMap(([,v]) => v.map(x => x.id)),
-            domanda: `Segnare queste ${mostrate.length} casell${mostrate.length===1?"a":"e"} come «condivisa, va bene»?\n\nVale solo per le righe elencate qui sotto.`,
+            domanda: `Segnare queste ${mostrate.length} casell${mostrate.length===1?"a":"e"} come «condivisa, va bene»?\n\nVale solo per le righe elencate qui sotto. Al prossimo referto non compariranno più; se ne arrivano di nuove, quelle sì.`,
             fatto: `${mostrate.length} casell${mostrate.length===1?"a condivisa archiviata":"e condivise archiviate"}: non si segnalano più` });
       }
 
@@ -4974,12 +4990,14 @@ function App() {
         const mostrate = personeOltre.slice(0,10);
         pushAttenzioneGruppo(
           `📋 ${personeOltre.length} PERSONE inviate ad aziende oltre «lead» (${Object.entries(fasi).map(([f,n])=>`${n} in «${f}»`).join(", ")}) — più ${caselle} caselle aziendali, che contano meno`,
-          mostrate.map(c =>
-            `   · ${c.companies?.nome||"?"} — ${c.nome_completo||"?"}${c.email?` (${c.email})`:" (senza email)"}`),
+          mostrate.map(c => ({
+            msg: `   · ${c.companies?.nome||"?"} — ${c.nome_completo||"?"}${c.email?` (${c.email})`:" (senza email)"}`,
+            azioni: [{etichetta:"✓", titoloTasto:"Questa persona oltre lead va bene", colonna:"fase_verificata_il",
+                      ids: [c.id], fatto: `${c.nome_completo||"contatto"} oltre lead archiviato`}]})),
           { etichetta: `✓ Viste, vanno bene (${mostrate.length})`,
             colonna: "fase_verificata_il",
             ids: mostrate.map(c => c.id),
-            domanda: `Segnare queste ${mostrate.length} persone come «inviata oltre lead, va bene»?\n\nVale solo per le righe elencate qui sotto.`,
+            domanda: `Segnare queste ${mostrate.length} persone come «inviata oltre lead, va bene»?\n\nVale solo per le righe elencate qui sotto. Al prossimo referto non compariranno più; se ne arrivano di nuove, quelle sì.`,
             fatto: `${mostrate.length} person${mostrate.length===1?"a":"e"} oltre «lead» archiviat${mostrate.length===1?"a":"e"}: non si segnalano più` });
       }
 
@@ -5042,7 +5060,7 @@ function App() {
       // controllo lo diceva. Un difetto che si scopre guardando la tabella
       // per caso e' un difetto che quasi sempre non si scopre.
       const persone = await sbTutte(url, h,
-        "contacts?tipo=eq.persona&select=id,nome_completo,ruolo,ruolo_descrizione,stato,company_id,datore_verificato_il,companies(nome)");
+        "contacts?tipo=eq.persona&select=id,nome_completo,ruolo,ruolo_descrizione,stato,company_id,linkedin_url,datore_verificato_il,arretrato_accettato_il,companies(nome)");
 
       // 6 · il profilo dichiara un datore che non e' l'azienda a cui sta
       const stonate = persone.filter(datoreDiscorda);
@@ -5050,11 +5068,27 @@ function App() {
         trovati++;
         // Quanti sono gia' partiti conta piu' del totale: quelli non si
         // correggono piu', si possono solo sapere.
-        const partiti = stonate.filter(c => c.stato === "inviato").length;
+        const inviati6 = stonate.filter(c => c.stato === "inviato");
+        const partiti = inviati6.length;
+        // In cima quelli NON ancora inviati: sono gli unici che si possono
+        // ancora fermare (24/11).
+        const ordinate6 = [...stonate].sort((x,y) => (x.stato==="inviato"?1:0) - (y.stato==="inviato"?1:0));
         pushAttenzioneGruppo(
           `📋 ${stonate.length} contatti dichiarano un datore diverso dall'azienda a cui sono attaccati${partiti?` — ${partiti} già inviati`:""}`,
-          stonate.slice(0,10).map(c =>
-            `   · ${c.nome_completo||"?"} — dice «${datoreDichiarato(c)}», è su «${c.companies?.nome||"?"}»`));
+          ordinate6.slice(0,10).map(c => ({
+            msg: `   · ${c.nome_completo||"?"} — dice «${datoreDichiarato(c)}», è su «${c.companies?.nome||"?"}»${c.stato==="inviato"?" · già inviato":""}`,
+            link: c.linkedin_url || null,
+            azioni: [
+              {etichetta:"✓", titoloTasto:"Il datore va bene: non segnalarlo più", colonna:"datore_verificato_il",
+               ids:[c.id], fatto:`${c.nome_completo||"contatto"}: datore verificato`},
+              ...(c.stato !== "inviato" ? [{etichetta:"✕ scarta", titoloTasto:"Non è di questa azienda: scartalo prima che parta",
+               colonna:"stato", valore:"scartato", filtro:"&stato=neq.inviato",
+               ids:[c.id], fatto:`${c.nome_completo||"contatto"} scartato`}] : []),
+            ]})),
+          partiti ? [{etichetta:`Accetta arretrato già inviato (${partiti})`, colonna:"arretrato_accettato_il",
+            ids: inviati6.map(c => c.id), filtro:"&stato=eq.inviato",
+            domanda: `Accettare come arretrato i ${partiti} contatti già inviati di questa voce?\n\nNON vuol dire che sono stati verificati: vuol dire che sono partiti e non si correggono più. Resta scritto così, separato dalle verifiche vere.\n\nDopo, la voce mostra solo i ${stonate.length - partiti} non ancora inviati.`,
+            fatto: `${partiti} contatti con datore discorde accettati come arretrato`}] : null);
       }
 
       // 7 · l'azienda nel suo insieme: tre datori diversi sono un'omonimia
@@ -5071,17 +5105,26 @@ function App() {
       // ignorato, proprio perche' e' quello che grida piu' spesso.
       const perAzienda = new Map();
       persone.forEach(c => {
-        if (c.datore_verificato_il) return;
+        if (datoreChiuso(c)) return;
         const d = datoreDichiarato(c); if (!d) return;
-        if (!perAzienda.has(c.company_id)) perAzienda.set(c.company_id, {nome:c.companies?.nome, datori:new Set()});
+        if (!perAzienda.has(c.company_id)) perAzienda.set(c.company_id, {nome:c.companies?.nome, datori:new Set(), contatti:[]});
         perAzienda.get(c.company_id).datori.add(nocciolo(d));
+        perAzienda.get(c.company_id).contatti.push(c);
       });
       const omonime = [...perAzienda.values()].filter(a => a.datori.size >= 3);
       if (omonime.length) {
         trovati++;
+        const inviati7 = omonime.flatMap(a => a.contatti.filter(c => c.stato === "inviato"));
         pushAttenzioneGruppo(
           `📋 ${omonime.length} aziende hanno contatti che dichiarano 3 o più datori diversi: probabile omonimia`,
-          omonime.slice(0,10).map(a => `   · ${a.nome||"?"} — ${a.datori.size} ragioni sociali diverse`));
+          omonime.slice(0,10).map(a => ({
+            msg: `   · ${a.nome||"?"} — ${a.datori.size} ragioni sociali diverse (${a.contatti.length} contatti, ${a.contatti.filter(c=>c.stato==="inviato").length} già inviati)`,
+            azioni: [{etichetta:"✓", titoloTasto:"Ho guardato: i datori di questi contatti vanno bene", colonna:"datore_verificato_il",
+                      ids: a.contatti.map(c => c.id), fatto: `${a.nome}: datori verificati`}]})),
+          inviati7.length ? [{etichetta:`Accetta arretrato già inviato (${inviati7.length})`, colonna:"arretrato_accettato_il",
+            ids: inviati7.map(c => c.id), filtro:"&stato=eq.inviato",
+            domanda: `Accettare come arretrato i ${inviati7.length} contatti già inviati di queste aziende?\n\nNON vuol dire che sono stati verificati: sono partiti e non si correggono più. Dopo, l'omonimia si conta solo sui contatti non ancora inviati.`,
+            fatto: `${inviati7.length} contatti di aziende omonime accettati come arretrato`}] : null);
       }
 
       // 8 · fermi nella coda della ricerca email
@@ -5147,14 +5190,22 @@ function App() {
       // Gli slug tutti numerici (`/company/598168`) NON si giudicano: sono
       // pagine valide e mute, la regola non puo' esprimersi. Assenza di prova.
       const conLinkedin = await sbTutte(url, h,
-        "companies?linkedin_url=ilike.*linkedin.com/company/*&select=id,nome,sito_web,linkedin_url,pagina_verificata_il,contacts(id,stato,tipo)");
-      const pagineStorte = conLinkedin.filter(paginaDiscorde);
+        "companies?linkedin_url=ilike.*linkedin.com/company/*&select=id,nome,sito_web,linkedin_url,stato,pagina_verificata_il,contacts(id,stato,tipo,arretrato_accettato_il)");
+      // QUANDO UNA PAGINA STORTA CONTA ANCORA — 24/11/2026. Una pagina
+      // sbagliata fa danno in due modi: ha GIA' prodotto contatti che nessuno
+      // ha accettato, oppure li PRODURRA' (l'azienda aspetta lo scraper,
+      // `linkedin_ok`). Un'azienda il cui lavoro e' finito e i cui contatti
+      // sono tutti arretrato accettato non ha piu' niente da dire.
+      const pesaAncora = (a) =>
+        a.stato === "linkedin_ok" ||
+        (a.contacts||[]).some(c => c.tipo === "persona" && !c.arretrato_accettato_il);
+      const pagineStorte = conLinkedin.filter(a => paginaDiscorde(a) && pesaAncora(a));
       if (pagineStorte.length) {
         trovati++;
         // Le aziende da cui sono gia' usciti dei contatti vengono prima: li'
         // l'errore ha gia' prodotto qualcosa, e qualcuno puo' averlo ricevuto.
         const conPersone = pagineStorte
-          .map(a => ({...a, persone: (a.contacts||[]).filter(c => c.tipo === "persona"),
+          .map(a => ({...a, persone: (a.contacts||[]).filter(c => c.tipo === "persona" && !c.arretrato_accettato_il),
                             confermata: sitoConferma(a)}))
           // Prima quelle che il sito NON conferma, poi quelle da cui sono
           // uscite piu' persone: in cima finisce dove l'errore e' piu'
@@ -5162,13 +5213,20 @@ function App() {
           .sort((x,y) => (x.confermata?1:0) - (y.confermata?1:0)
                       || y.persone.length - x.persone.length);
         const totPersone = conPersone.reduce((n,a) => n + a.persone.length, 0);
-        const totInviati = conPersone.reduce((n,a) => n + a.persone.filter(c=>c.stato==="inviato").length, 0);
+        const totInviati = conPersone.reduce((n,a) => n + a.persone.filter(c=>c.stato==="inviato" && !c.arretrato_accettato_il).length, 0);
         pushAttenzioneGruppo(
           `📋 ${pagineStorte.length} aziende hanno una pagina LinkedIn che non somiglia al loro nome — ne sono usciti ${totPersone} contatti, ${totInviati} già inviati`,
-          conPersone.slice(0,10).map(a =>
-            `   · ${a.nome} → ${slugGrezzoDi(a.linkedin_url)}` +
-            (a.persone.length ? ` (${a.persone.length} persone)` : " (nessun contatto)") +
-            (a.confermata ? " — il sito conferma la pagina" : "")));
+          conPersone.slice(0,10).map(a => ({
+            msg: `   · ${a.nome} → ${slugGrezzoDi(a.linkedin_url)}` +
+              (a.persone.length ? ` (${a.persone.length} persone)` : " (nessun contatto)") +
+              (a.confermata ? " — il sito conferma la pagina" : ""),
+            link: a.linkedin_url || null,
+            azioni: [{etichetta:"✓", titoloTasto:"La pagina è giusta: non segnalarla più", tabella:"companies",
+                      colonna:"pagina_verificata_il", ids:[a.id], fatto:`${a.nome}: pagina verificata`}]})),
+          totInviati ? [{etichetta:`Accetta arretrato già inviato (${totInviati})`, colonna:"arretrato_accettato_il",
+            ids: conPersone.flatMap(a => a.persone.filter(c => c.stato === "inviato").map(c => c.id)), filtro:"&stato=eq.inviato",
+            domanda: `Accettare come arretrato i ${totInviati} contatti già inviati usciti da queste pagine?\n\nNON vuol dire che le pagine sono giuste: i contatti sono partiti e non si correggono più. Dopo, restano segnalate solo le aziende con contatti non ancora inviati o ancora in attesa dello scraper.`,
+            fatto: `${totInviati} contatti da pagine storte accettati come arretrato`}] : null);
       }
 
       // 10 · dentro la stessa azienda, email su domini che si contraddicono
@@ -5208,7 +5266,10 @@ function App() {
           discordi.slice(0,10).map(({az, domini}) => {
             const sito = etichettaDominio(az?.sito_web);
             const fuori = [...domini].filter(d => d !== sito);
-            return `   · ${az?.nome||"?"} — sito ${az?.sito_web||"?"}, ma anche ${fuori.join(", ")}`;
+            return {
+              msg: `   · ${az?.nome||"?"} — sito ${az?.sito_web||"?"}, ma anche ${fuori.join(", ")}`,
+              azioni: [{etichetta:"✓", titoloTasto:"Domini guardati, va bene", tabella:"companies",
+                        colonna:"domini_verificati_il", ids:[az?.id], fatto:`${az?.nome}: domini verificati`}]};
           }));
       }
 
@@ -5881,34 +5942,40 @@ function App() {
   // per le due colonne nuove (v31): la differenza fra «casella vista» e «fase
   // vista» e' solo il nome della colonna e la frase di conferma.
   const [azioniFatte, setAzioniFatte] = useState({});
-  const timbraContattiDalReferto = async (azione) => {
-    const {ids, colonna, domanda, fatto} = azione;
+  // Esegue un tasto del riquadro. Una funzione sola per tutti: cambia la
+  // tabella, la colonna e cosa ci si scrive. Le righe singole non chiedono
+  // conferma (blu: reversibile, e si fanno a decine); i tasti che valgono per
+  // una voce intera si', perche' scrivono su righe che non si vedono tutte.
+  const eseguiDalReferto = async (azione) => {
+    const {ids, tabella = "contacts", colonna, valore, filtro = "", domanda, fatto} = azione;
     if (!ids?.length) return;
-    if (!await customConfirm(domanda + `\n\nAl prossimo referto non compariranno più. Se ne arrivano di nuovi, quelli sì.`)) return;
+    if (domanda && !await customConfirm(domanda)) return;
     const {url:sbUrl, key:sbKey} = getSbCreds();
     if (!sbUrl || !sbKey) { showToast("⚠ Credenziali Supabase mancanti"); return; }
-    const quando = new Date().toISOString();
+    const scritto = valore !== undefined ? valore : new Date().toISOString();
     try {
       // A blocchi di cento: un elenco di id troppo lungo nell'indirizzo viene
-      // rifiutato, e un rifiuto a meta' lascerebbe timbrati solo alcuni.
+      // rifiutato, e un rifiuto a meta' lascerebbe scritte solo alcune righe.
       for (let i = 0; i < ids.length; i += 100) {
         const parte = ids.slice(i, i + 100);
-        const r = await fetch(`${sbUrl}/rest/v1/contacts?id=in.(${parte.join(",")})`, {
+        const r = await fetch(`${sbUrl}/rest/v1/${tabella}?id=in.(${parte.join(",")})${filtro}`, {
           method:"PATCH",
           headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`,
                    "Content-Type":"application/json", Prefer:"return=minimal"},
-          body: JSON.stringify({[colonna]: quando}),
+          body: JSON.stringify({[colonna]: scritto}),
         });
-        if (!r.ok) throw new Error(`${r.status} ${await r.text()}` + (i ? ` — i primi ${i} sono già timbrati` : ""));
+        if (!r.ok) throw new Error(`${r.status} ${await r.text()}` + (i ? ` — i primi ${i} sono già scritti` : ""));
       }
       setAzioniFatte(p => ({...p, [azione.id]: true}));
-      pushLog("ok", `✓ ${fatto}`);
-      showToast("✓ Archiviati");
+      if (fatto) pushLog("ok", `✓ ${fatto}`);
+      showToast("✓ Fatto");
     } catch(e) {
-      pushLog("error", `✕ Non sono riuscito a scrivere la verifica — ${e.message}`);
+      pushLog("error", `✕ Non sono riuscito a scrivere — ${e.message}`);
       showToast("✕ Errore");
     }
   };
+  // Il nome di prima resta: la usano i tasti delle voci 1 e 2.
+  const timbraContattiDalReferto = eseguiDalReferto;
 
   const timbraDatoreOk = async () => {
     const candidati = contattiRun.rows.filter(r => contattiSelected.has(r.id) && daGuardare(r));
@@ -6940,7 +7007,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.04</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.05</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -7461,17 +7528,32 @@ function App() {
                                     {(a.ts||"").slice(11,16)}
                                   </span>
                                   <span style={{whiteSpace:"pre-wrap"}}>{a.msg}</span>
-                                  {a.azione && (azioniFatte[a.azione.id]
-                                    ? <span style={{fontSize:9,color:C.muted,flexShrink:0,marginLeft:"auto"}}>✓ archiviate</span>
-                                    : <button onClick={(e)=>{ e.stopPropagation(); timbraContattiDalReferto(a.azione); }}
-                                        title="Scrive in archivio che le righe di questa voce sono state guardate: il referto non le segnalerà più. Si può annullare dal database."
-                                        style={{...BTN.base,...BTN.blu,padding:"1px 7px",fontSize:9,marginLeft:"auto",flexShrink:0}}>
-                                        {a.azione.etichetta}
+                                  <span style={{marginLeft:"auto",display:"flex",gap:4,flexShrink:0}}>
+                                  {(a.azioni||[]).map(az => azioniFatte[az.id]
+                                    ? <span key={az.id} style={{fontSize:9,color:C.muted}}>✓ fatto</span>
+                                    : <button key={az.id} onClick={(e)=>{ e.stopPropagation(); eseguiDalReferto(az); }}
+                                        title="Scrive in archivio: il referto non segnalerà più queste righe. Si può annullare dal database."
+                                        style={{...BTN.base,...BTN.blu,padding:"1px 7px",fontSize:9}}>
+                                        {az.etichetta}
                                       </button>)}
+                                  </span>
                                 </div>
                                 {aperto && g.righe.map((r,j)=>(
-                                  <div key={j} style={{padding:"2px 12px 2px 46px",fontSize:fs,color:C.text,whiteSpace:"pre-wrap"}}>
-                                    {r.msg.replace(/^\s*·\s*/, "· ")}
+                                  <div key={j} style={{padding:"2px 12px 2px 46px",fontSize:fs,color:C.text,display:"flex",gap:6,alignItems:"baseline"}}>
+                                    <span style={{whiteSpace:"pre-wrap",opacity:(r.azioni||[]).some(az=>azioniFatte[az.id])?0.45:1}}>
+                                      {r.msg.replace(/^\s*·\s*/, "· ")}
+                                    </span>
+                                    {r.link && <a href={r.link} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()}
+                                      title="Apri su LinkedIn, per guardare" style={{fontSize:fs-1,color:C.accent||"#60a5fa",textDecoration:"none",flexShrink:0}}>↗</a>}
+                                    <span style={{marginLeft:"auto",display:"flex",gap:4,flexShrink:0}}>
+                                    {(r.azioni||[]).map(az => azioniFatte[az.id]
+                                      ? <span key={az.id} style={{fontSize:9,color:C.muted}}>{az.colonna==="stato"?"scartato":"✓ fatto"}</span>
+                                      : <button key={az.id} onClick={(e)=>{ e.stopPropagation(); eseguiDalReferto(az); }}
+                                          title={az.titoloTasto||""}
+                                          style={{...BTN.base,...BTN.blu,padding:"0 6px",fontSize:9}}>
+                                          {az.etichetta}
+                                        </button>)}
+                                    </span>
                                   </div>
                                 ))}
                               </div>);
