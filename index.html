@@ -1180,6 +1180,31 @@ const LiveClock = React.memo(({runStart, runAttivo, runId, lastSync, syncErr, on
   );
 });
 
+// Il riassunto di un giro ✍ Icebreaker, dall'esito che l'agente tiene in
+// memoria (`ultimo_run`). Funzione pura: la prova la esegue (test_icebreaker.js).
+// Ogni esito si conta SEMPRE, zero compreso: «0 da rivedere» e «non l'ho
+// contato» non devono sembrare la stessa cosa. E un giro che non e' arrivato
+// in fondo lo dice, invece di presentare un parziale come un totale.
+function riassuntoIcebreaker(run) {
+  if (!run || !run.solo_icebreaker) return null;
+  const e = run.esiti || {};
+  const n = k => e[k] || 0;
+  const tot = run.totale ?? "?";
+  const fatte = run.lavorate ?? 0;
+  const conti = `${n("sostituito")} sostituiti · ${n("da_rivedere")} da rivedere · `
+    + `${n("sito_illeggibile")} siti illeggibili · ${n("vuoto")} senza risposta · ${n("errore")} errori`;
+  if (run.errore_fatale)
+    return {livello:"error", testo:`✕ ✍ Icebreaker non eseguito: ${run.errore_fatale}`};
+  if (run.fase === "interrotto")
+    return {livello:"warn", testo:`⏹ ✍ Icebreaker interrotto a ${fatte}/${tot}: ${conti}`};
+  if (run.fase !== "completato")
+    return {livello:"warn", testo:`⚠ ✍ Icebreaker fermo a ${fatte}/${tot} senza chiudere (agente riavviato?): ${conti}`};
+  const daGuardare = n("da_rivedere") + n("sito_illeggibile") + n("vuoto") + n("errore");
+  return {livello: daGuardare ? "warn" : "ok",
+          testo:`✍ Icebreaker ${fatte}/${tot}: ${conti}`
+            + (daGuardare ? " — quelle non sostituite tengono l'icebreaker di prima" : "")};
+}
+
 function App() {
   const _initHash = window.location.hash.replace('#','');
   const _initTab  = (()=>{ const t = _initHash.split('-')[0]; return ['run','revisione','database','impostazioni'].includes(t) ? t : 'run'; })();
@@ -1904,7 +1929,9 @@ function App() {
   // nascondeva 3.280 classificazioni su 4.303 — il contrario di cio' che
   // chiedeva. Le scartate vere, al 8 ottobre 2026, erano tre.
   const CLASSIF_SELECT = "id,nome,sito_web,citta,regione,fatturato,settore,settore_confidenza,settore_motivazione,icebreaker,semaforo_verifica,note_verifica,settore_suggerito";
-  const CLASSIF_NON_SCARTATE = "or=(semaforo_verifica.is.null,semaforo_verifica.neq.scartata)";
+  // Dal 25/11/2026 e' una condizione da mettere dentro un `and=(...)`, non un
+  // parametro a se': la lista la combina con un secondo `or`.
+  const CLASSIF_NON_SCARTATE = "or(semaforo_verifica.is.null,semaforo_verifica.neq.scartata)";
 
   // ── «Pronto da inviare»: UNA definizione, due usi ────────────────────────
   // v5.45 — 26/10/2026.
@@ -2006,7 +2033,13 @@ function App() {
     const BATCH = 1000;
     let righe = [], offset = 0;
     for (;;) {
-      const r = await fetch(`${url}/rest/v1/companies?select=${CLASSIF_SELECT}&settore=not.is.null&${CLASSIF_NON_SCARTATE}&order=semaforo_verifica.asc.nullslast,settore_confidenza.asc,nome.asc,id.asc&limit=${BATCH}&offset=${offset}`, {headers:h});
+      // Con settore, OPPURE in `attesa_revisione` anche senza (25/11/2026):
+      // dal 25/11 un errore del classificatore non scrive piu' «Altro» e
+      // lascia il settore vuoto, e la sola condizione `settore NOT NULL`
+      // renderebbe quelle righe invisibili — com'erano gia' 10 aziende col
+      // sito illeggibile, dal 24/09 al 15/10. Un `and=` unico perche' due
+      // parametri `or=` nella stessa richiesta non si sommano come sembra.
+      const r = await fetch(`${url}/rest/v1/companies?select=${CLASSIF_SELECT}&and=(or(settore.not.is.null,stato.eq.attesa_revisione),${CLASSIF_NON_SCARTATE})&order=semaforo_verifica.asc.nullslast,settore_confidenza.asc,nome.asc,id.asc&limit=${BATCH}&offset=${offset}`, {headers:h});
       const b = r.ok ? await r.json() : [];
       righe = righe.concat(b);
       if (b.length < BATCH) return righe;
@@ -2768,11 +2801,18 @@ function App() {
       });
       if (!r.ok) { const t = await r.text(); throw new Error(t); }
       const data = await r.json();
+      // Dal 25/11/2026 l'agente usa gli stessi passi del classificatore e
+      // dichiara l'esito. Con il sito illeggibile non propone niente: dal
+      // solo nome non si scrive. Una proposta «da rivedere» va nel campo
+      // come prima (qui decide comunque una persona), ma si dice perche'.
       if (data.icebreaker) {
         setClassifEdit(s=>({...s,[rowId]:{...s[rowId],icebreaker:data.icebreaker}}));
-        pushLog("ok", `✨ Icebreaker generato: ${nome}`);
+        if (data.esito === "sostituibile") pushLog("ok", `✨ Icebreaker proposto: ${nome}`);
+        else pushLog("warn", `✨ Icebreaker proposto ma DA RIVEDERE: ${nome} — ${(data.nota||"").slice(0,140)}`);
+      } else if (data.esito === "sito_illeggibile") {
+        showToast("⚠ Sito non leggibile: nessun icebreaker (dal solo nome non si scrive)");
       } else {
-        showToast("⚠ Icebreaker vuoto — controlla sito web");
+        showToast(`⚠ Nessun icebreaker (${data.esito||"esito sconosciuto"}) — ${(data.nota||"").slice(0,80)}`);
       }
     } catch(e) { showToast("✕ Errore generazione icebreaker: " + e.message); }
     finally { setGenIceId(null); }
@@ -2893,7 +2933,10 @@ function App() {
       // perche' `neq.scartata` da solo butterebbe via anche i NULL (vedi
       // caricaClassificazioni). Senza, il conteggio diceva 296 e la lista 293:
       // le tre scartate, che la lista non carica affatto.
-      cnt("companies?and=(settore.not.is.null,or(settore_confidenza.in.(bassa,media),settore.eq.Altro,semaforo_verifica.in.(%E2%9A%A0,%E2%9C%97)),or(semaforo_verifica.is.null,semaforo_verifica.neq.scartata))&select=id&limit=1"),
+      // Stessa regola della lista (caricaClassificazioni): anche le
+      // `attesa_revisione` senza settore. Contatore e lista devono dire lo
+      // stesso numero.
+      cnt("companies?and=(or(settore.not.is.null,stato.eq.attesa_revisione),or(settore_confidenza.in.(bassa,media),settore.eq.Altro,semaforo_verifica.in.(%E2%9A%A0,%E2%9C%97)),or(semaforo_verifica.is.null,semaforo_verifica.neq.scartata))&select=id&limit=1"),
       // Arretrato: settore scritto, ma nessuno l'ha mai giudicato. Sono le
       // migrate del 24 settembre. Tenute fuori dalla coda di revisione perche'
       // non sono casi dubbi: sono casi non esaminati. Due cose diverse.
@@ -5579,17 +5622,21 @@ function App() {
   }, [importSelected, runId, runStart, customConfirm, pushLog, showToast]);
 
   // ── Rigenera solo l'icebreaker ────────────────────────────────────────────
-  // Serve quando su HubSpot manca la descrizione ma il settore e' gia' quello
-  // giusto: riclassificare da capo ricalcolerebbe anche il settore, e siccome
-  // il modulo 281 non sovrascrive un campo gia' pieno, Supabase e HubSpot
-  // finirebbero per dire cose diverse — proprio sul campo che decide la
-  // campagna Lemlist.
+  // Serve quando l'icebreaker e' sbagliato ma il settore no: riclassificare da
+  // capo ricalcolerebbe anche il settore e riscriverebbe lo stato.
   //
-  // L'endpoint genera e basta: il salvataggio su Supabase lo fa questo codice.
-  // Le chiamate sono sequenziali di proposito: in parallelo si finisce contro
-  // i limiti di OpenAI, e un rate limit a meta' lista lascerebbe il lavoro a
-  // meta' senza sapere dove.
-  const [icebreakerRun, setIcebreakerRun] = useState(null); // {fatti, totale, stop}
+  // RISCRITTO IL 25/11/2026. Prima questo tasto chiamava /classifica/icebreaker
+  // azienda per azienda e salvava qualunque cosa tornasse. Quell'endpoint
+  // aveva un prompt suo: con il sito muto scriveva l'attivita' «ricavabile da
+  // nome e URL», e la risposta non diceva se il sito era stato letto. Alberto:
+  // «il tasto deve fare esattamente quello che fa il classificatore, con gli
+  // stessi controlli, guardie, segnalazioni, altrimenti diventa un generatore
+  // di sporcizia».
+  // Ora il lavoro lo fa l'agente, in modalita' solo-icebreaker: gli stessi
+  // passi del classificatore, l'icebreaker si scrive solo se il classificatore
+  // avrebbe chiuso da solo, il vecchio si conserva, e ogni azienda lascia un
+  // timbro e un esito. Questo codice avvia, segue e riassume. Non salva niente.
+  const [icebreakerRun, setIcebreakerRun] = useState(null); // {fatti, totale}
   const icebreakerStopRef = React.useRef(false);
 
   const rigeneraIcebreakerSelezionate = useCallback(async () => {
@@ -5597,53 +5644,64 @@ function App() {
     const ids = [...importSelected];
     const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
     if (!base) { showToast("⚠ URL Agente Azure non configurato"); return; }
-    const {url:sbUrl, key:sbKey} = getSbCreds();
-    if (!sbUrl || !sbKey) { showToast("⚠ Credenziali Supabase mancanti"); return; }
     if (!await customConfirm(
       `Rigenerare l'icebreaker per ${ids.length} aziend${ids.length===1?"a":"e"}?\n\n` +
-      `Il settore non viene toccato. Richiede circa ${Math.ceil(ids.length*4/60)} minuti ` +
-      `e altrettante chiamate al modello.`)) return;
+      `Stessi passi del classificatore: si legge il sito, si classifica, si verifica. ` +
+      `L'icebreaker si sostituisce SOLO se il classificatore avrebbe chiuso da solo ` +
+      `(confidenza alta e verifica ✓); il vecchio si conserva. Settore e stato non si toccano.\n\n` +
+      `Circa ${Math.ceil(ids.length*10/60)} minuti, due chiamate al modello per azienda.`)) return;
 
-    // Serve nome e sito: l'endpoint li vuole entrambi e non li legge dal DB.
-    const righe = (importDati.rows||[]).filter(r => ids.includes(r.id));
+    // Il giro di prima, per riconoscere il nostro: l'agente tiene in memoria
+    // solo l'ultimo, e il primo sondaggio potrebbe ancora vedere quello.
+    let primaAvviato = null;
+    try { const s0 = await fetch(`${base}/classifica/stato`); if (s0.ok) primaAvviato = (await s0.json())?.ultimo_run?.avviato_il ?? null; } catch(e) {}
+
+    let j;
+    try {
+      const r = await fetch(`${base}/classifica/avvia`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({openai_model: sbSettings["openai_model"]||"gpt-4o-mini",
+                              companyIds: ids, soloIcebreaker: true})
+      });
+      if (!r.ok) {
+        const d = r.status === 404 ? "endpoint non trovato sull'agente" : `l'agente ha risposto ${r.status}`;
+        pushLog("error", `✕ ✍ Icebreaker non avviato: ${d}`); showToast(`✕ ${d}`); return;
+      }
+      j = await r.json().catch(() => ({}));
+    } catch(e) { pushLog("error", "✕ ✍ Icebreaker non avviato: " + e.message); return; }
+    if (j.status === "già_in_corso") { showToast("⚠ Il classificatore sta gia' lavorando: riprova quando ha finito"); return; }
+    if (j.status !== "avviato") {
+      pushLog("error", `✕ ✍ Icebreaker: risposta inattesa dall'agente ${JSON.stringify(j).slice(0,120)}`);
+      showToast("✕ Risposta inattesa dall'agente"); return;
+    }
+
     icebreakerStopRef.current = false;
-    setIcebreakerRun({fatti:0, totale:righe.length});
-    pushLog("info", `✍ Rigenerazione icebreaker su ${righe.length} aziende...`);
+    setIcebreakerRun({fatti:0, totale:ids.length});
+    pushLog("info", `✍ Rigenerazione icebreaker avviata su ${ids.length} aziende (agente, stessi passi del classificatore)`);
+    setImportSelected(new Set());
 
-    let ok=0, ko=0, saltate=0;
-    for (const r of righe) {
-      if (icebreakerStopRef.current) { pushLog("warn","⏹ Rigenerazione interrotta"); break; }
-      if (!(r.sito_web||"").trim()) { saltate++; setIcebreakerRun(s=>({...s, fatti:s.fatti+1})); continue; }
-      try {
-        const resp = await fetch(`${base}/classifica/icebreaker`, {
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body: JSON.stringify({nome:r.nome, sito_web:r.sito_web,
-                                openai_model: sbSettings["openai_model"]||"gpt-4o-mini"})
-        });
-        if (!resp.ok) { ko++; pushLog("warn",`⚠ ${r.nome}: agente HTTP ${resp.status}`); }
-        else {
-          const j = await resp.json();
-          const ice = (j?.icebreaker||"").trim();
-          if (!ice) { ko++; pushLog("warn",`⚠ ${r.nome}: icebreaker vuoto`); }
-          else {
-            const pr = await fetch(`${sbUrl}/rest/v1/companies?id=eq.${r.id}`, {
-              method:"PATCH",
-              headers:{apikey:sbKey, Authorization:`Bearer ${sbBearer()}`, "Content-Type":"application/json", Prefer:"return=minimal"},
-              body: JSON.stringify({icebreaker: ice, aggiornato_il: new Date().toISOString()})
-            });
-            // Se il salvataggio fallisce la chiamata al modello e' stata pagata
-            // per niente: va detto, non contato come successo.
-            if (pr.ok) ok++; else { ko++; pushLog("warn",`⚠ ${r.nome}: generato ma non salvato (HTTP ${pr.status})`); }
-          }
-        }
-      } catch(e) { ko++; pushLog("warn",`⚠ ${r.nome}: ${e.message}`); }
-      setIcebreakerRun(s=>({...s, fatti:s.fatti+1}));
+    // Si segue finche' l'agente non dichiara il giro chiuso. Un tetto c'e'
+    // comunque: un sondaggio senza fine e' un anello.
+    const limite = Date.now() + ids.length * 90000 + 120000;
+    let stopInviato = false, ultimo = null;
+    while (Date.now() < limite) {
+      await new Promise(res => setTimeout(res, 5000));
+      if (icebreakerStopRef.current && !stopInviato) { stopInviato = true; await stopClassificatoreForzato(); }
+      let sj;
+      try { const sr = await fetch(`${base}/classifica/stato`); if (!sr.ok) continue; sj = await sr.json(); }
+      catch(e) { continue; }   // l'agente puo' non rispondere per un giro
+      const run = sj?.ultimo_run;
+      if (!run?.solo_icebreaker || run.avviato_il === primaAvviato) continue;  // non ancora il nostro
+      ultimo = run;
+      setIcebreakerRun({fatti: run.lavorate ?? 0, totale: run.totale ?? ids.length});
+      if (!sj.in_corso) break;   // chiuso, interrotto, o agente riavviato: lo dice il riassunto
     }
     setIcebreakerRun(null);
-    pushLog(ko?"warn":"ok", `✍ Icebreaker: ${ok} salvati · ${ko} falliti${saltate?` · ${saltate} senza sito`:""}`);
-    showToast(`✓ ${ok} icebreaker salvati`);
+    const rias = riassuntoIcebreaker(ultimo);
+    if (rias) pushLog(rias.livello, rias.testo);
+    else pushLog("warn", "⚠ ✍ Icebreaker: l'agente non ha mai mostrato il giro — controlla /classifica/stato");
     await openImportDati(runStart);
-  }, [importSelected, importDati.rows, sbSettings, getSbCreds, customConfirm, pushLog, showToast, runStart]);
+  }, [importSelected, sbSettings, customConfirm, pushLog, showToast, runStart, stopClassificatoreForzato]);
 
   const rilanciClassificatoreSelezionate = useCallback(async () => {
     if (importSelected.size === 0) { showToast("⚠ Nessuna azienda selezionata"); return; }
@@ -7134,7 +7192,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.11</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.12</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -9663,6 +9721,11 @@ function App() {
             const row=classifReview.rows.find(r=>r.id===id); if(!row) return;
             const e=classifEdit[id]||{};
             const settoreFin = e.settore||row.settore;
+            // Senza settore «✓ Salva» promuoverebbe a `classificata` una riga
+            // con settore NULL: Phantom la prenderebbe, e su HubSpot andrebbe
+            // un'azienda senza settore. Dal 25/11 queste righe sono in coda
+            // (errore del classificatore), quindi la guardia serve davvero.
+            if (!settoreFin) { showToast("⚠ Scegli un settore prima di salvare"); return; }
             const iceFin    = e.icebreaker!==undefined?e.icebreaker:row.icebreaker;
             const sitoFin   = e.sito_web!==undefined?e.sito_web:row.sito_web;
             // Salva + promuove a classificata → Phantom la prenderà al prossimo giro
@@ -10561,8 +10624,13 @@ function App() {
                                   {(()=>{const conf=row.settore_confidenza;const cc=conf==='alta'?C.green:conf==='media'?'#f59e0b':conf==='bassa'?C.red:C.muted;return conf?<span style={{marginLeft:'auto',fontSize:9,fontWeight:700,color:cc,textTransform:'uppercase',letterSpacing:'.05em',background:`${cc}18`,border:`1px solid ${cc}44`,borderRadius:3,padding:'2px 6px'}}>{conf}</span>:null;})()}
                                 </div>
                                 <div style={{fontSize:9,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",marginBottom:4}}>Settore</div>
-                                <select value={curSettore} onChange={e=>setField(row.id,'settore',e.target.value)}
-                                  style={{background:C.bg,border:`1px solid ${curSettore!==row.settore?C.accent:C.border}`,borderRadius:4,padding:"5px 8px",fontSize:11,color:C.textHi,width:"100%",cursor:"pointer"}}>
+                                {/* Senza settore (errore del classificatore o sito
+                                    muto, 25/11/2026) la tendina mostrerebbe il primo
+                                    settore della lista come se fosse scelto. Una voce
+                                    vuota dichiarata dice la verita': non c'e'. */}
+                                <select value={curSettore||""} onChange={e=>setField(row.id,'settore',e.target.value)}
+                                  style={{background:C.bg,border:`1px solid ${curSettore!==row.settore?C.accent:(curSettore?C.border:C.red)}`,borderRadius:4,padding:"5px 8px",fontSize:11,color:C.textHi,width:"100%",cursor:"pointer"}}>
+                                  {!curSettore&&<option value="" disabled>— nessun settore: scegline uno —</option>}
                                   {SETTORI_CLASS.map(s=><option key={s} value={s}>{s}</option>)}
                                 </select>
                               </div>
