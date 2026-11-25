@@ -1527,7 +1527,15 @@ function App() {
   // da `linkedin_ok` e diventa `contatti_trovati` o `nessuno_trovato`. La
   // seconda rete e' comunque qui — nessuna persona nostra in archivio — ed e'
   // una prova indipendente dallo stato.
-  const ePronta = r => {
+  const ePronta = r => prontaPerLoScraper(r,
+    nostrePersoneRef.current.get(r.id) || 0, nostriContattiRef.current.get(r.id) || 0);
+  // LA REGOLA, PURA — 25/11/2026. Prima stava solo dentro `ePronta`, legata ai
+  // conteggi in memoria della tabella Aziende. Il referto (voce 9) ne aveva
+  // bisogno anche lui, e usava al suo posto `stato === "linkedin_ok"`: cosi'
+  // segnalava come «pagina storta che aspetta lo Scraper» 67 aziende su cui lo
+  // Scraper non andra' MAI (su 1.134 in linkedin_ok, pronte erano 4). Una
+  // regola, un posto: chi la chiama porta i suoi conteggi.
+  const prontaPerLoScraper = (r, personeNostre, contattiNostri) => {
     if (r.stato !== "linkedin_ok") return false;              // non ancora guardata
     if (r.hs_lifecyclestage !== "lead") return false;         // oltre lead: non si disturba
     if (!/linkedin\.com\/company\//i.test(r.linkedin_url || "")) return false;
@@ -1540,8 +1548,8 @@ function App() {
     if (suHubspot === 0) return true;                          // vergine: come prima
     // Ha contatti su HubSpot. Vanno bene solo se sono al massimo quelli che
     // gli abbiamo dati noi, e se nessuno di quelli e' una persona.
-    if ((nostrePersoneRef.current.get(r.id) || 0) > 0) return false;
-    const nostri = nostriContattiRef.current.get(r.id) || 0;
+    if (personeNostre > 0) return false;
+    const nostri = contattiNostri;
     return nostri > 0 && suHubspot <= nostri;
   };
 
@@ -4633,8 +4641,12 @@ function App() {
   // sigla. Nel nome i punti fra lettere singole si tolgono gia'; qui si
   // tolgono i trattini, altrimenti la sigla si sbriciola in lettere sole, che
   // vengono scartate, e l'azienda resta senza slug da confrontare.
+  // 25/11: la sigla deve essere fatta di lettere SOLE. Senza i confini,
+  // `tecnologie-e-impianti` conteneva «e-e-i» (l'ultima lettera di una parola,
+  // la congiunzione, la prima della successiva), diventava «tecnologieeimpianti»
+  // e Itec, B.M.R. e altre risultavano pagine storte che non lo erano.
   const slugDi = (u) => ripulisciSlug(nocciolo(
-    slugGrezzoDi(u).replace(/(?:[a-z]-){2,}[a-z]/gi, m => m.replace(/-/g, ""))));
+    slugGrezzoDi(u).replace(/(?<![a-z0-9])(?:[a-z]-){2,}[a-z](?![a-z0-9])/gi, m => m.replace(/-/g, ""))));
   // Il dominio del sito, ridotto allo stesso nocciolo: `cassaniascensorimilano.com`
   // diventa `cassaniascensorimilano`. Serve solo a dire se il sito conferma la
   // pagina — non a decidere.
@@ -5252,14 +5264,16 @@ function App() {
       // Gli slug tutti numerici (`/company/598168`) NON si giudicano: sono
       // pagine valide e mute, la regola non puo' esprimersi. Assenza di prova.
       const conLinkedin = await sbTutte(url, h,
-        "companies?linkedin_url=ilike.*linkedin.com/company/*&select=id,nome,sito_web,linkedin_url,stato,pagina_verificata_il,contacts(id,stato,tipo,arretrato_accettato_il)");
+        "companies?linkedin_url=ilike.*linkedin.com/company/*&select=id,nome,sito_web,linkedin_url,stato,hs_lifecyclestage,hs_contatti,pagina_verificata_il,contacts(id,stato,tipo,arretrato_accettato_il)");
       // QUANDO UNA PAGINA STORTA CONTA ANCORA — 24/11/2026. Una pagina
       // sbagliata fa danno in due modi: ha GIA' prodotto contatti che nessuno
       // ha accettato, oppure li PRODURRA' (l'azienda aspetta lo scraper,
       // `linkedin_ok`). Un'azienda il cui lavoro e' finito e i cui contatti
       // sono tutti arretrato accettato non ha piu' niente da dire.
+      // 25/11: «aspetta lo Scraper» vuol dire PRONTA per lo Scraper, con la
+      // stessa regola del filtro — non solo `linkedin_ok`.
       const pesaAncora = (a) =>
-        a.stato === "linkedin_ok" ||
+        prontaPerLoScraper(a, (a.contacts||[]).filter(c => c.tipo === "persona").length, (a.contacts||[]).length) ||
         (a.contacts||[]).some(c => c.tipo === "persona" && !c.arretrato_accettato_il && c.stato !== "scartato");
       const pagineStorte = conLinkedin.filter(a => paginaDiscorde(a) && pesaAncora(a));
       if (pagineStorte.length) {
@@ -7106,7 +7120,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.09</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.10</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
