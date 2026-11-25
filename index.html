@@ -325,9 +325,28 @@ async function sbUpdate(table, matchObj, updates) {
   } catch(e) { console.error("sbUpdate exception", e); return false; }
 }
 
+// TRE ESITI, NON DUE — 25/11/2026.
+//
+// Prima questa funzione restituiva `null` sia quando la lettura FALLIVA sia
+// quando riusciva e non trovava righe. Chi la chiamava, ricevendo null, non
+// faceva niente: niente log, niente avviso, nessun nuovo tentativo. Da quel
+// momento `MAKE.hubspot` e `MAKE.cercaEmail` restavano vuoti per tutta la
+// vita della pagina, e ore dopo un pulsante diceva «webhook non configurato
+// in Impostazioni» — una bugia: su Supabase erano a posto dal 28 agosto.
+// Alberto andava a guardare nelle Impostazioni, dove era tutto giusto, e
+// risolveva ricaricando la pagina, cioe' rifacendo il tentativo.
+//
+// Adesso:
+//   null  → non ho potuto leggere (rete, Supabase lento, 503)
+//   {}    → ho letto e non c'era niente
+//   {...} → ho letto
+// Chi chiama deve distinguerli: sono tre cose diverse e portano a tre
+// decisioni diverse. E' la stessa lezione del referto e di `hs_contatti`,
+// in un punto che non avevamo guardato.
 async function loadSettings() {
   const rows = await sbGet("settings",{select:"chiave,valore"});
-  if(!rows||!rows.length) return null;
+  if(!rows) return null;        // lettura fallita
+  if(!rows.length) return {};   // letta, ma vuota
   const m = Object.fromEntries(rows.map(r=>[r.chiave, r.valore||""]));
   // Webhook e secret degli scenari Make
   if(m.make_webhook_hubspot)   MAKE.hubspot    = m.make_webhook_hubspot;
@@ -1190,6 +1209,11 @@ function App() {
   // fetchCounters — gira fuori dal ciclo di render, quando React puo' non
   // aver ancora propagato un nuovo valore.
   const settingsPronteRef = useRef(false);
+  // `impostazioniLetteRef` NON e' un doppione di `settingsPronteRef`.
+  // Quello dice «il tentativo e' finito»; questo dice «il tentativo e'
+  // RIUSCITO». Servono tutti e due, perche' «ho finito di provarci e non ce
+  // l'ho fatta» e «ho letto» portano a messaggi diversi.
+  const impostazioniLetteRef = useRef(false);
   const attesaSettingsDettaRef = useRef(false); // l'attesa si annuncia una volta sola
   const [sbSaving, setSbSaving]     = useState({});  // {chiave: true} mentre salvo
   const [dedupResult, setDedupResult] = useState(null); // null | {nuove, duplicate, detail}
@@ -1796,13 +1820,39 @@ function App() {
   // ancora tornare — e legge azure_agent_url vuoto anche quando su Supabase
   // c'e' da mesi. Il classificatore non parte e il log ripete "N rimanenti"
   // senza che il motivo compaia da nessuna parte.
+  //
+  // E SE LA LETTURA FALLISCE, SI RIPROVA E LO SI DICE. Prima un solo
+  // tentativo: se andava storto, silenzio totale e webhook vuoti fino al
+  // ricaricamento della pagina. Tre tentativi con attesa crescente coprono
+  // il caso normale (un attimo di rete); se falliscono tutti e tre, l'errore
+  // compare nel log ALL'AVVIO — non due ore dopo, su un pulsante, con la
+  // spiegazione sbagliata.
   useEffect(() => {
     if(!sbReady) return;
     let vivo = true;
     const pronte = () => { settingsPronteRef.current = true; };
-    loadSettings()
-      .then(m => { if(vivo){ if(m) setSbSettings(m); pronte(); } })
-      .catch(() => { if(vivo) pronte(); });  // fallita: si prosegue, ma con i controlli a valle
+    (async () => {
+      for (let tentativo = 1; tentativo <= 3 && vivo; tentativo++) {
+        let m = null;
+        try { m = await loadSettings(); } catch { m = null; }
+        if (!vivo) return;
+        if (m) {                                  // null = non ho potuto leggere
+          setSbSettings(m);
+          impostazioniLetteRef.current = true;
+          if (tentativo > 1) pushLog("ok", `✓ Impostazioni lette al ${tentativo}º tentativo`);
+          pronte();
+          return;
+        }
+        if (tentativo < 3) await new Promise(r => setTimeout(r, tentativo * 1500));
+      }
+      if (!vivo) return;
+      // Tre tentativi falliti: NON si tace. I webhook restano vuoti, e senza
+      // questo avviso il motivo salterebbe fuori solo al primo clic.
+      impostazioniLetteRef.current = false;
+      pushLog("error", "✕ Non sono riuscito a leggere le impostazioni da Supabase: i pulsanti che parlano con Make non funzioneranno. Ricarica la pagina.");
+      showToast("⚠ Impostazioni non lette — ricarica la pagina");
+      pronte();
+    })();
     return () => { vivo = false; };
   }, [sbReady]);
 
@@ -2721,7 +2771,7 @@ function App() {
   // ── Forza riavvio HubSpot ─────────────────────────────────────────────────────
   const forzaHubspot = useCallback(async () => {
     if (!runId) { showToast("⚠ Nessuna run attiva"); return; }
-    if (!MAKE.hubspot) { showToast("⚠ Webhook HubSpot non configurato"); pushLog("warn","⚠ Webhook HubSpot non configurato nelle Impostazioni"); return; }
+    if (!await webhookPronto("hubspot", "HubSpot")) return;
     // Questo comando salta di proposito la deduplica: serve a ripetere una
     // chiamata che non era andata a buon fine. Ma ogni pressione lancia
     // un'esecuzione Make, e due esecuzioni sovrapposte leggono entrambe
@@ -5489,7 +5539,7 @@ function App() {
   // in "nuovo"), e per riprovare un singolo caso senza alterarne lo stato.
   const sincronizzaSelezionateHubspot = useCallback(async () => {
     if (importSelected.size === 0) { showToast("⚠ Nessuna azienda selezionata"); return; }
-    if (!MAKE.hubspot) { pushLog("error","✕ Webhook HubSpot non configurato in Impostazioni"); showToast("⚠ Webhook HubSpot non configurato"); return; }
+    if (!await webhookPronto("hubspot", "HubSpot")) return;
     const ids = [...importSelected];
     if (!await customConfirm(`Sincronizzare ${ids.length} aziend${ids.length===1?"a":"e"} su HubSpot?`)) return;
     await callMake(MAKE.hubspot,
@@ -5766,6 +5816,43 @@ function App() {
   const nienteSelezioneTesto = (ev) => { if (ev.shiftKey) ev.preventDefault(); };
   const ancoraContatti = useRef(null);
   const ancoraAziende  = useRef(null);
+
+  // ── LA GUARDIA DEI WEBHOOK: DICE LA VERITA' E RIPROVA ───────────────────
+  //
+  // Prima ogni pulsante faceva `if (!MAKE.hubspot) { «non configurato in
+  // Impostazioni» }`. Sbagliato due volte: accusava la configurazione quando
+  // il problema era una lettura fallita, e non faceva niente per rimediare.
+  //
+  // Adesso, se i webhook sono vuoti, si prova a RILEGGERE le impostazioni
+  // qui, subito. Nella maggior parte dei casi il valore arriva e il clic va a
+  // buon fine senza che Alberto si accorga di niente. Solo se anche quel
+  // tentativo fallisce si parla, e si dice la cosa giusta:
+  //   · lettura mai riuscita  → «non sono riuscito a leggere le impostazioni»
+  //   · lettura riuscita, vuoto → «non configurato in Impostazioni»
+  // Due messaggi diversi perche' mandano in due posti diversi.
+  const webhookPronto = async (quale, etichetta) => {
+    if (MAKE[quale]) return true;
+    pushLog("warn", `⬡ Webhook «${etichetta}» vuoto: riprovo a leggere le impostazioni…`);
+    let m = null;
+    try { m = await loadSettings(); } catch { m = null; }
+    if (m) {
+      setSbSettings(m);
+      impostazioniLetteRef.current = true;
+      if (MAKE[quale]) {
+        pushLog("ok", `✓ Impostazioni rilette: «${etichetta}» c'è, proseguo`);
+        return true;
+      }
+      // Lette davvero, e il webhook non c'e': QUESTO e' «non configurato».
+      pushLog("error", `✕ Webhook «${etichetta}» non configurato in Impostazioni`);
+      showToast(`⚠ Webhook «${etichetta}» non configurato`);
+      return false;
+    }
+    // Non si e' potuto leggere: non e' colpa della configurazione.
+    impostazioniLetteRef.current = false;
+    pushLog("error", `✕ Non riesco a leggere le impostazioni da Supabase, quindi non so dov'è il webhook «${etichetta}». Non è un problema di configurazione: riprova fra un momento o ricarica la pagina.`);
+    showToast("⚠ Impostazioni non leggibili — riprova fra un momento");
+    return false;
+  };
 
   const timbraPaginaOk = async () => {
     const candidate = importDati.rows.filter(r => importSelected.has(r.id) && paginaDiscorde(r));
@@ -6076,7 +6163,7 @@ function App() {
   // parte da soli. Il primo e' un criterio, il secondo e' un ambito, e vanno
   // tenuti separati.
   const avviaLemlist = async (soloQuesti = null) => {
-    if (!MAKE.cercaEmail) { pushLog("error","✕ Invio annullato: webhook 'Carica Contatti Trovati' non configurato in Impostazioni"); showToast("⚠ Webhook 'Carica Contatti' non configurato nelle impostazioni"); return; }
+    if (!await webhookPronto("cercaEmail", "Carica Contatti Trovati")) { pushLog("error","✕ Invio annullato"); return; }
     // Fetcha i dettagli completi dei contatti selezionati da Supabase
     const {url:sbUrlF, key:sbKeyF} = getSbCreds();
     if (!sbUrlF || !sbKeyF) { pushLog("error","✕ Invio annullato: credenziali Supabase mancanti"); showToast("⚠ Credenziali Supabase mancanti"); return; }
@@ -6753,7 +6840,7 @@ function App() {
     }
     if (runId) localStorage.setItem(`grizzly_hubspot_fired_${runId}`, '1');
     try { localStorage.removeItem('grizzly_selected'); setProspectingSelected(new Set()); } catch(e) {}
-    if (!MAKE.hubspot) { pushLog("warn","⚠ Webhook HubSpot non configurato nelle Impostazioni"); setLoad("continua",false); return; }
+    if (!await webhookPronto("hubspot", "HubSpot")) { setLoad("continua",false); return; }
 
     // Determina QUALI aziende sincronizzare, invece di affidarsi a
     // rilancioCompanyIdsRef — che è popolato solo dal percorso Code e nel flusso
@@ -7019,7 +7106,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.08</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.09</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
