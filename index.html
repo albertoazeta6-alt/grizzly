@@ -878,6 +878,20 @@ const BTN = {
   spento: {color:"#64748b",background:"rgba(100,116,139,0.18)",border:"1px solid rgba(100,116,139,0.3)",cursor:"default"},
 };
 
+// ── LA RICERCA DEL SITO: RAGIONE SOCIALE + COMUNE + P.IVA — 25/11/2026 ──────
+//
+// Alberto: «in siti mancanti quando clicco cerca vorrei cercare ragione
+// sociale + comune + p.iva». Prima si cercava «<nome> sito web ufficiale»: con
+// nomi comuni (Elettrica, Impianti, Service…) i primi risultati erano altre
+// ditte omonime. Il comune restringe, la partita IVA e' univoca e porta dritti
+// alle schede camerali, dove spesso il sito e' scritto. I pezzi mancanti si
+// saltano: meglio una ricerca con due pezzi che una con «undefined» dentro.
+const ricercaSito = (az) => {
+  const pezzi = [az?.nome, az?.citta, az?.partita_iva]
+    .map(x => String(x ?? "").trim()).filter(Boolean);
+  return `https://www.google.com/search?q=${encodeURIComponent(pezzi.join(" "))}`;
+};
+
 // ── IL RIQUADRO A FISARMONICA — 23/11/2026 ─────────────────────────────────
 //
 // Alberto: le informazioni nel riquadro «sono una sbrodolata». Era un elenco
@@ -7120,7 +7134,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.10</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.11</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
@@ -10200,7 +10214,7 @@ function App() {
                             ? confrontaCelle(a[sitiSort.col], b[sitiSort.col], sitiSort.col==="fatturato", sitiSort.dir)
                             : 0)
                           .map((az,i)=>{
-                          const ddgUrl = `https://www.google.com/search?q=${encodeURIComponent(az.nome + ' sito web ufficiale')}`;
+                          const ddgUrl = ricercaSito(az);
                           const manca = (v)=><span style={{color:C.muted,fontStyle:"italic"}}>non noto</span>;
                           return (
                           <tr key={az.id} id={`sito-row-${az.id}`} className="hovrow"
@@ -10242,7 +10256,7 @@ function App() {
                             </td>
                             <td style={{padding:"6px 6px",whiteSpace:"nowrap"}}>
                               <button onClick={()=>window.open(ddgUrl,'_blank')}
-                                title="Cerca il sito di questa azienda su Google"
+                                title={`Cerca su Google: ${[az.nome, az.citta, az.partita_iva].filter(Boolean).join(" · ")}`}
                                 style={{padding:"4px 9px",fontSize:10,fontWeight:600,background:"rgba(99,102,241,0.08)",
                                   border:"1px solid rgba(99,102,241,0.2)",borderRadius:5,color:"#818cf8",cursor:"pointer"}}>
                                 🔍 Cerca
