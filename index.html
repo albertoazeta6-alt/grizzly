@@ -892,6 +892,35 @@ const ricercaSito = (az) => {
   return `https://www.google.com/search?q=${encodeURIComponent(pezzi.join(" "))}`;
 };
 
+// ── L'AVVISO DEL TASTO «🏷 CLASSIFICA» — 26/11/2026 ─────────────────────────
+//
+// Il tasto rifà la classificazione da capo, e il classificatore riscrive
+// SEMPRE lo stato (`classificata` / `attesa_revisione` / `sito_mancante`).
+// Su un'azienda gia' avanti la rimanda indietro, e `classificata` fa ripartire
+// Phantom da solo. Alberto, 26/11: «e' corretto il funzionamento, magari
+// mettiamo un popup di avviso». Quindi il comportamento resta; cambia che
+// prima di farlo si dice, con i numeri, a chi succede.
+// Pura e fuori dal componente: si esegue nei collaudi.
+const STATI_GIA_AVANTI = {
+  linkedin_ok:"pagina LinkedIn trovata", url_ambigua:"URL da scegliere", contatti_trovati:"contatti trovati",
+  nessuno_trovato:"scrapata, nessuno trovato", ricerca_esaurita:"ricerca esaurita", hubspot_sync:"in sincronizzazione HubSpot",
+  hubspot_errore:"errore HubSpot", dati_insufficienti:"dati insufficienti", esclusa:"ESCLUSA", nogo:"NOGO",
+};
+const avvisoRiclassifica = (righe) => {
+  const avanti = (righe || []).filter(r => STATI_GIA_AVANTI[r?.stato]);
+  if (!avanti.length) return null;
+  const perStato = {};
+  avanti.forEach(r => { perStato[r.stato] = (perStato[r.stato] || 0) + 1; });
+  const elenco = Object.entries(perStato).sort((a,b) => b[1]-a[1])
+    .map(([st, n]) => `   · ${n} ${STATI_GIA_AVANTI[st]}`).join("\n");
+  const chiuse = (perStato.esclusa || 0) + (perStato.nogo || 0);
+  return `⚠ ${avanti.length} di queste aziende sono GIÀ AVANTI:\n${elenco}\n\n` +
+    `Riclassificandole il settore si rifà da capo e lo STATO TORNA INDIETRO ` +
+    `(classificata, attesa revisione o sito mancante). Quelle che finiscono in «classificata» ` +
+    `fanno ripartire Phantom da sole.` +
+    (chiuse ? `\n\n${chiuse} ${chiuse===1?"è chiusa":"sono chiuse"} (esclusa/nogo): ${chiuse===1?"riclassificarla la riapre":"riclassificarle le riapre"}.` : "");
+};
+
 // ── IL RIQUADRO A FISARMONICA — 23/11/2026 ─────────────────────────────────
 //
 // Alberto: le informazioni nel riquadro «sono una sbrodolata». Era un elenco
@@ -5159,9 +5188,23 @@ function App() {
       // lascia l'azienda con l'indirizzo ancora in colonna, e al prossimo
       // giro di conversione email→contatti quel contatto RITORNA identico.
       // Per toglierlo davvero va svuotata anche `email_generica`.
+      //
+      // LE AZIENDE GESTITE DA HUBSPOT NON SI SEGNALANO — 26/11/2026. Il giro
+      // di rigenerazione degli icebreaker (25/11) rilegge il sito e, come il
+      // classificatore, salva l'email se il campo e' vuoto. Su DB TOSCANA,
+      // G.E. IMPIANTI e TECNIMP ha trovato un indirizzo: tutte e tre su HubSpot
+      // hanno gia' persone e una trattativa. Per la regola sopra tutte («se
+      // HubSpot ha gia' gente sua, Grizzly non ci va») quell'indirizzo NON deve
+      // diventare un contatto: e' un dato, non un lavoro a meta'. Il referto le
+      // segnalava con una frase («quei contatti ritornano») che li' non era
+      // vera — nessun contatto era mai esistito. Alberto: «non capisco cosa
+      // significa».
+      // `hs_contatti` > 0 con zero contatti nostri = gente di HubSpot. NULL vuol
+      // dire «non si sa», non «nessuno»: quelle restano segnalate.
+      const gestitaDaHubspot = (a) => a.hs_contatti !== null && a.hs_contatti !== undefined && Number(a.hs_contatti) > 0;
       const raccolteOrfane = (await sbTutte(url, h,
-        "companies?select=id,nome,email_generica,contacts(id)&email_generica=not.is.null"))
-        .filter(a => (a.email_generica||"").trim() && !(a.contacts||[]).length);
+        "companies?select=id,nome,email_generica,hs_contatti,contacts(id)&email_generica=not.is.null"))
+        .filter(a => (a.email_generica||"").trim() && !(a.contacts||[]).length && !gestitaDaHubspot(a));
       if (raccolteOrfane.length) {
         trovati++;
         pushAttenzioneGruppo(
@@ -5708,7 +5751,9 @@ function App() {
     const ids = [...importSelected];
     const base = (sbSettings["azure_agent_url"]||"").replace(/\/$/,"");
     if (!base) { showToast("⚠ URL Agente Azure non configurato"); return; }
-    if (!await customConfirm(`Riclassificare ${ids.length} aziend${ids.length===1?"a":"e"} selezionat${ids.length===1?"a":"e"}?`)) return;
+    const avviso = avvisoRiclassifica((importDati.rows || []).filter(r => importSelected.has(r.id)));
+    if (!await customConfirm(`Riclassificare ${ids.length} aziend${ids.length===1?"a":"e"} selezionat${ids.length===1?"a":"e"}?` +
+                             (avviso ? `\n\n${avviso}` : ""))) return;
     const {url:sbUrl, key:sbKey} = getSbCreds();
     if (!sbUrl || !sbKey) { showToast("⚠ Credenziali Supabase mancanti"); return; }
     // Reset settore → null così il classificatore le prende in carico
@@ -5746,7 +5791,7 @@ function App() {
       showToast(`✓ Classificatore avviato su ${ids.length} aziend${ids.length===1?"a":"e"}`);
       setImportSelected(new Set());
     } catch(e) { showToast("✕ Errore avvio classificatore: " + e.message); }
-  }, [importSelected, sbSettings, getSbCreds, customConfirm, pushLog, showToast]);
+  }, [importSelected, importDati, sbSettings, getSbCreds, customConfirm, pushLog, showToast]);
 
   const rilanciPhantomSelezionate = useCallback(async () => {
     if (importSelected.size === 0) { showToast("⚠ Nessuna azienda selezionata"); return; }
@@ -7192,7 +7237,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.12</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.14</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
