@@ -4809,6 +4809,49 @@ function App() {
     return [...domini].filter(d => d !== sito);
   };
 
+  // ── L'EMAIL «SOSPETTA» DI UNA PERSONA — 27/11/2026 ──────────────────────
+  //
+  // Il primo lotto dopo il #178: 19 indirizzi trovati, uno era
+  // `vgeorge@churchofjesuschrist.org` su Maverick Valves, e l'auto-invio l'ha
+  // mandato subito. Alberto: «mi piacerebbe che lo facessi in Grizzly».
+  //
+  // Sospetta = il dominio non somiglia NE' a nessuna parte del sito NE' al
+  // nome dell'azienda. Misurato quel giorno sulle 853 persone con email: 61
+  // segnalate, circa meta' davvero di un'altra ditta (jci.com su SABO FOAM,
+  // verallia, quirinale.it, woodplc, visjam…), il resto gruppi e secondi
+  // domini, che si archiviano col ✓. Il #228 (23/11) era stato scartato con
+  // una resa di un quarto: guardava solo il sito, non il nome.
+  //
+  // Le caselle personali (gmail, libero, tiscali…) NON sono sospette: il
+  // titolare di una piccola ditta usa spesso quelle. Restituisce il MOTIVO,
+  // oppure null — e null anche quando non c'e' niente con cui confrontare:
+  // assenza di prova non e' prova di assenza.
+  const CASELLE_PERSONALI = new Set(["gmail","googlemail","libero","tiscali","hotmail","outlook","live",
+    "yahoo","icloud","me","alice","virgilio","tin","fastwebnet","email","msn","aruba"]);
+  const prefissoComune = (a, b) => { let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++; return i; };
+  // Il verso conta. Un dominio CORTO dentro il nome e' una sigla
+  // (`tfs.it` per «TFS - TECNO FLUID SERVICE»); un nome corto dentro un
+  // dominio lungo no: «VIS» sta dentro `visjam.com`, che e' un'altra ditta.
+  // Per questo il nome/sito deve avere almeno 4 lettere per «stare dentro»
+  // il dominio, mentre al dominio ne bastano 3 per stare dentro il nome.
+  const somigliaEtichetta = (d, x) => !!d && !!x && (d === x ||
+    (x.length >= 4 && d.includes(x)) || (d.length >= 3 && x.includes(d)) ||
+    prefissoComune(d, x) >= 4);
+  const emailSospetta = (email, nomeAzienda, sito) => {
+    const dominio = String(email || "").split("@")[1]?.trim().toLowerCase();
+    if (!dominio) return null;
+    const d = etichettaDominio(dominio);
+    if (!d || CASELLE_PERSONALI.has(d)) return null;
+    // Tutte le parti del sito, non solo la prima: `esseffevea.ceam.it` e'
+    // del gruppo CEAM, e `mario@ceam.it` deve somigliargli.
+    const parti = String(sito || "").replace(/^https?:\/\//i, "").replace(/^www\./i, "")
+      .split(/[/?#]/)[0].split(".").slice(0, -1).map(etichettaDominio).filter(Boolean);
+    const n = nocciolo(nomeAzienda);
+    if (!parti.length && !n) return null;
+    if (parti.some(p => somigliaEtichetta(d, p)) || somigliaEtichetta(d, n)) return null;
+    return `email su «${dominio}», che non somiglia né al sito «${sito || "—"}» né al nome «${nomeAzienda || "—"}»`;
+  };
+
   const paginaDiscorde = (a) => {
     // Chi e' gia' stato guardato non si segnala piu'. Il 20/11 CRANE su
     // `/idrogru` e NEWTECNIK su `/giannettigroup` sono risultate corrette: il
@@ -5447,6 +5490,31 @@ function App() {
               azioni: [{etichetta:"✓", titoloTasto:"Domini guardati, va bene", tabella:"companies",
                         colonna:"domini_verificati_il", ids:[az?.id], fatto:`${az?.nome}: domini verificati`}]};
           }));
+      }
+
+      // 11 · persone non ancora inviate con un'email su un dominio estraneo
+      //
+      // La rete dietro al controllo all'invio (27/11): chi e' stato trattenuto
+      // resta qui finche' qualcuno non dice ✓ o ✕. Solo chi non e' partito:
+      // una mail gia' spedita non si richiama, e il referto mostra solo cose
+      // che si possono ancora fermare.
+      const conEmail = await sbTutte(url, h,
+        "contacts?tipo=eq.persona&email=not.is.null&email_verificata_il=is.null&stato=in.(trovato,enrichment_richiesto,email_trovata,email_non_trovata)&select=id,nome_completo,email,linkedin_url,companies(nome,sito_web)");
+      const emailStrane = conEmail
+        .map(c => ({c, motivo: emailSospetta(c.email, c.companies?.nome, c.companies?.sito_web)}))
+        .filter(x => x.motivo);
+      if (emailStrane.length) {
+        trovati++;
+        pushAttenzioneGruppo(
+          `📋 ${emailStrane.length} person${emailStrane.length===1?"a":"e"} non ancora inviat${emailStrane.length===1?"a":"e"} con l'email su un dominio che non somiglia all'azienda`,
+          emailStrane.slice(0, 10).map(({c}) => ({
+            msg: `   · ${c.nome_completo || "?"} — ${c.email} → ${c.companies?.nome || "?"} (${c.companies?.sito_web || "—"})`,
+            link: c.linkedin_url || null,
+            azioni: [
+              {etichetta:"✓", titoloTasto:"L'email va bene", colonna:"email_verificata_il", ids:[c.id], fatto:`${c.nome_completo}: email verificata`},
+              {etichetta:"✕ scarta", titoloTasto:"Non è di questa azienda: scartalo", colonna:"stato", valore:"scartato",
+               filtro:"&stato=neq.inviato", ids:[c.id], fatto:`${c.nome_completo} scartato`},
+            ]})));
       }
 
       // Il traffico verso Supabase si DICHIARA sempre, anche quando e' poco:
@@ -6303,6 +6371,7 @@ function App() {
     // resto del payload: serve al controllo «oltre lead», che sta piu' sotto
     // nel punto in cui tutte le strade d'invio si ricongiungono.
     let faseDi = new Map();
+    let verificataDi = new Map();
     if (Array.isArray(soloQuesti)) {
       contactIds = soloQuesti;
       pushLog("info", `⬡ Invio limitato ai ${contactIds.length} contatti appena lavorati`);
@@ -6429,7 +6498,8 @@ function App() {
       // punto in cui passano TUTTE le strade d'invio — selezione, auto-invio
       // e «manda tutti i pronti» — e perche' e' il dato fresco.
       const rows = await sbTutte(sbUrlF, {apikey:sbKeyF, Authorization:`Bearer ${sbBearer()}`},
-        `contacts?id=in.(${contactIds.join(",")})&select=id,nome_completo,ruolo,linkedin_url,email,companies(nome,sito_web,hubspot_id,hs_lifecyclestage)&order=id.asc`);
+        `contacts?id=in.(${contactIds.join(",")})&select=id,nome_completo,ruolo,linkedin_url,email,email_verificata_il,companies(nome,sito_web,hubspot_id,hs_lifecyclestage)&order=id.asc`);
+      verificataDi = new Map(rows.map(r => [r.id, !!r.email_verificata_il]));
       faseDi = new Map(rows.map(r => [r.id, (r.companies?.hs_lifecyclestage || "").trim()]));
       contactsPayload = rows.map(c => {
         const nameParts = (c.nome_completo||"").trim().split(/\s+/);
@@ -6469,6 +6539,51 @@ function App() {
     // tu». Ma su un invio da 1.541 non si sceglie QUELLI: si sceglie un
     // blocco dentro cui ci sono anche loro. E quando lo leggi nel log, la
     // mail e' gia' partita.
+    // ── EMAIL SOSPETTE: SI TRATTENGONO, SI DICE PERCHE' — 27/11/2026 ─────────
+    //
+    // Stesso posto e stessa ragione del controllo «oltre lead» qui sotto: da
+    // qui passano TUTTE le strade d'invio, auto-invio compreso. La risposta
+    // proposta per prima e' «tienili fuori»: la mail a una persona sbagliata
+    // non si richiama. Restano in «email trovata»; nel riquadro ogni riga ha
+    // ✓ (va bene: parte al prossimo invio) e ✕ scarta.
+    const sospette = contactsPayload
+      .filter(c => c.email && !verificataDi.get(c.id))
+      .map(c => ({c, motivo: emailSospetta(c.email, c.companyName, c.companySite)}))
+      .filter(x => x.motivo);
+    if (sospette.length) {
+      const esempi = sospette.slice(0, 6)
+        .map(({c}) => `· ${c.firstName} ${c.lastName} — ${c.email} → ${c.companyName || "?"} (${c.companySite || "—"})`).join("\n");
+      const altri = sospette.length > 6 ? `\n· …e altr${sospette.length-6===1?"o":"i"} ${sospette.length-6}` : "";
+      const scelta = await customConfirmScelte(
+        `${sospette.length} indirizz${sospette.length===1?"o è":"i sono"} su un dominio che non somiglia né al sito né al nome dell'azienda: potrebbe${sospette.length===1?"":"ro"} essere di un'altra ditta.\n\n${esempi}${altri}`,
+        [
+          {val:"annulla", label:"Annulla tutto",      stile:"neutro"},
+          {val:"manda",   label:"Mandali lo stesso",  stile:"rosso"},
+          {val:"fuori",   label:"Tienili fuori",      stile:"pieno"},
+        ]);
+      if (scelta === "annulla") { pushLog("warn", "⬡ Invio annullato"); return; }
+      if (scelta === "fuori") {
+        const fuori = new Set(sospette.map(x => x.c.id));
+        contactsPayload = contactsPayload.filter(c => !fuori.has(c.id));
+        pushAttenzioneGruppo(
+          `✋ ${sospette.length} contatt${sospette.length===1?"o trattenuto":"i trattenuti"}: email su un dominio che non somiglia all'azienda`,
+          sospette.slice(0, 20).map(({c}) => ({
+            msg: `   · ${c.firstName} ${c.lastName} — ${c.email} → ${c.companyName || "?"} (${c.companySite || "—"})`,
+            link: c.linkedinUrl || null,
+            azioni: [
+              {etichetta:"✓", titoloTasto:"L'email va bene: partirà al prossimo invio", colonna:"email_verificata_il",
+               ids:[c.id], fatto:`${c.firstName} ${c.lastName}: email verificata`},
+              {etichetta:"✕ scarta", titoloTasto:"Non è di questa azienda: scartalo", colonna:"stato", valore:"scartato",
+               filtro:"&stato=neq.inviato", ids:[c.id], fatto:`${c.firstName} ${c.lastName} scartato`},
+            ]})));
+        if (!contactsPayload.length) { pushLog("warn","⬡ Invio annullato: non resta nessun contatto"); return; }
+      } else {
+        pushAttenzioneGruppo(
+          `⚠ ${sospette.length} contatt${sospette.length===1?"o":"i"} con email su un dominio estraneo MANDATI a mano`,
+          sospette.slice(0, 10).map(({c}) => `   · ${c.firstName} ${c.lastName} — ${c.email} → ${c.companyName || "?"}`));
+      }
+    }
+
     const inTrattativa = contactsPayload.filter(c => {
       const f = faseDi.get(c.id) || "";
       return f && f !== "lead";      // in dubbio (fase vuota) NON si presume
@@ -7237,7 +7352,7 @@ function App() {
                 <path d="M3.5 27.5 Q7 25.2 11 24.2 Q16 23.2 20 23.8 Q23.5 24.2 27 26" stroke="#ff5540" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
               </svg>
             </div>
-            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.14</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.textHi,letterSpacing:"-0.01em"}}>Grizzly</span><span style={{fontSize:9,color:C.muted,marginLeft:4,fontFamily:"'JetBrains Mono',monospace"}}>v6.15</span>
           </div>
           <button className="tab-desktop" onClick={()=>setTab("run")} style={{background:"none",border:"none",cursor:"pointer",padding:"0 14px",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,color:tab==="run"?C.textHi:C.muted,borderBottom:tab==="run"?`2px solid ${C.accent}`:"2px solid transparent",marginBottom:-1,transition:"color 0.15s",flexShrink:0,whiteSpace:"nowrap"}}>
               <span style={{fontSize:11}}>◈</span>Pipeline
